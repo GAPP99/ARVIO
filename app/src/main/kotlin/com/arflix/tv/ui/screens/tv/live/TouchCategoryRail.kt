@@ -84,7 +84,10 @@ fun TouchCategoryRail(
             ) {
                 Icon(
                     imageVector = Icons.Filled.Search,
-                    contentDescription = stringResource(R.string.live_label_search_channels),
+                    // R.string.search findes i alle 52 sprogfiler;
+                    // live_label_search_channels kun i seks. Skærmlæseren skal
+                    // ikke falde tilbage til engelsk, bare fordi etiketten er væk.
+                    contentDescription = stringResource(R.string.search),
                     tint = LiveColors.FgDim,
                 )
             }
@@ -190,7 +193,11 @@ private fun rememberTouchRailItems(
         }
     }.distinctBy { it.id }.toMutableList()
 
-    val selected = tree.byId(selectedId)
+    // Den valgte kategori får altid en chip, så man kan se hvor man står — men
+    // ikke "Senest sete": den er filtreret væk ovenfor, og uden dette ville den
+    // komme tilbage forrest og fremhævet i det øjeblik man valgte den fra
+    // gruppesiden eller genoptog en session der stod på den.
+    val selected = tree.byId(selectedId)?.takeIf { it.id != "recent" }
     if (selected != null && tree.hidden.categories.none { it.id == selectedId } && base.none { it.id == selectedId }) {
         base.add(0, TouchCategoryRailItem(selected.id, liveCategoryLabel(selected.label), selected.count))
     }

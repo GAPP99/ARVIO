@@ -12,7 +12,7 @@ object LiveTvStartup {
 
     enum class LiveTvMode { GroupHome, Guide }
 
-    enum class GuideBackAction { OPEN_CATEGORIES, OPEN_GROUP_HOME, EXIT_TV }
+    enum class GuideBackAction { OPEN_CATEGORIES, EXIT_TV }
 
     /**
      * Which channel Live TV should open on.
@@ -111,6 +111,10 @@ object LiveTvStartup {
      * Guiden er startskærmen på alle formfaktorer. Telefonen havde
      * [LiveTvMode.GroupHome] foran sig, men karrusellen øverst i arket viser de
      * samme grupper, så landingssiden kostede et tryk uden at tilføje noget.
+     *
+     * Parametrene indgår ikke længere i svaret. De bliver stående, fordi det er
+     * her et formfaktor-afhængigt valg hører hjemme, hvis det skal tilbage —
+     * og fordi kaldestedet så ikke skal skrives om igen.
      */
     @Suppress("UNUSED_PARAMETER")
     fun initialMode(

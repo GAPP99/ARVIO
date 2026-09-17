@@ -559,10 +559,7 @@ fun LiveTvScreen(
     }
     var currentMode by rememberSaveable {
         mutableStateOf(
-            // Alle tre formfaktorer lander i guiden. Telefonen havde en
-            // landingsside foran, men grupperne ligger allerede i karrusellen
-            // øverst i arket, så siden var et ekstra tryk uden nyt indhold.
-            LiveTvStartup.LiveTvMode.Guide
+            LiveTvStartup.initialMode(isTouchDevice, initialChannelId, initialStreamUrl)
         )
     }
     var startupCategoryApplied by rememberSaveable { mutableStateOf(false) }
@@ -3396,10 +3393,6 @@ fun LiveTvScreen(
                 hasCollapsibleDrawer = !isTouchDevice,
             )
         ) {
-            LiveTvStartup.GuideBackAction.OPEN_GROUP_HOME -> {
-                sportsSelected = false
-                currentMode = LiveTvStartup.LiveTvMode.GroupHome
-            }
             LiveTvStartup.GuideBackAction.OPEN_CATEGORIES -> openCategoryDrawer()
             LiveTvStartup.GuideBackAction.EXIT_TV -> onBack()
         }
