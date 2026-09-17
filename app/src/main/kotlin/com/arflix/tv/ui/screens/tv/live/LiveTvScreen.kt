@@ -559,13 +559,10 @@ fun LiveTvScreen(
     }
     var currentMode by rememberSaveable {
         mutableStateOf(
-            // Landingssiden hører til telefonen. Tabletten har gruppekolonnen
-            // i venstre side og skal derfor starte direkte i guiden.
-            if (useTouchRail && initialChannelId == null && initialStreamUrl == null) {
-                LiveTvStartup.LiveTvMode.GroupHome
-            } else {
-                LiveTvStartup.LiveTvMode.Guide
-            }
+            // Alle tre formfaktorer lander i guiden. Telefonen havde en
+            // landingsside foran, men grupperne ligger allerede i karrusellen
+            // øverst i arket, så siden var et ekstra tryk uden nyt indhold.
+            LiveTvStartup.LiveTvMode.Guide
         )
     }
     var startupCategoryApplied by rememberSaveable { mutableStateOf(false) }

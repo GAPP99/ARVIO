@@ -14,13 +14,15 @@ class LiveTvGroupHomeTest {
             .enrichForFastStartup(1)
 
     @Test
-    fun defaultOpeningStateIsGroupHomeOnMobile() {
+    fun alleFormfaktorerAabnerIGuiden() {
+        // Telefonen landede før på gruppesiden. Grupperne ligger i karrusellen
+        // øverst i arket, så siden var et ekstra tryk uden nyt indhold.
         val mobileMode = LiveTvStartup.initialMode(
             isTouchDevice = true,
             initialChannelId = null,
             initialStreamUrl = null,
         )
-        assertThat(mobileMode).isEqualTo(LiveTvStartup.LiveTvMode.GroupHome)
+        assertThat(mobileMode).isEqualTo(LiveTvStartup.LiveTvMode.Guide)
 
         val directChannelMode = LiveTvStartup.initialMode(
             isTouchDevice = true,
@@ -92,13 +94,15 @@ class LiveTvGroupHomeTest {
     }
 
     @Test
-    fun guideBackReturnsToGroupHomeOnMobile() {
+    fun tilbageFraGuidenForladerTvPaaTelefon() {
+        // Der er ingen gruppeside at gå tilbage til længere, så Back forlader TV
+        // med det samme — som på tablet.
         val action = LiveTvStartup.guideBackAction(
             isTouchDevice = true,
             categoryDrawerOpen = false,
             mode = LiveTvStartup.LiveTvMode.Guide,
         )
-        assertThat(action).isEqualTo(LiveTvStartup.GuideBackAction.OPEN_GROUP_HOME)
+        assertThat(action).isEqualTo(LiveTvStartup.GuideBackAction.EXIT_TV)
     }
 
     @Test
@@ -165,7 +169,7 @@ class LiveTvGroupHomeTest {
             mode = LiveTvStartup.LiveTvMode.Guide,
         )
         assertThat(touchActionInGuide).isNotEqualTo(LiveTvStartup.GuideBackAction.OPEN_CATEGORIES)
-        assertThat(touchActionInGuide).isEqualTo(LiveTvStartup.GuideBackAction.OPEN_GROUP_HOME)
+        assertThat(touchActionInGuide).isEqualTo(LiveTvStartup.GuideBackAction.EXIT_TV)
 
         val touchActionInHome = LiveTvStartup.guideBackAction(
             isTouchDevice = true,

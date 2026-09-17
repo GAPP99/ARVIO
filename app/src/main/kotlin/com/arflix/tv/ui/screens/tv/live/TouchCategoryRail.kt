@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -69,25 +70,22 @@ fun TouchCategoryRail(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
     ) {
+        // Søgning er et kvadratisk ikon uden tekst. Med etiketten fyldte den en
+        // tredjedel af karrusellen og skubbede grupperne ud over kanten; lupen
+        // siger det samme på en femtedel af pladsen.
         item(key = "search") {
-            Row(
+            Box(
                 modifier = Modifier
-                    .height(38.dp)
+                    .size(38.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(LiveColors.PanelRaised)
-                    .clickable(onClick = onOpenSearch)
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .clickable(onClick = onOpenSearch),
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Filled.Search,
-                    contentDescription = stringResource(R.string.search),
+                    contentDescription = stringResource(R.string.live_label_search_channels),
                     tint = LiveColors.FgDim,
-                )
-                Text(
-                    text = stringResource(R.string.live_label_search_channels),
-                    style = LiveType.CatLabel.copy(color = LiveColors.Fg),
                 )
             }
         }
@@ -162,7 +160,13 @@ private fun rememberTouchRailItems(
     expandedPlaylistIds: List<String>,
 ): List<TouchCategoryRailItem> {
     val base = buildList {
-        tree.top.filter { it.id != "fav" || it.count > 0 }.forEach { add(TouchCategoryRailItem(it.id, liveCategoryLabel(it.label), it.count)) }
+        // "Senest sete" har ingen chip, præcis som den ikke har en række i
+        // gruppelisten på TV. Funktionen består — den driver stadig zap-
+        // rækkefølgen — den fylder bare ikke en plads i karrusellen.
+        tree.top
+            .filterNot { it.id == "recent" }
+            .filter { it.id != "fav" || it.count > 0 }
+            .forEach { add(TouchCategoryRailItem(it.id, liveCategoryLabel(it.label), it.count)) }
         if (playlistSections.isEmpty()) {
             tree.global.categories.forEach { add(TouchCategoryRailItem(it.id, liveCategoryLabel(it.label), it.count)) }
             tree.countries.categories.forEach { add(TouchCategoryRailItem(it.id, liveCategoryLabel(it.label), it.count)) }

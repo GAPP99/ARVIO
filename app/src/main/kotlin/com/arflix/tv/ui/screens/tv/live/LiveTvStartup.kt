@@ -101,21 +101,23 @@ object LiveTvStartup {
         mode: LiveTvMode = LiveTvMode.Guide,
         hasCollapsibleDrawer: Boolean = true,
     ): GuideBackAction = when {
-        isTouchDevice && mode == LiveTvMode.Guide -> GuideBackAction.OPEN_GROUP_HOME
+        mode == LiveTvMode.GroupHome -> GuideBackAction.EXIT_TV
         isTouchDevice -> GuideBackAction.EXIT_TV
         hasCollapsibleDrawer && !categoryDrawerOpen -> GuideBackAction.OPEN_CATEGORIES
         else -> GuideBackAction.EXIT_TV
     }
 
+    /**
+     * Guiden er startskærmen på alle formfaktorer. Telefonen havde
+     * [LiveTvMode.GroupHome] foran sig, men karrusellen øverst i arket viser de
+     * samme grupper, så landingssiden kostede et tryk uden at tilføje noget.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun initialMode(
         isTouchDevice: Boolean,
         initialChannelId: String?,
         initialStreamUrl: String?,
-    ): LiveTvMode = if (isTouchDevice && initialChannelId == null && initialStreamUrl == null) {
-        LiveTvMode.GroupHome
-    } else {
-        LiveTvMode.Guide
-    }
+    ): LiveTvMode = LiveTvMode.Guide
 
     sealed interface QuickAccessDestination {
         data class Category(val categoryId: String) : QuickAccessDestination
