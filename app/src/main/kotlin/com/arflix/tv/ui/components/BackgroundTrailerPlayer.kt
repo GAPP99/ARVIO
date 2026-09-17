@@ -1,8 +1,6 @@
 package com.arflix.tv.ui.components
 
-import android.view.View
 import android.view.ViewGroup
-import android.webkit.WebView
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -17,8 +15,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -30,53 +26,12 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFram
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import kotlinx.coroutines.delay
 
-private fun findWebView(view: View): WebView? {
-    if (view is WebView) return view
-    if (view is ViewGroup) {
-        for (i in 0 until view.childCount) {
-            val found = findWebView(view.getChildAt(i))
-            if (found != null) return found
-        }
-    }
-    return null
-}
-
-private fun disableCaptionsAndOverlays(view: View) {
-    findWebView(view)?.let { webView ->
-        val js = """
-            (function() {
-                try {
-                    if (typeof player !== 'undefined') {
-                        if (typeof player.unloadModule === 'function') {
-                            player.unloadModule('captions');
-                            player.unloadModule('cc');
-                        }
-                        if (typeof player.setOption === 'function') {
-                            player.setOption('captions', 'track', {});
-                            player.setOption('cc', 'track', {});
-                        }
-                    }
-                    var css = '.ytp-chrome-top, .ytp-chrome-bottom, .ytp-watermark, .ytp-youtube-button, .ytp-pause-overlay, .ytp-ce-element, .ytp-subtitles-player-content, .caption-window, .ytp-caption-window-bottom, .ytp-spinner { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
-                    var head = document.head || document.getElementsByTagName('head')[0];
-                    if (head) {
-                        var style = document.createElement('style');
-                        style.type = 'text/css';
-                        style.appendChild(document.createTextNode(css));
-                        head.appendChild(style);
-                    }
-                } catch(e) {}
-            })();
-        """.trimIndent()
-        webView.evaluateJavascript(js, null)
-    }
-}
-
 /**
  * Clean background YouTube trailer player for the Home screen hero backdrop.
  *
  * Key features for TV:
  * - Completely unfocusable (FOCUS_BLOCK_DESCENDANTS) so TV remote D-pad navigation never gets trapped.
- * - controls(0): pure video playback with NO time bar, play/pause buttons, or web overlays.
+ * - controls(0): official player parameter, so YouTube itself draws no time bar or buttons.
  * - Delayed start: waits [delayMs] so fast scrolling past items does not trigger unnecessary video loads.
  * - Smooth fade-in: stays transparent while buffering and fades in once PLAYING, preventing black flashes over backdrop art.
  * - Lifecycle-aware: pauses and releases properly.
@@ -89,7 +44,6 @@ fun BackgroundTrailerPlayer(
     soundEnabled: Boolean = false,
     onPlayingChanged: (Boolean) -> Unit = {}
 ) {
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var shouldLoad by remember(youtubeKey) { mutableStateOf(false) }
@@ -162,7 +116,6 @@ fun BackgroundTrailerPlayer(
                                     } else {
                                         youTubePlayer.unMute()
                                     }
-                                    disableCaptionsAndOverlays(this@apply)
                                     youTubePlayer.loadVideo(youtubeKey, 0f)
                                 }
 
@@ -172,7 +125,6 @@ fun BackgroundTrailerPlayer(
                                 ) {
                                     when (state) {
                                         PlayerConstants.PlayerState.PLAYING -> {
-                                            disableCaptionsAndOverlays(this@apply)
                                             isPlaying = true
                                             onPlayingChanged(true)
                                         }

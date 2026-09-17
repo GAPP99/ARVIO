@@ -3,9 +3,7 @@ package com.arflix.tv.ui.components
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
-import android.view.View
 import android.view.ViewGroup
-import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -85,47 +83,6 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFram
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import kotlinx.coroutines.delay
 
-private fun findWebView(view: View): WebView? {
-    if (view is WebView) return view
-    if (view is ViewGroup) {
-        for (i in 0 until view.childCount) {
-            val found = findWebView(view.getChildAt(i))
-            if (found != null) return found
-        }
-    }
-    return null
-}
-
-private fun disableCaptionsAndOverlays(view: View) {
-    findWebView(view)?.let { webView ->
-        val js = """
-            (function() {
-                try {
-                    if (typeof player !== 'undefined') {
-                        if (typeof player.unloadModule === 'function') {
-                            player.unloadModule('captions');
-                            player.unloadModule('cc');
-                        }
-                        if (typeof player.setOption === 'function') {
-                            player.setOption('captions', 'track', {});
-                            player.setOption('cc', 'track', {});
-                        }
-                    }
-                    var css = '.ytp-chrome-top, .ytp-chrome-bottom, .ytp-watermark, .ytp-youtube-button, .ytp-pause-overlay, .ytp-pause-overlay-container, .ytp-ce-element, .ytp-ce-covering-overlay, .ytp-ce-expanding-overlay, .ytp-subtitles-player-content, .caption-window, .ytp-caption-window-bottom, .ytp-spinner, .ytp-gradient-top, .ytp-gradient-bottom, .ytp-impression-link, .ytp-title, .ytp-title-channel, .ytp-share-button, .ytp-share-panel, .ytp-menuitem, .ytp-contextmenu { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }';
-                    var head = document.head || document.getElementsByTagName('head')[0];
-                    if (head) {
-                        var style = document.createElement('style');
-                        style.type = 'text/css';
-                        style.appendChild(document.createTextNode(css));
-                        head.appendChild(style);
-                    }
-                } catch(e) {}
-            })();
-        """.trimIndent()
-        webView.evaluateJavascript(js, null)
-    }
-}
-
 private fun formatTime(seconds: Float): String {
     val totalSec = seconds.toInt().coerceAtLeast(0)
     val minutes = totalSec / 60
@@ -148,7 +105,7 @@ private data class TransientIndicator(
  * Clean cinema-grade YouTube trailer modal for TV and Mobile.
  *
  * Highlights:
- * - Pure video canvas: strips YouTube's web title bar, share button, central pause overlay, and watermarks.
+ * - Pure video canvas: nothing of ours is drawn on top of the player.
  * - TV remote controls:
  *   - [DPAD_CENTER] / [ENTER]: Play / Pause toggle
  *   - [DPAD_LEFT] / [MediaRewind]: Seek backward 10s
@@ -177,7 +134,6 @@ fun YouTubeTrailerModal(
     var isExtFocused by remember { mutableStateOf(false) }
 
     var activePlayer by remember(youtubeKey) { mutableStateOf<YouTubePlayer?>(null) }
-    var playerViewRef by remember { mutableStateOf<YouTubePlayerView?>(null) }
     var playbackError by remember(youtubeKey) { mutableStateOf(false) }
 
     var isPlaying by remember { mutableStateOf(false) }
@@ -197,18 +153,6 @@ fun YouTubeTrailerModal(
     LaunchedEffect(Unit) {
         delay(150)
         runCatching { playerFocusRequester.requestFocus() }
-    }
-
-    // Periodic check to strip late-injected YouTube web UI
-    LaunchedEffect(activePlayer) {
-        if (activePlayer != null) {
-            delay(500)
-            playerViewRef?.let { disableCaptionsAndOverlays(it) }
-            delay(1200)
-            playerViewRef?.let { disableCaptionsAndOverlays(it) }
-            delay(2500)
-            playerViewRef?.let { disableCaptionsAndOverlays(it) }
-        }
     }
 
     // Auto-hide HUD after 3.5s when playing and no buttons are focused
@@ -389,9 +333,10 @@ fun YouTubeTrailerModal(
                                 setOnTouchListener { _, _ -> true }
 
                                 val iFrameOptions = IFramePlayerOptions.Builder(ctx)
-                                    .controls(0) // Completely disable YouTube web controls
+                                    .controls(0) // Official parameter: YouTube draws no controls
                                     .rel(0)
                                     .ivLoadPolicy(3)
+                                    .ccLoadPolicy(0) // Official way to default captions off
                                     .fullscreen(0)
                                     .build()
 
@@ -401,7 +346,6 @@ fun YouTubeTrailerModal(
                                             activePlayer = youTubePlayer
                                             youTubePlayer.unMute()
                                             youTubePlayer.loadVideo(youtubeKey, 0f)
-                                            disableCaptionsAndOverlays(this@apply)
                                         }
 
                                         override fun onStateChange(
@@ -411,7 +355,6 @@ fun YouTubeTrailerModal(
                                             when (state) {
                                                 PlayerConstants.PlayerState.PLAYING -> {
                                                     isPlaying = true
-                                                    disableCaptionsAndOverlays(this@apply)
                                                 }
                                                 PlayerConstants.PlayerState.PAUSED -> {
                                                     isPlaying = false
@@ -450,14 +393,10 @@ fun YouTubeTrailerModal(
                                 )
                             }
                         },
-                        update = { playerView ->
-                            playerViewRef = playerView
-                        },
                         modifier = Modifier.fillMaxSize(),
                         onRelease = { playerView ->
                             playerView.release()
                             activePlayer = null
-                            playerViewRef = null
                         }
                     )
                 } else {
