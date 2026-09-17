@@ -67,12 +67,45 @@ import androidx.compose.animation.core.tween
 
 internal const val SPORTS_GUIDE_CATEGORY = "sports-hub"
 
-internal fun LiveCategoryTree.withSportsDestination(): LiveCategoryTree = copy(
-    top = top.filterNot { it.id == SPORTS_GUIDE_CATEGORY }.flatMap { category ->
-        if (category.id == "all") listOf(category, LiveCategory(SPORTS_GUIDE_CATEGORY, "Sports", 0, CategoryIcon.Sport))
-        else listOf(category)
-    },
-)
+/** Genrefilteret "Sports · Global" — kanallisten, som kampguiden lægger sig foran. */
+internal const val SPORTS_CHANNEL_CATEGORY = "g-sports"
+
+/**
+ * Lægger kampguiden ind i gruppelisten som en selvstændig række ved siden af
+ * genrefilteret `g-sports`.
+ *
+ * De to hører sammen, men gør ikke det samme: **"Sports"** åbner [SportsGuidePane]
+ * med kampprogrammet, mens **"Sports · Global"** er den almindelige kanalliste.
+ * Kun kanallisten har en tælling — tallet er det der skiller dem ad på et blik.
+ *
+ * [inAccordion] følger gruppelistens form. TV og tablet har en foldbar liste, hvor
+ * begge rækker hører hjemme inde under "Alle kanaler"; findes `g-sports` ikke —
+ * playlisten har ingen sportskanaler — tilføjes ingenting, for kampguiden ville
+ * alligevel stå tom. Telefonens karrusel er flad og viser kun `top`, så dér lægges
+ * kampguiden lige efter "Alle kanaler"; ellers kunne man slet ikke nå den.
+ */
+internal fun LiveCategoryTree.withSportsDestination(inAccordion: Boolean = true): LiveCategoryTree {
+    val guide = LiveCategory(SPORTS_GUIDE_CATEGORY, "Sports", 0, CategoryIcon.Sport)
+    val udenGuide = top.filterNot { it.id == SPORTS_GUIDE_CATEGORY }
+    if (!inAccordion) {
+        return copy(
+            top = udenGuide.flatMap { if (it.id == "all") listOf(it, guide) else listOf(it) },
+        )
+    }
+    return copy(
+        top = udenGuide.map { category ->
+            if (category.id != "all") category
+            else category.copy(
+                children = category.children
+                    .filterNot { it.id == SPORTS_GUIDE_CATEGORY }
+                    .flatMap { child ->
+                        if (child.id != SPORTS_CHANNEL_CATEGORY) listOf(child)
+                        else listOf(guide, child)
+                    },
+            )
+        },
+    )
+}
 
 @Composable
 internal fun SportsGuidePane(
@@ -92,6 +125,7 @@ internal fun SportsGuidePane(
     showHeader: Boolean = true,
     onOpenSearch: (() -> Unit)? = null,
 ) {
+    val accentColor = liveAccent()
     // Only a schedule refresh consumes this order. Focus alone must not rebuild
     // every catalogue and invalidate all visible lazy rows.
     val focusedOrder = remember { arrayOfNulls<Pair<String, List<String>>>(1) }
@@ -278,7 +312,7 @@ internal fun SportsGuidePane(
         if (rows.isEmpty()) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                if (loading) CircularProgressIndicator(color = LiveColors.Accent, modifier = Modifier.size(24.dp))
+                if (loading) CircularProgressIndicator(color = accentColor, modifier = Modifier.size(24.dp))
                 else Icon(Icons.Default.SportsSoccer, null, tint = LiveColors.FgDim, modifier = Modifier.size(32.dp))
                 Text(if (loading) "Reading sports schedule" else if (failed) "Schedule unavailable"
                     else if (events.any { it.hasChannels(now) && (it.isOnAir(now) || it.programme.startUtcMillis > now) }) "Event artwork unavailable"
