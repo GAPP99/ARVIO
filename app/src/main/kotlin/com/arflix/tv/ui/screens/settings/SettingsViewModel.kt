@@ -249,6 +249,9 @@ data class SettingsUiState(
     val vodSearchEnabled: Boolean = true,
     val epgVodActionsEnabled: Boolean = true,
     val fallbackChannelLogosEnabled: Boolean = false,
+    val guideNewDesign: Boolean = true,
+    val guideRowCount: Int = 8,
+    val guideAllProviders: Boolean = true,
     // App updates
     val isSelfUpdateSupported: Boolean = true,
     val updateStatus: com.arflix.tv.updater.UpdateStatus = com.arflix.tv.updater.UpdateStatus.Idle,
@@ -378,6 +381,9 @@ class SettingsViewModel @Inject constructor(
     // a handful of discrete dB values. Parsed back to Int on read.
     private fun volumeBoostDbKey() = profileManager.profileStringKey("volume_boost_db")
     private fun showLoadingStatsKey() = profileManager.profileBooleanKey("show_loading_stats")
+    private fun guideDesignNewKey() = profileManager.profileBooleanKey("guide_design_new")
+    private fun guideRowCountKey() = profileManager.profileIntKey("guide_row_count")
+    private fun guideAllProvidersKey() = profileManager.profileBooleanKey("guide_all_providers")
 
     private fun subtitleSizeKey() = profileManager.profileStringKey("subtitle_size")
     private fun subtitleColorKey() = profileManager.profileStringKey("subtitle_color")
@@ -597,6 +603,9 @@ class SettingsViewModel @Inject constructor(
             val smoothScrolling = prefs[smoothScrollingKey()] ?: true
             val vodSearchEnabled = prefs[IPTV_VOD_SEARCH_ENABLED_KEY] ?: true
             val epgVodActionsEnabled = prefs[IPTV_EPG_VOD_ACTIONS_ENABLED_KEY] ?: true
+            val guideNewDesign = prefs[guideDesignNewKey()] ?: true
+            val guideRowCount = (prefs[guideRowCountKey()] ?: 8).coerceIn(6, 10)
+            val guideAllProviders = prefs[guideAllProvidersKey()] ?: true
 
             val subtitleSize = prefs[subtitleSizeKey()] ?: "Medium"
             val subtitleColor = prefs[subtitleColorKey()] ?: "White"
@@ -745,6 +754,9 @@ class SettingsViewModel @Inject constructor(
                 vodSearchEnabled = vodSearchEnabled,
                 epgVodActionsEnabled = epgVodActionsEnabled,
                 fallbackChannelLogosEnabled = prefs[IPTV_FALLBACK_LOGOS_ENABLED_KEY] ?: false,
+                guideNewDesign = guideNewDesign,
+                guideRowCount = guideRowCount,
+                guideAllProviders = guideAllProviders,
             )
 
             refreshIntegrationUsernames(loadProfileId, isTrakt, isMdbList, isSimkl)
@@ -1599,6 +1611,23 @@ class SettingsViewModel @Inject constructor(
 
     fun setTrailerAutoPlay(enabled: Boolean) {
         viewModelScope.launch { context.settingsDataStore.edit { it[trailerAutoPlayKey()] = enabled }; _uiState.value = _uiState.value.copy(trailerAutoPlay = enabled); syncLocalStateToCloud(silent = true) }
+    }
+
+    fun setGuideNewDesign(enabled: Boolean) {
+        viewModelScope.launch { context.settingsDataStore.edit { it[guideDesignNewKey()] = enabled }; _uiState.value = _uiState.value.copy(guideNewDesign = enabled); syncLocalStateToCloud(silent = true) }
+    }
+
+    fun cycleGuideRowCount() {
+        val next = ((_uiState.value.guideRowCount - 6 + 1) % 5) + 6
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[guideRowCountKey()] = next }
+            _uiState.value = _uiState.value.copy(guideRowCount = next)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun setGuideAllProviders(enabled: Boolean) {
+        viewModelScope.launch { context.settingsDataStore.edit { it[guideAllProvidersKey()] = enabled }; _uiState.value = _uiState.value.copy(guideAllProviders = enabled); syncLocalStateToCloud(silent = true) }
     }
 
     fun setTrailerSoundEnabled(enabled: Boolean) {

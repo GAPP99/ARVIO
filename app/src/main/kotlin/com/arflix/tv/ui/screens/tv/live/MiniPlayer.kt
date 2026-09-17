@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,10 +29,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitScreen
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.List
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
@@ -49,7 +52,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.LayoutDirection
@@ -90,6 +98,8 @@ internal fun landscapePhoneMiniPlayerSpec(): LandscapePhoneMiniPlayerSpec =
         showNextProgramme = false,
     )
 
+private val VideoPanelVerticalPaddingDp = 16
+
 internal fun liveTvMiniPlayerLayout(
     isTouchDevice: Boolean,
     smallestScreenWidthDp: Int,
@@ -122,6 +132,7 @@ fun MiniPlayerRow(
     onVideoBoundsPositioned: ((Rect) -> Unit)? = null,
     modifier: Modifier = Modifier,
     focusedProgrammeProvider: (() -> Pair<EnrichedChannel, IptvProgram>?)? = null,
+    newDesign: Boolean = true,
 ) {
     val drawerTranslation = LocalLiveDrawerTranslation.current
     // Read rapidly changing programme focus here, not in the surrounding guide.
@@ -188,31 +199,66 @@ fun MiniPlayerRow(
             )
         }
     } else {
-        Row(
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(start = 18.dp, end = 14.dp, top = 1.dp, bottom = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            GuideProgrammeSummary(displayedProgramme?.first ?: channel,
-                displayedProgramme?.second ?: nowNext?.now,
-                Modifier.weight(1f).height(LiveDims.MiniPlayerHeight))
-            VideoCard(
-                exoPlayer = exoPlayer,
-                channel = channel,
-                playerActive = playerActive,
-                onFullscreenClick = onFullscreenClick,
-                onVideoBoundsPositioned = onVideoBoundsPositioned,
-                modifier = Modifier.graphicsLayer { translationX = drawerDirection * drawerTranslation() },
-            )
+        if (newDesign) {
+            val videoHeightDp = LiveGuideDensity.infoPanelHeightDp(topBarVisible = true) - 2 * VideoPanelVerticalPaddingDp
+            val videoWidthDp = videoHeightDp * 16 / 9
+            Row(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 24.dp,
+                        end = 28.dp,
+                        top = VideoPanelVerticalPaddingDp.dp,
+                        bottom = VideoPanelVerticalPaddingDp.dp,
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                VideoCard(
+                    exoPlayer = exoPlayer,
+                    channel = channel,
+                    playerActive = playerActive,
+                    onFullscreenClick = onFullscreenClick,
+                    onVideoBoundsPositioned = onVideoBoundsPositioned,
+                    videoSize = DpSize(videoWidthDp.dp, videoHeightDp.dp),
+                    cornerRadius = 6.dp,
+                    modifier = Modifier.graphicsLayer { translationX = drawerDirection * drawerTranslation() },
+                )
+                GuideProgrammeSummary(
+                    channel = displayedProgramme?.first ?: channel,
+                    programme = displayedProgramme?.second ?: nowNext?.now,
+                    clockTickMillis = clockTickMillis,
+                    isFavorite = (displayedProgramme?.first ?: channel)?.id?.let { it in favoriteSet } == true,
+                    modifier = Modifier.weight(1f).height(videoHeightDp.dp),
+                )
+            }
+        } else {
+            Row(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(start = 18.dp, end = 14.dp, top = 1.dp, bottom = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                LegacyGuideProgrammeSummary(displayedProgramme?.first ?: channel,
+                    displayedProgramme?.second ?: nowNext?.now,
+                    Modifier.weight(1f).height(LiveDims.MiniPlayerHeight))
+                VideoCard(
+                    exoPlayer = exoPlayer,
+                    channel = channel,
+                    playerActive = playerActive,
+                    onFullscreenClick = onFullscreenClick,
+                    onVideoBoundsPositioned = onVideoBoundsPositioned,
+                    modifier = Modifier.graphicsLayer { translationX = drawerDirection * drawerTranslation() },
+                )
+            }
         }
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun GuideProgrammeSummary(
+private fun LegacyGuideProgrammeSummary(
     channel: EnrichedChannel?, programme: IptvProgram?, modifier: Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -242,6 +288,158 @@ private fun GuideProgrammeSummary(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
+private fun GuideProgrammeSummary(
+    channel: EnrichedChannel?,
+    programme: IptvProgram?,
+    clockTickMillis: Long,
+    isFavorite: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val accentColor = liveAccent()
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                text = programme?.title ?: channel?.name ?: stringResource(R.string.live_empty_no_programme),
+                color = LiveColors.Fg,
+                fontSize = 22.sp,
+                lineHeight = 27.sp,
+                fontWeight = FontWeight.W600,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                val groupName = channel?.source?.group?.trim()?.takeIf { it.isNotEmpty() }
+                if (groupName != null) {
+                    Text(
+                        text = buildAnnotatedString {
+                            append(groupName)
+                            channel.quality.takeIf { it != Quality.UNKNOWN }?.let { quality ->
+                                withStyle(
+                                    SpanStyle(
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.W600,
+                                        baselineShift = BaselineShift.Superscript,
+                                    ),
+                                ) { append(" ${quality.label}") }
+                            }
+                        },
+                        color = LiveColors.FgMute,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (isFavorite) {
+                    Icon(
+                        imageVector = Icons.Filled.Star,
+                        contentDescription = null,
+                        tint = LiveColors.FgMute,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
+            }
+        }
+        if (programme == null) {
+            // Uden programdata stod hele feltet under titlen tomt. Kanalens egne
+            // oplysninger er stadig bedre end en sort boks, og siger samtidig
+            // hvorfor der ikke er mere at vise.
+            Text(
+                text = listOfNotNull(
+                    channel?.genre?.name?.let(::formatGenreName),
+                    channel?.quality?.takeIf { it != Quality.UNKNOWN }?.label,
+                    stringResource(R.string.live_empty_no_programme),
+                ).joinToString("  ·  "),
+                color = LiveColors.FgMute,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (programme != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = formatTimeWindow(programme),
+                    color = LiveColors.FgDim,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Box(
+                    modifier = Modifier
+                        .width(64.dp)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.14f)),
+                ) {
+                    progressOf(programme.takeIf { clockTickMillis >= 0L })?.let { progress ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress)
+                                .fillMaxHeight()
+                                .background(accentColor),
+                        )
+                    }
+                }
+                val remaining = remainingLabel(programme.takeIf { clockTickMillis >= 0L })
+                if (remaining.isNotBlank()) {
+                    Text(
+                        text = remaining,
+                        color = LiveColors.FgDim,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                // Genre/kategori og varighed hører til her i headeren — bevidst
+                // ikke i programcellerne, hvor de før gentog det samme tre gange
+                // pr. skærmbillede.
+                val details = listOfNotNull(
+                    programme.category?.trim()?.takeIf { it.isNotEmpty() },
+                    channel?.genre?.name?.let(::formatGenreName)
+                        ?.takeIf { programme.category.isNullOrBlank() },
+                    ((programme.endUtcMillis - programme.startUtcMillis) / 60_000L)
+                        .takeIf { it > 0 }
+                        ?.let { stringResource(R.string.live_label_duration_min, it) },
+                )
+                if (details.isNotEmpty()) {
+                    Text(
+                        text = details.joinToString("  ·  "),
+                        color = LiveColors.FgMute,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        Text(
+            text = programme?.description.orEmpty(),
+            color = LiveColors.FgDim,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
 private fun VideoCard(
     exoPlayer: ExoPlayer,
     channel: EnrichedChannel?,
@@ -250,6 +448,8 @@ private fun VideoCard(
     playerActive: Boolean = true,
     onFullscreenClick: (() -> Unit)? = null,
     onVideoBoundsPositioned: ((Rect) -> Unit)? = null,
+    videoSize: DpSize? = null,
+    cornerRadius: Dp = LiveDims.VideoRadius,
     modifier: Modifier = Modifier,
 ) {
     val deviceType = LocalDeviceType.current
@@ -271,6 +471,7 @@ private fun VideoCard(
                         landscapeSpec.videoWidthDp.dp,
                         landscapeSpec.videoHeightDp.dp,
                     )
+                    videoSize != null -> Modifier.size(videoSize)
                     else -> Modifier.size(LiveDims.MiniPlayerWidth, LiveDims.MiniPlayerHeight)
                 }
             )
@@ -286,7 +487,7 @@ private fun VideoCard(
             .clickable(enabled = isTouchDevice && onFullscreenClick != null) {
                 onFullscreenClick?.invoke()
             }
-            .clip(RoundedCornerShape(LiveDims.VideoRadius))
+            .clip(RoundedCornerShape(cornerRadius))
             .background(LiveColors.PanelDeep),
     ) {
         // Fallback brand gradient while video is loading or channel is null.
@@ -500,6 +701,7 @@ private fun ChannelIdentityRow(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun SourceBadge(count: Int, onOpenVariants: (() -> Unit)?) {
+    val accentColor = liveAccent()
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
@@ -507,7 +709,7 @@ private fun SourceBadge(count: Int, onOpenVariants: (() -> Unit)?) {
             .then(if (onOpenVariants != null) Modifier.clickable { onOpenVariants() } else Modifier)
             .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
-        Text(stringResource(R.string.live_label_sources, count), style = LiveType.Badge.copy(color = LiveColors.Accent))
+        Text(stringResource(R.string.live_label_sources, count), style = LiveType.Badge.copy(color = accentColor))
     }
 }
 
@@ -546,6 +748,7 @@ private fun NowCard(
     nowNext: IptvNowNext?,
     landscapeCompact: Boolean = false,
 ) {
+    val accentColor = liveAccent()
     val now = nowNext?.now
     val landscapeSpec = if (landscapeCompact) landscapePhoneMiniPlayerSpec() else null
     Column(
@@ -561,7 +764,7 @@ private fun NowCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(stringResource(R.string.live_badge_now), style = LiveType.SectionTag.copy(color = LiveColors.Accent))
+            Text(stringResource(R.string.live_badge_now), style = LiveType.SectionTag.copy(color = accentColor))
             Text(
                 text = formatTimeWindow(now),
                 style = LiveType.TimeMono.copy(color = LiveColors.Fg),
@@ -571,7 +774,7 @@ private fun NowCard(
             if (remaining.isNotBlank()) {
                 Text(
                     text = remaining,
-                    style = LiveType.TimeMono.copy(color = LiveColors.Accent),
+                    style = LiveType.TimeMono.copy(color = accentColor),
                 )
             }
         }
@@ -595,7 +798,7 @@ private fun NowCard(
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
-                color = LiveColors.Accent,
+                color = accentColor,
                 trackColor = LiveColors.Panel,
             )
         }

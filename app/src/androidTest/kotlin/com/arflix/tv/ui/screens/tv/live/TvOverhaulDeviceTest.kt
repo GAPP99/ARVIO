@@ -111,11 +111,14 @@ class TvOverhaulDeviceTest {
                 }
             }
             screenshot("01-guide-open")
-            compose.onNodeWithText("Recently Watched").assertIsDisplayed()
+            // "Senest sete" har ikke længere en række i gruppelisten, så
+            // længste-label-tjekket bruger "All Channels" i stedet.
+            compose.onNodeWithText("Recently Watched").assertDoesNotExist()
+            compose.onNodeWithText("All Channels").assertIsDisplayed()
             val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
-            compose.onNodeWithText("Recently Watched", useUnmergedTree = true)
+            compose.onNodeWithText("All Channels", useUnmergedTree = true)
                 .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertTrue("Recently Watched must fit without ellipsis", layouts.isNotEmpty() && layouts.none { it.hasVisualOverflow })
+            assertTrue("All Channels must fit without ellipsis", layouts.isNotEmpty() && layouts.none { it.hasVisualOverflow })
             compose.onNodeWithText("Watch live").assertDoesNotExist()
             compose.onNodeWithText("ON AIR").assertDoesNotExist()
             compose.runOnIdle { expanded.value = false }

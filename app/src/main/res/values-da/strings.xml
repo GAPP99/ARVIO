@@ -61,4 +61,12 @@
     <string name="add_later">Tilføj film og serier til senere</string>
     <string name="sources_available">kilder tilgængelige</string>
     <string name="ends_at">Slutter kl.</string>
+    <string name="settings_tv_guide_title">TV-guide</string>
+    <string name="settings_guide_new_design">Nyt guide-design</string>
+    <string name="settings_guide_new_design_desc">Moderne guidelayout med renere kanalliste og større tekst</string>
+    <string name="settings_guide_row_count">Guide-rækker</string>
+    <string name="settings_guide_row_count_desc">Antal kanalrækker i guiden på TV. Telefon og tablet bruger rækker tilpasset berøring.</string>
+    <string name="settings_guide_row_count_value">%1$d rækker</string>
+    <string name="settings_guide_all_providers">Kanaler fra alle udbydere</string>
+    <string name="settings_guide_all_providers_desc">Vis kanaler fra alle udbydere i guiden</string>
 </resources>

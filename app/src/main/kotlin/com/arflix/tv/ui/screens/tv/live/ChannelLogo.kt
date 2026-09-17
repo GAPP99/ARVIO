@@ -40,16 +40,21 @@ import kotlinx.coroutines.CancellationException
 /**
  * Typographic channel logo placeholder. Variant chosen by first char-code % 3.
  * Real `logoUrl` loads over Coil when present; this placeholder always renders
- * underneath so a missing/slow image doesn't leave a blank box.
+ * underneath so a missing/slow image doesn't leave a blank box. Square at
+ * [size] by default; pass [width]/[height] (and optionally [cornerRadius]) for
+ * a non-square logo.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun ChannelLogo(
     channel: EnrichedChannel,
-    size: Dp,
+    size: Dp = 24.dp,
     modifier: Modifier = Modifier,
     contentPadding: Dp = (size.value / 7f).coerceIn(4f, 8f).dp,
     showPlaceholder: Boolean = true,
+    width: Dp = size,
+    height: Dp = size,
+    cornerRadius: Dp = (size.value / 5.5f).dp,
 ) {
     val initials = remember(channel.name) { initialsFor(channel.name) }
     val variant = (channel.name.firstOrNull()?.code ?: 0) % 3
@@ -76,8 +81,8 @@ fun ChannelLogo(
     var showFallback by remember(channel.id, logoUrl) { mutableStateOf(true) }
     Box(
         modifier = modifier
-            .size(size)
-            .clip(RoundedCornerShape((size.value / 5.5f).dp))
+            .size(width = width, height = height)
+            .clip(RoundedCornerShape(cornerRadius))
             .background(if (showPlaceholder && logoUrl.isNullOrBlank()) LiveColors.PanelRaised else Color.Transparent),
         contentAlignment = Alignment.Center,
     ) {
@@ -113,8 +118,8 @@ fun ChannelLogo(
             }
         }
         if (!logoUrl.isNullOrBlank()) {
-            val logoRequest = remember(logoUrl, providerUrl, size, density) {
-                val px = with(density) { size.roundToPx() }.coerceAtLeast(1)
+            val logoRequest = remember(logoUrl, providerUrl, width, height, density) {
+                val px = with(density) { maxOf(width, height).roundToPx() }.coerceAtLeast(1)
                 ImageRequest.Builder(context)
                     .data(logoUrl)
                     .apply {

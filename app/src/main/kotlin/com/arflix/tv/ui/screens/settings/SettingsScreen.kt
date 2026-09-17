@@ -275,7 +275,8 @@ private val tvGeneralSectionIds = setOf(
     "playback",
     "appearance",
     "profiles",
-    "network"
+    "network",
+    "tv_guide"
 )
 
 private fun tvGeneralRowsForSection(section: String): List<Int> {
@@ -287,6 +288,7 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
         "appearance" -> listOf(17, 18, 20, 21, 24, 23, 22, 41, 36)
         "profiles" -> listOf(19)
         "network" -> listOf(25, 26, 35)
+        "tv_guide" -> listOf(45, 46, 47)
         else -> emptyList()
     }
 }
@@ -483,6 +485,7 @@ fun SettingsScreen(
             add("subtitles")
             add("ai_subtitles")
             add("iptv")
+            add("tv_guide")
             add("stremio")
             add("catalogs")
             add("home_server")
@@ -1251,6 +1254,9 @@ fun SettingsScreen(
                                                 33 -> viewModel.startAiKeyServer()
                                                 34 -> viewModel.cycleTrailerDelay()
                                                 37 -> viewModel.setTrailerInCards(!uiState.trailerInCards)
+                                                45 -> viewModel.setGuideNewDesign(!uiState.guideNewDesign)
+                                                46 -> viewModel.cycleGuideRowCount()
+                                                47 -> viewModel.setGuideAllProviders(!uiState.guideAllProviders)
                                             }
                                         }
                                         "iptv" -> {
@@ -1692,6 +1698,7 @@ fun SettingsScreen(
                                     "profiles" -> Icons.Default.SwitchAccount
                                     "network" -> Icons.Default.Settings
                                     "iptv" -> Icons.Default.LiveTv
+                                    "tv_guide" -> Icons.Default.Tv
                                     "home_server" -> Icons.Default.Cloud
                                     "catalogs" -> Icons.Default.Widgets
                                     "stremio" -> Icons.Default.Extension
@@ -1707,6 +1714,7 @@ fun SettingsScreen(
                                     "profiles" -> stringResource(R.string.profiles)
                                     "network" -> stringResource(R.string.network)
                                     "iptv" -> stringResource(R.string.iptv)
+                                    "tv_guide" -> stringResource(R.string.settings_tv_guide_title)
                                     "home_server" -> stringResource(R.string.settings_home_server)
                                     "catalogs" -> stringResource(R.string.catalogs)
                                     "stremio" -> stringResource(R.string.addons)
@@ -1820,6 +1828,12 @@ fun SettingsScreen(
                             showLoadingStats = uiState.showLoadingStats,
                             onShowLoadingStatsToggle = { viewModel.setShowLoadingStats(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
+                            guideNewDesign = uiState.guideNewDesign,
+                            guideRowCount = uiState.guideRowCount,
+                            guideAllProviders = uiState.guideAllProviders,
+                            onGuideNewDesignToggle = { viewModel.setGuideNewDesign(it) },
+                            onGuideRowCountClick = { viewModel.cycleGuideRowCount() },
+                            onGuideAllProvidersToggle = { viewModel.setGuideAllProviders(it) },
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
                             onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
                             onSubtitleOffsetClick = { viewModel.cycleSubtitleOffset() },
@@ -5453,7 +5467,7 @@ private fun tvSettingsSidebarGroup(section: String): String {
     return when (section) {
         "accounts", "profiles" -> stringResource(R.string.settings_group_profile)
         "playback", "language", "subtitles", "ai_subtitles" -> stringResource(R.string.playback)
-        "iptv", "stremio", "catalogs", "home_server" -> stringResource(R.string.sources)
+        "iptv", "stremio", "catalogs", "home_server", "tv_guide" -> stringResource(R.string.sources)
         else -> stringResource(R.string.settings_group_system)
     }
 }
@@ -5732,6 +5746,7 @@ private fun tvSettingsSectionTitle(section: String): String {
         "profiles" -> stringResource(R.string.profiles)
         "network" -> stringResource(R.string.network)
         "iptv" -> stringResource(R.string.iptv)
+        "tv_guide" -> stringResource(R.string.settings_tv_guide_title)
         "home_server" -> stringResource(R.string.settings_home_server)
         "catalogs" -> stringResource(R.string.catalogs)
         "stremio" -> stringResource(R.string.addons)
@@ -5967,6 +5982,9 @@ private fun TvGeneralSettingsRows(
     spoilerBlurEnabled: Boolean = false,
     accentColor: String = "White",
     volumeBoostDb: Int = 0,
+    guideNewDesign: Boolean = true,
+    guideRowCount: Int = 8,
+    guideAllProviders: Boolean = true,
     focusedIndex: Int,
     onSubtitleClick: () -> Unit,
     onSecondarySubtitleClick: () -> Unit = {},
@@ -5979,6 +5997,9 @@ private fun TvGeneralSettingsRows(
     onAutoPlayMinQualityClick: () -> Unit,
     onAutoPlayMaxQualityClick: () -> Unit,
     onAutoPlayMaxSizeClick: () -> Unit,
+    onGuideNewDesignToggle: (Boolean) -> Unit = {},
+    onGuideRowCountClick: () -> Unit = {},
+    onGuideAllProvidersToggle: (Boolean) -> Unit = {},
     onDeviceModeClick: () -> Unit = {},
     onContentLanguageClick: () -> Unit = {},
     onSkipProfileSelectionToggle: (Boolean) -> Unit = {},
@@ -6145,6 +6166,9 @@ private fun TvGeneralSettingsRows(
                 34 -> SettingsRow(Icons.Default.Schedule, stringResource(R.string.trailer_delay), stringResource(R.string.trailer_delay_desc), "${trailerDelaySeconds}s", focusedIndex == localIndex, onTrailerDelayClick, Modifier.settingsFocusSlot(localIndex))
                 35 -> SettingsRow(Icons.Default.Language, stringResource(R.string.custom_user_agent), stringResource(R.string.custom_user_agent_desc), formatUserAgentPreview(customUserAgent, 30), focusedIndex == localIndex, onCustomUserAgentClick, Modifier.settingsFocusSlot(localIndex))
                 37 -> SettingsToggleRow(stringResource(R.string.trailer_in_cards), stringResource(R.string.trailer_in_cards_desc), trailerInCards, focusedIndex == localIndex, onTrailerInCardsToggle, Modifier.settingsFocusSlot(localIndex))
+                45 -> SettingsToggleRow(stringResource(R.string.settings_guide_new_design), stringResource(R.string.settings_guide_new_design_desc), guideNewDesign, focusedIndex == localIndex, onGuideNewDesignToggle, Modifier.settingsFocusSlot(localIndex))
+                46 -> SettingsRow(Icons.Default.Schedule, stringResource(R.string.settings_guide_row_count), stringResource(R.string.settings_guide_row_count_desc), stringResource(R.string.settings_guide_row_count_value, guideRowCount), focusedIndex == localIndex, onGuideRowCountClick, Modifier.settingsFocusSlot(localIndex))
+                47 -> SettingsToggleRow(stringResource(R.string.settings_guide_all_providers), stringResource(R.string.settings_guide_all_providers_desc), guideAllProviders, focusedIndex == localIndex, onGuideAllProvidersToggle, Modifier.settingsFocusSlot(localIndex))
             }
         }
     }

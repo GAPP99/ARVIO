@@ -154,16 +154,33 @@ fun EpgGrid(
     onBackToGroups: (() -> Unit)? = null,
     onOpenSearch: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    newDesign: Boolean = true,
+    rowHeightOverride: Dp? = null,
+    /**
+     * Op-tast på den øverste kanal, når der ikke er flere at hente ind ovenfor.
+     * Uden den blev tasten slugt, og guiden føltes som en blindgyde i toppen.
+     * Returnér true når fokus er flyttet.
+     */
+    onMoveUpFromTop: (() -> Boolean)? = null,
 ) {
+    val accentColor = liveAccent()
     val density = LocalDensity.current
     val pxPerMin = if (compact) 96f / 30f else LiveDims.EpgPxPerMinute.toFloat()
     val selectedChannelFocusRequester = remember { FocusRequester() }
     val firstChannelFocusRequester = remember { FocusRequester() }
-    val headerHeight = if (compact) 32.dp else LiveDims.EpgHeaderHeight
+    val headerHeight = when {
+        compact -> 32.dp
+        newDesign -> LiveGuideDensity.RulerHeightDp.dp
+        else -> LiveDims.EpgHeaderHeight
+    }
     val channelColumnWidth = channelColumnWidthOverride
         ?: if (compact) 164.dp else LiveDims.EpgChannelColWidth
     val halfHourWidth = (pxPerMin * 30f).dp
-    val rowHeight = if (compact) 52.dp else LiveDims.EpgRowHeight
+    val rowHeight = when {
+        compact -> 52.dp
+        newDesign -> rowHeightOverride ?: LiveGuideDensity.RowHeightDp.dp
+        else -> LiveDims.EpgRowHeight
+    }
     val channelFocusRequesters = remember { LinkedHashMap<String, FocusRequester>() }
     val programFocusRequesters = remember { LinkedHashMap<String, List<FocusRequester>>() }
     val programFocusTargets = remember { LinkedHashMap<String, List<ProgramFocusTarget>>() }
@@ -362,9 +379,14 @@ fun EpgGrid(
         return when {
             targetIdx < 0 -> {
                 if (channelWindowOffset > 0) {
+                    // Der er flere kanaler at hente ind ovenfor — bliv i listen.
                     onRequestPreviousChannels()
+                    true
+                } else {
+                    // Vi står på allerførste kanal: send fokus videre op i
+                    // topbaren i stedet for at sluge tasten.
+                    onMoveUpFromTop?.invoke() ?: true
                 }
-                true
             }
             targetIdx >= channels.size -> {
                 onRequestNextChannels()
@@ -494,7 +516,8 @@ fun EpgGrid(
 
     Column(
         modifier = modifier.fillMaxSize().background(LiveColors.Bg)
-            .padding(horizontal = if (compact) 0.dp else 12.dp).padding(bottom = if (compact) 0.dp else 20.dp),
+            .padding(horizontal = if (compact) 0.dp else 12.dp)
+            .then(if (newDesign) Modifier else Modifier.padding(bottom = if (compact) 0.dp else 20.dp)),
     ) {
         if (onBackToGroups != null) {
             Row(
@@ -553,7 +576,7 @@ fun EpgGrid(
                     )
                 }
             }
-        } else if (!compact) {
+        } else if (!compact && !newDesign) {
             Row(Modifier.fillMaxWidth().height(34.dp).padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Outlined.Menu, "Groups", tint = LiveColors.Fg,
@@ -598,14 +621,26 @@ fun EpgGrid(
                 modifier = Modifier
                     .width(channelColumnWidth)
                     .fillMaxHeight()
-                    .padding(horizontal = 16.dp),
+                    .padding(start = if (compact || !newDesign) 16.dp else 24.dp, end = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                if (compact) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (compact || !newDesign) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.live_label_channels), style = LiveType.SectionTag.copy(color = LiveColors.FgMute))
                     Text(safeTotalChannelCount.toString(),
                         style = LiveType.NumberMono.copy(color = LiveColors.FgDim))
+                } else {
+                    val visibleDate = remember(clockTickMillis) {
+                        java.text.SimpleDateFormat("EEE d. MMM", java.util.Locale.getDefault())
+                            .format(java.util.Date(clockTickMillis))
+                    }
+                    val visibleTime = formatClock(clockTickMillis)
+                    Text(
+                        text = "$visibleDate $visibleTime",
+                        color = accentColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
             // Divider
@@ -643,13 +678,14 @@ fun EpgGrid(
                         ) {
                             Text(
                                 text = slot.label,
-                                style = LiveType.TimeMono.copy(color = LiveColors.FgDim, fontSize = 9.sp),
+                                style = if (compact || !newDesign) LiveType.TimeMono.copy(color = LiveColors.FgDim, fontSize = 9.sp)
+                                else LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 12.sp),
                             )
                         }
                     }
                 }
                 // Cyan "NOW hh:mm" pill hovering above the now-line inside the header.
-                if (clockTickMillis in windowStartMillis until windowEndMillis) {
+                if ((!newDesign || compact) && clockTickMillis in windowStartMillis until windowEndMillis) {
                     val nowMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
                     val nowOffset = (nowMin * pxPerMin).dp
                     Box(
@@ -667,7 +703,7 @@ fun EpgGrid(
                                 }
                             }
                             .clip(RoundedCornerShape(4.dp))
-                            .background(LiveColors.Accent)
+                            .background(accentColor)
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                     ) {
                         Text(
@@ -679,13 +715,15 @@ fun EpgGrid(
             }
         }
 
-        // Thin divider under header
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(LiveColors.Divider),
-        )
+        if (compact || !newDesign) {
+            // Thin divider under header
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(LiveColors.Divider),
+            )
+        }
 
         // ─── Body ───────────────────────────────────────────────────
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -829,6 +867,7 @@ fun EpgGrid(
                                 variantCount = variantCountFor(ch),
                                 rowHeight = rowHeight,
                                 forceFocused = gridFocused && locallyFocused,
+                                newDesign = newDesign,
                                 modifier = Modifier
                                     .width(channelColumnWidth)
                                     .testTag("iptv-channel:${ch.id}")
@@ -887,6 +926,7 @@ fun EpgGrid(
                                     isActive = false,
                                     epgMode = focusMode == EpgGridFocusMode.Epg,
                                     rowHeight = rowHeight,
+                                    newDesign = newDesign,
                                     renderWindow = renderWindow,
                                     hScrollOffsetPx = { hScroll.value },
                                     onClick = { program ->
@@ -901,6 +941,12 @@ fun EpgGrid(
                                         }
                                     },
                                     onMoveVertically = { targetRowIdx, anchorStartMin ->
+                                        if (targetRowIdx < 0 && channelWindowOffset == 0) {
+                                            // Samme udgang som i kanalkolonnen:
+                                            // op fra øverste programrække går i
+                                            // topbaren.
+                                            return@ProgramsRow onMoveUpFromTop?.invoke() ?: true
+                                        }
                                         val targetChannel = channels.getOrNull(targetRowIdx)
                                         val targetPrograms = targetChannel?.let { targetCh ->
                                             programsInWindow(nowNext[targetCh.id], windowStartMillis, windowEndMillis)
@@ -937,7 +983,10 @@ fun EpgGrid(
                         val inside = (nowMin * pxPerMin).dp.toPx() - hScroll.value
                         val x = (channelColumnWidth + 1.dp).toPx() + inside
                         if (inside >= 0f && x < size.width) {
-                            drawRect(LiveColors.Accent, Offset(x, 0f), Size(1.dp.toPx(), size.height))
+                            drawRect(accentColor, Offset(x, 0f), Size(1.dp.toPx(), size.height))
+                            if (!compact && newDesign) {
+                                drawCircle(accentColor, 6.dp.toPx(), Offset(x, 6.dp.toPx()))
+                            }
                         }
                     }
                 }
@@ -975,6 +1024,7 @@ private fun ProgramsRow(
     isActive: Boolean,
     epgMode: Boolean,
     rowHeight: Dp,
+    newDesign: Boolean = true,
     renderWindow: GuideRenderWindow,
     hScrollOffsetPx: () -> Int = { 0 },
     onClick: (IptvProgram?) -> Unit,
@@ -1104,6 +1154,7 @@ private fun ProgramsRow(
                             onMoveVertically(rowIdx + 1, placement.startMin)
                         },
                         rowHeight = rowHeight,
+                        newDesign = newDesign,
                         focusRequester = rowFocusRequesters.getOrNull(focusableIndex),
                         modifier = Modifier.offset(x = offset),
                     )
@@ -1121,6 +1172,7 @@ private fun NowLine(
     pxPerMin: Float,
     hScrollOffsetPx: Int,
 ) {
+    val accentColor = liveAccent()
     val density = LocalDensity.current
     val nowMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
     val xDp = with(density) { ((nowMin * pxPerMin).dp.toPx() - hScrollOffsetPx).toDp() }
@@ -1130,7 +1182,7 @@ private fun NowLine(
             .offset(x = xDp)
             .fillMaxHeight()
             .width(2.dp)
-            .background(LiveColors.Accent),
+            .background(accentColor),
     )
     // Glow behind the 2dp line
     Box(
@@ -1138,7 +1190,7 @@ private fun NowLine(
             .offset(x = xDp - 3.dp)
             .fillMaxHeight()
             .width(8.dp)
-            .background(LiveColors.Accent.copy(alpha = 0.22f)),
+            .background(accentColor.copy(alpha = 0.22f)),
     )
 }
 

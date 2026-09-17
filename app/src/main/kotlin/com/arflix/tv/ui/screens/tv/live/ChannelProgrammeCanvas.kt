@@ -10,13 +10,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -38,11 +38,85 @@ internal fun ChannelProgrammeCanvas(
     contentStartOffsetPx: () -> Int,
     onClick: () -> Unit,
     modifier: Modifier,
+    newDesign: Boolean = true,
+) {
+    if (!newDesign) {
+        ChannelProgrammeCanvasLegacy(program, width, rowHeight, isNow, isPast,
+            isCatchupSupported, contentStartOffsetPx, onClick, modifier)
+        return
+    }
+    val measurer = rememberTextMeasurer(cacheSize = 4)
+    val time = formatClock(program.startUtcMillis)
+    val spec = LiveGuideDensity.programCellSpec(
+        rowHeightDp = rowHeight.value.toInt(),
+        cellWidthDp = width.value.toInt(),
+    )
+    val gutter = (LiveGuideDensity.CellGutterDp / 2f).dp
+    val background = when {
+        isNow -> Color(0xFF1E2427)
+        isPast -> Color(0xFF0D1012)
+        else -> Color(0xFF14181B)
+    }
+    val titleColor = if (isPast && !isCatchupSupported) LiveColors.Fg.copy(alpha = 0.42f) else LiveColors.Fg
+    val badge = when {
+        !spec.showBadges -> null
+        isPast && isCatchupSupported -> stringResource(R.string.live_badge_archive)
+        else -> null
+    }
+    Box(modifier.height(rowHeight).width(width)
+        .clearAndSetSemantics {
+            this[SemanticsProperties.Text] = listOfNotNull(
+                AnnotatedString(program.title), AnnotatedString(time),
+                program.description?.takeIf { it.isNotBlank() }?.let(::AnnotatedString),
+            )
+            if (isNow || (isPast && isCatchupSupported)) onClick { onClick(); true }
+        }
+        .drawWithCache {
+            val x = 7.dp.toPx() + contentStartOffsetPx()
+            val available = (size.width - x - 7.dp.toPx()).toInt().coerceAtLeast(1)
+            val badgeLayout = badge?.let {
+                measurer.measure(it, LiveType.Badge.copy(fontSize = 7.5.sp, lineHeight = 9.sp))
+            }
+            val badgeWidth = badgeLayout?.let { it.size.width + 8.dp.toPx() } ?: 0f
+            val titleX = if (badgeLayout != null) badgeWidth + 6.dp.toPx() else 0f
+            val title = measurer.measure(program.title,
+                LiveType.CellTitle.copy(color = titleColor, fontSize = 12.sp, lineHeight = 15.sp,
+                    fontWeight = FontWeight.W400),
+                overflow = TextOverflow.Ellipsis, maxLines = 1,
+                constraints = Constraints(maxWidth = (available - titleX).toInt().coerceAtLeast(1)))
+            onDrawBehind {
+                val radius = CornerRadius(LiveGuideDensity.CellRadiusDp.dp.toPx())
+                drawRoundRect(background, Offset(gutter.toPx(), gutter.toPx()),
+                    Size((size.width - 2 * gutter.toPx()).coerceAtLeast(0f),
+                        (size.height - 2 * gutter.toPx()).coerceAtLeast(0f)), radius)
+                if (badgeLayout != null) {
+                    val badgeY = (size.height - badgeLayout.size.height) / 2f
+                    drawRoundRect(LiveColors.PanelRaised,
+                        Offset(x, badgeY - 0.5.dp.toPx()),
+                        Size(badgeWidth, badgeLayout.size.height + 1.dp.toPx()),
+                        CornerRadius(3.dp.toPx()))
+                    drawText(badgeLayout, color = LiveColors.FgDim,
+                        topLeft = Offset(x + 4.dp.toPx(), badgeY))
+                }
+                drawText(title, topLeft = Offset(x + titleX, (size.height - title.size.height) / 2f))
+            }
+        })
+}
+
+@Composable
+internal fun ChannelProgrammeCanvasLegacy(
+    program: IptvProgram,
+    width: Dp,
+    rowHeight: Dp,
+    isNow: Boolean,
+    isPast: Boolean,
+    isCatchupSupported: Boolean,
+    contentStartOffsetPx: () -> Int,
+    onClick: () -> Unit,
+    modifier: Modifier,
 ) {
     val measurer = rememberTextMeasurer(cacheSize = 4)
     val time = formatClock(program.startUtcMillis)
-    val minutes = ((program.endUtcMillis - program.startUtcMillis) / 60_000L).coerceAtLeast(0)
-    val duration = stringResource(R.string.live_label_duration_min, minutes)
     val badge = when {
         width < 150.dp -> null
         isPast && isCatchupSupported -> stringResource(R.string.live_badge_archive)

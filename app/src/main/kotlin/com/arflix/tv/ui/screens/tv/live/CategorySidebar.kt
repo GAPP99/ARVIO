@@ -118,6 +118,8 @@ fun CategorySidebar(
     listState: LazyListState,
     focusRequester: FocusRequester? = null,
     onSelect: (String) -> Unit,
+    /** Vælg en kategori uden at gå ind i den — bruges af rækker der folder ud. */
+    onSelectKeepOpen: ((String) -> Unit)? = null,
     onOpenSearch: () -> Unit,
     onHideCategory: (String?, String) -> Unit = { _, _ -> },
     onUnhideCategory: (String?, String) -> Unit = { _, _ -> },
@@ -137,6 +139,7 @@ fun CategorySidebar(
     selectedProviderId: String = "all",
     onProviderSelect: (String) -> Unit = {},
     sidebarWidth: androidx.compose.ui.unit.Dp = LiveDims.SidebarExpanded,
+    newDesign: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val playlistFocus = remember { FocusRequester() }
@@ -256,8 +259,28 @@ fun CategorySidebar(
         }
     }
 
-    val visibleTopCategories = remember(tree.top) {
-        tree.top.distinctBy { it.id }.filter { it.id != "fav" || it.count > 0 }
+    // Rækkefølgen er Dannys: søgning øverst som et lille symbol, så Favoritter,
+    // og derefter de kategorier Arvio selv udleder. Favoritter vises også når
+    // listen er tom, så det er synligt at muligheden findes.
+    val visibleTopCategories = remember(tree.top, newDesign) {
+        // Favoritter trækkes op i toppen. Alt andet beholder den rækkefølge
+        // træet selv giver — sorteringen er stabil, så den bestemmer ikke hvor
+        // fx sportskategorien skal ligge.
+        //
+        // "Senest sete" er taget ud af gruppelisten i det nye design. Selve
+        // recents-funktionen består — den driver stadig zap-rækkefølgen,
+        // hurtiglisten og flisen i mobilvisningen — den har bare ikke sin egen
+        // række her længere.
+        // Kun det nye design ændrer rækkefølgen og viser Favoritter ved tom liste.
+        // Slår man designet fra, skal listen se ud præcis som før.
+        if (!newDesign) {
+            return@remember tree.top.distinctBy { it.id }
+                .filter { it.id != "fav" || it.count > 0 }
+        }
+        // "Senest sete" er filtreret væk, så Favoritter er den eneste der trækkes op.
+        tree.top.distinctBy { it.id }
+            .filterNot { it.id == "recent" }
+            .sortedBy { category -> if (category.id == "fav") 0 else 1 }
     }
     val categoriesLoaded = LiveTvStartup.searchIsReachable(visibleTopCategories.size)
     val categoryStructureKey = remember(tree, playlistSections, visibleTopCategories) {
@@ -579,6 +602,7 @@ fun CategorySidebar(
                 },
                 focusRequester = searchFocusRequester,
                 focusable = categoriesLoaded,
+                compactIcon = newDesign,
             )
             Spacer(Modifier.height(4.dp))
             LazyColumn(
@@ -602,6 +626,7 @@ fun CategorySidebar(
                         categoryFocusRequesters = categoryFocusRequesters,
                     )
                     SidebarRow(
+                        showLeadingIcon = !newDesign,
                         label = liveCategoryLabel(cat.label),
                         count = cat.count,
                         icon = iconFor(cat),
@@ -616,9 +641,14 @@ fun CategorySidebar(
                         },
                         onClick = {
                             if (isAllGroup) {
+                                // Foldes ud i stedet for at gå ind; ellers kunne man
+                                // aldrig nå underkategorierne, fordi guiden lagde sig
+                                // over kolonnen med det samme.
                                 expandedAll = !expandedAll
+                                (onSelectKeepOpen ?: onSelect)(cat.id)
+                            } else {
+                                onSelect(cat.id)
                             }
-                            onSelect(cat.id)
                         },
                     )
                     if (isOpen && contentVisible) {
@@ -634,6 +664,7 @@ fun CategorySidebar(
                                 categoryFocusRequesters = categoryFocusRequesters,
                             )
                             SidebarRow(
+                                showLeadingIcon = !newDesign,
                                 label = liveCategoryLabel(child.label),
                                 count = child.count,
                                 icon = iconFor(child),
@@ -664,6 +695,7 @@ fun CategorySidebar(
                                         categoryFocusRequesters = categoryFocusRequesters,
                                     )
                                     SidebarRow(
+                                        showLeadingIcon = !newDesign,
                                         label = liveCategoryLabel(grandchild.label),
                                         count = grandchild.count,
                                         icon = iconFor(grandchild),
@@ -700,6 +732,7 @@ fun CategorySidebar(
                                 categoryFocusRequesters = categoryFocusRequesters,
                             )
                             SidebarRow(
+                                showLeadingIcon = !newDesign,
                                 label = section.label,
                                 count = section.count,
                                 icon = Icons.Filled.LibraryBooks,
@@ -737,6 +770,7 @@ fun CategorySidebar(
                                     categoryFocusRequesters = categoryFocusRequesters,
                                 )
                                 SidebarRow(
+                                    showLeadingIcon = !newDesign,
                                     label = liveCategoryLabel(cat.playlistGroupName ?: cat.label),
                                     count = cat.count,
                                     icon = iconFor(cat),
@@ -769,6 +803,7 @@ fun CategorySidebar(
                             categoryFocusRequesters = categoryFocusRequesters,
                         )
                         SidebarRow(
+                            showLeadingIcon = !newDesign,
                             label = liveCategoryLabel(cat.label),
                             count = cat.count,
                             icon = iconFor(cat),
@@ -802,6 +837,7 @@ fun CategorySidebar(
                             categoryFocusRequesters = categoryFocusRequesters,
                         )
                         SidebarRow(
+                            showLeadingIcon = !newDesign,
                             label = liveCategoryLabel(country.label),
                             count = country.count,
                             icon = null,
@@ -824,7 +860,7 @@ fun CategorySidebar(
                                     expandedCountry = null
                                 } else {
                                     expandedCountry = country.id
-                                    onSelect(country.id)
+                                    (onSelectKeepOpen ?: onSelect)(country.id)
                                 }
                             },
                         )
@@ -841,6 +877,7 @@ fun CategorySidebar(
                                     categoryFocusRequesters = categoryFocusRequesters,
                                 )
                                 SidebarRow(
+                                    showLeadingIcon = !newDesign,
                                     label = liveCategoryLabel(child.label),
                                     count = child.count,
                                     icon = null,
@@ -873,6 +910,7 @@ fun CategorySidebar(
                             categoryFocusRequesters = categoryFocusRequesters,
                         )
                         SidebarRow(
+                            showLeadingIcon = !newDesign,
                             label = liveCategoryLabel(cat.label),
                             count = cat.count,
                             icon = Icons.Filled.Lock,
@@ -913,12 +951,15 @@ private fun SearchEntry(
     onFocusChanged: (Boolean) -> Unit = {},
     focusRequester: FocusRequester? = null,
     focusable: Boolean = true,
+    /** Nyt design: kun et lille forstørrelsesglas, der folder sig ud når det får fokus. */
+    compactIcon: Boolean = false,
 ) {
     val focusManager = LocalFocusManager.current
     var focused by remember { mutableStateOf(false) }
+    val collapsedIcon = compactIcon && !focused
     Row(
         modifier = Modifier
-            .fillMaxWidth()
+            .then(if (collapsedIcon) Modifier else Modifier.fillMaxWidth())
             .height(if (LocalDeviceType.current.isTouchDevice()) 48.dp else 36.dp)
             .onFocusChanged {
                 focused = it.isFocused
@@ -944,13 +985,21 @@ private fun SearchEntry(
                     else -> false
                 }
             }
-            .border(
-                width = 1.dp,
-                color = if (focused) LiveColors.FocusRing else LiveColors.Divider,
-                shape = RoundedCornerShape(5.dp),
+            .then(
+                if (collapsedIcon) Modifier else Modifier.border(
+                    width = 1.dp,
+                    color = if (focused) LiveColors.FocusRing else LiveColors.Divider,
+                    shape = RoundedCornerShape(5.dp),
+                )
             )
             .clip(RoundedCornerShape(5.dp))
-            .background(if (focused) Color.White else LiveColors.Panel)
+            .background(
+                when {
+                    focused -> Color.White
+                    collapsedIcon -> Color.Transparent
+                    else -> LiveColors.Panel
+                }
+            )
             // Search is the first focusable row in the sidebar, so while the
             // categories are still loading Compose parks the D-pad selector
             // here by default — and "down" had nothing to move to yet, so
@@ -977,7 +1026,7 @@ private fun SearchEntry(
                 }
             }
             .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = if (compactIcon) 18.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -987,7 +1036,7 @@ private fun SearchEntry(
             tint = if (focused) Color.Black else LiveColors.FgDim,
             modifier = Modifier.size(14.dp),
         )
-        if (expanded) {
+        if (expanded && !collapsedIcon) {
             Text(
                 text = stringResource(R.string.live_label_search_channels),
                 style = LiveType.CatLabel.copy(color = if (focused) Color.Black else LiveColors.FgDim),
@@ -1066,6 +1115,7 @@ private fun SidebarRow(
     isOpenGroup: Boolean = false,
     indent: androidx.compose.ui.unit.Dp = 0.dp,
     labelSize: androidx.compose.ui.unit.TextUnit = 11.sp,
+    showLeadingIcon: Boolean = true,
     focusRequester: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -1163,6 +1213,10 @@ private fun SidebarRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // I det nye design bærer gruppelisten kun navne. Ikonerne gentog
+            // information der allerede står i teksten, og gjorde en ellers rolig
+            // kolonne til en stribe symboler. Landekode og flag bliver, fordi de
+            // er det eneste der skiller ellers enslydende landerækker ad.
             when {
                 leadingCode != null -> Text(
                     text = leadingCode,
@@ -1175,6 +1229,7 @@ private fun SidebarRow(
                     text = flagEmoji,
                     style = LiveType.CatLabel.copy(fontSize = 14.sp),
                 )
+                !showLeadingIcon -> Unit
                 icon != null -> Icon(
                     imageVector = icon,
                     contentDescription = null,

@@ -659,6 +659,14 @@
     <string name="settings_iptv_vod_search_desc">Include IPTV movies and shows when fetching streams</string>
     <string name="settings_epg_vod_actions">TV guide Stream Now</string>
     <string name="settings_epg_vod_actions_desc">Show streaming options on matched TV guide events</string>
+    <string name="settings_tv_guide_title">TV Guide</string>
+    <string name="settings_guide_new_design">New Guide Design</string>
+    <string name="settings_guide_new_design_desc">Modern guide layout with a cleaner channel list and larger text</string>
+    <string name="settings_guide_row_count">Guide Rows</string>
+    <string name="settings_guide_row_count_desc">Number of channel rows shown in the guide on TV. Phones and tablets use touch-sized rows.</string>
+    <string name="settings_guide_row_count_value">%1$d rows</string>
+    <string name="settings_guide_all_providers">Channels from All Providers</string>
+    <string name="settings_guide_all_providers_desc">Show channels from every provider in the guide</string>
     <string name="live_menu_favorite_move_up">Move up</string>
     <string name="live_menu_favorite_move_down">Move down</string>
     <string name="live_menu_favorite_remove">Remove from favorites</string>

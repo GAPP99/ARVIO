@@ -90,14 +90,20 @@ object LiveTvStartup {
             ?: "all"
     }
 
+    /**
+     * [hasCollapsibleDrawer] er kun sandt på TV. Tabletten har en fast
+     * gruppekolonne, så "åbn grupperne" ville ikke flytte noget synligt: første
+     * tilbage-tryk så dødt ud, og man skulle trykke to gange for at komme ud.
+     */
     fun guideBackAction(
         isTouchDevice: Boolean,
         categoryDrawerOpen: Boolean,
         mode: LiveTvMode = LiveTvMode.Guide,
+        hasCollapsibleDrawer: Boolean = true,
     ): GuideBackAction = when {
         isTouchDevice && mode == LiveTvMode.Guide -> GuideBackAction.OPEN_GROUP_HOME
         isTouchDevice -> GuideBackAction.EXIT_TV
-        !categoryDrawerOpen -> GuideBackAction.OPEN_CATEGORIES
+        hasCollapsibleDrawer && !categoryDrawerOpen -> GuideBackAction.OPEN_CATEGORIES
         else -> GuideBackAction.EXIT_TV
     }
 

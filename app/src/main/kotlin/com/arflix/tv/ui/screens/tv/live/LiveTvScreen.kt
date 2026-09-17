@@ -559,7 +559,9 @@ fun LiveTvScreen(
     }
     var currentMode by rememberSaveable {
         mutableStateOf(
-            if (isTouchDevice && initialChannelId == null && initialStreamUrl == null) {
+            // Landingssiden hører til telefonen. Tabletten har gruppekolonnen
+            // i venstre side og skal derfor starte direkte i guiden.
+            if (useTouchRail && initialChannelId == null && initialStreamUrl == null) {
                 LiveTvStartup.LiveTvMode.GroupHome
             } else {
                 LiveTvStartup.LiveTvMode.Guide
@@ -830,6 +832,20 @@ fun LiveTvScreen(
         enrichedState.value = current.copy(tree = tree)
     }
 
+    val guideSettings = rememberLiveGuideSettings()
+    // Kontakten "New Guide Design" står i TV-indstillingerne og kan ikke nås fra
+    // en telefon eller tablet. Berøringsskærmene har kun ét guide-layout — det
+    // nye — så dér spørges der ikke; ellers ville en gemt frafravælgelse give en
+    // ny ramme med gamle celler indeni.
+    val newGuideDesign = guideSettings.newDesign || isTouchDevice
+    // "Senest sete" har ingen række i gruppelisten i det nye design. Er den gemt
+    // fra en tidligere session, ville guiden åbne på en kategori der ikke kan
+    // ses markeret nogen steder — send den til "alle kanaler" i stedet.
+    LaunchedEffect(newGuideDesign, isTouchDevice, selectedCategoryId) {
+        if (newGuideDesign && !isTouchDevice && selectedCategoryId == "recent") {
+            selectedCategoryId = "all"
+        }
+    }
     val providerFilters = remember(state.config, enrichedState.value.all, lastKnownPlaylistGroupCounts) {
         buildTvProviderFilters(state.config, enrichedState.value.all, lastKnownPlaylistGroupCounts)
     }
@@ -844,6 +860,14 @@ fun LiveTvScreen(
     LaunchedEffect(providerFilters, selectedProviderId) {
         if (providerFilters.isEmpty() || providerFilters.none { it.id == selectedProviderId }) {
             selectedProviderId = "all"
+        }
+    }
+    val sidebarProviderFilters = remember(providerFilters, guideSettings.allProviders) {
+        if (guideSettings.allProviders) providerFilters else providerFilters.filterNot { it.id == "all" }
+    }
+    LaunchedEffect(guideSettings.allProviders, sidebarProviderFilters, selectedProviderId) {
+        if (!guideSettings.allProviders && selectedProviderId == "all" && sidebarProviderFilters.isNotEmpty()) {
+            selectedProviderId = sidebarProviderFilters.first().id
         }
     }
 
@@ -1720,8 +1744,8 @@ fun LiveTvScreen(
     val sportsProviderNames = remember(state.config.playlists, state.config.stalkerPortals) {
         state.config.playlists.associate { it.id to it.name } + state.config.stalkerPortals.associate { it.id to it.name }
     }
-    val sportsSidebarTree = remember(visibleEnrichedState.value.tree, quickGuideRows) {
-        val tree = visibleEnrichedState.value.tree.withSportsDestination()
+    val sportsSidebarTree = remember(visibleEnrichedState.value.tree, quickGuideRows, useTouchRail) {
+        val tree = visibleEnrichedState.value.tree.withSportsDestination(inAccordion = !useTouchRail)
         tree.copy(top = tree.top.map { category ->
             quickGuideRows[category.id]?.let { category.copy(count = it.size) } ?: category
         })
@@ -1879,8 +1903,6 @@ fun LiveTvScreen(
             }
         }
     }
-    // Changing this on drawer toggle makes channel labels and the EPG jump before the slide.
-    val guideChannelColumnWidth = LiveDims.EpgChannelWideColWidth
     var focusGuideAfterDrawerClose by remember { mutableStateOf(false) }
     var focusCategoryAfterDrawerOpen by remember { mutableStateOf(false) }
     var pendingLockedGroupAction by remember { mutableStateOf<LockedGroupPinAction?>(null) }
@@ -2283,14 +2305,34 @@ fun LiveTvScreen(
         focusEpgSignal += 1
     }
 
-    fun enterSelectedCategory(categoryId: String) {
+    fun enterSelectedCategory(categoryId: String, closeDrawer: Boolean = true) {
         noteGuideUserNavigation()
         focusCommitJob[0]?.cancel()
         focusedChannelObject[0] = null
         selectedCategoryId = categoryId
         if (isTouchDevice) currentMode = LiveTvStartup.LiveTvMode.Guide
-        categoryDrawerOpen = false
-        focusGuideAfterDrawerClose = true
+        // At gå ind i en gruppe folder gruppekolonnen væk, så guiden får hele
+        // bredden. Back — eller venstre fra kanalkolonnen — henter den tilbage
+        // via guideBackAction/openCategoryDrawer.
+        //
+        // Fokus flyttes IKKE her. Det gør effekten der venter på at skuffen
+        // faktisk er lukket og kanalerne er indlæst; at gøre begge dele samtidig
+        // var årsagen til det fokus-riv kritikken fandt.
+        // Rækker med underpunkter ("Alle kanaler", lande) folder sig ud ved klik
+        // i stedet for at gå ind i gruppen. De vælger stadig kategorien, så
+        // guiden bagved viser den — men kolonnen bliver stående, ellers kunne
+        // man aldrig nå ind til underpunkterne.
+        focusGuideAfterDrawerClose = closeDrawer
+        // Sammenklapningen er TV'ets. Tabletten har en fast gruppekolonne,
+        // og telefonen har slet ingen.
+        if (!isTouchDevice && closeDrawer) {
+            categoryDrawerOpen = false
+            // Zonen skal skifte i SAMME frame som skuffen lukkes. Effekten ved
+            // linje ~2239 griber fokus tilbage til sidebaren så længe zonen er
+            // CATEGORY_LIST, og ville ellers trække fokus ind i en kolonne der
+            // lige er foldet væk — hvorefter siden ser død ud.
+            focusZone = LiveTvFocusZone.CHANNEL_LIST
+        }
         viewModel.rememberTvSession(
             lastGroupName = categoryId,
             lastFocusedZone = "CATEGORY",
@@ -2307,7 +2349,7 @@ fun LiveTvScreen(
         }
     }
 
-    fun requestCategorySelection(categoryId: String) {
+    fun requestCategorySelection(categoryId: String, closeDrawer: Boolean = true) {
         if (categoryId == SPORTS_GUIDE_CATEGORY) {
             sportsSelected = true
             // Selection opens the destination; moving right into its cards closes the drawer.
@@ -2329,7 +2371,7 @@ fun LiveTvScreen(
             }
             return
         }
-        enterSelectedCategory(categoryId)
+        enterSelectedCategory(categoryId, closeDrawer)
     }
 
     fun requestCategoryLockToggle(playlistId: String?, groupName: String, wasLocked: Boolean) {
@@ -2344,7 +2386,7 @@ fun LiveTvScreen(
     }
 
     LaunchedEffect(categoryDrawerOpen, focusCategoryAfterDrawerOpen, selectedCategoryId) {
-        if (!categoryDrawerOpen || !focusCategoryAfterDrawerOpen || useTouchRail) return@LaunchedEffect
+        if (!categoryDrawerOpen || !focusCategoryAfterDrawerOpen || isTouchDevice) return@LaunchedEffect
         repeat(4) {
             delay(32L)
             focusCategoryRailSignal += 1
@@ -2352,8 +2394,26 @@ fun LiveTvScreen(
         focusCategoryAfterDrawerOpen = false
     }
 
+    // Sikkerhedsnet: lukkede vi gruppekolonnen for at gå ind i en gruppe der
+    // viser sig at være tom, er der intet fokuserbart tilbage på siden, og
+    // fjernbetjeningen holder op med at gøre noget. Hellere folde grupperne ud
+    // igen end at efterlade brugeren i en blindgyde.
+    // filteredChannelsWindowKey SKAL være en nøgle: uden den ser koroutinen
+    // stadig den tomme kanalliste efter sit delay og folder grupperne ud igen
+    // 1,2 sekund efter man er gået ind i gruppen.
     LaunchedEffect(categoryDrawerOpen, focusGuideAfterDrawerClose, categoryScope, filteredChannelsScopeKey, filteredChannelsWindowKey) {
-        if (categoryDrawerOpen || !focusGuideAfterDrawerClose || useTouchRail || filteredChannels.isEmpty() ||
+        if (categoryDrawerOpen || !focusGuideAfterDrawerClose || isTouchDevice) return@LaunchedEffect
+        if (filteredChannelsScopeKey != categoryScope) return@LaunchedEffect
+        if (filteredChannels.isNotEmpty()) return@LaunchedEffect
+        delay(1200L)
+        if (!categoryDrawerOpen && filteredChannels.isEmpty() && filteredChannelsScopeKey == categoryScope) {
+            focusGuideAfterDrawerClose = false
+            openCategoryDrawer()
+        }
+    }
+
+    LaunchedEffect(categoryDrawerOpen, focusGuideAfterDrawerClose, categoryScope, filteredChannelsScopeKey, filteredChannelsWindowKey) {
+        if (categoryDrawerOpen || !focusGuideAfterDrawerClose || isTouchDevice || filteredChannels.isEmpty() ||
             filteredChannelsScopeKey != categoryScope
         ) {
             return@LaunchedEffect
@@ -3331,7 +3391,14 @@ fun LiveTvScreen(
         }
     }
     BackHandler(enabled = !searchOpen && channelMenu == null && variantPickerChannel == null && !isFullScreen) {
-        when (LiveTvStartup.guideBackAction(isTouchDevice, categoryDrawerOpen, currentMode)) {
+        when (
+            LiveTvStartup.guideBackAction(
+                isTouchDevice = useTouchRail,
+                categoryDrawerOpen = categoryDrawerOpen,
+                mode = currentMode,
+                hasCollapsibleDrawer = !isTouchDevice,
+            )
+        ) {
             LiveTvStartup.GuideBackAction.OPEN_GROUP_HOME -> {
                 sportsSelected = false
                 currentMode = LiveTvStartup.LiveTvMode.GroupHome
@@ -3477,6 +3544,12 @@ fun LiveTvScreen(
                                         if (!state.isConfigured && state.snapshot.channels.isEmpty()) {
                                             focusZone = LiveTvFocusZone.CATEGORY_LIST
                                             runCatching { emptyStateButtonFocus.requestFocus() }
+                                        } else if (!categoryDrawerOpen && filteredChannels.isNotEmpty()) {
+                                            // Kom du op hertil fra kanallisten med gruppemenuen
+                                            // foldet væk, skal ned føre dig tilbage samme sted.
+                                            // Ellers sprang menuen ud igen, og op/ned var ikke
+                                            // hinandens modsætning.
+                                            focusChannelList(focusedChannelId ?: playingChannelId)
                                         } else {
                                             focusProviderSwitcher()
                                         }
@@ -3531,7 +3604,7 @@ fun LiveTvScreen(
                 }
             )
         } else {
-            if (isTouchDevice && currentMode == LiveTvStartup.LiveTvMode.GroupHome) {
+            if (useTouchRail && currentMode == LiveTvStartup.LiveTvMode.GroupHome) {
                 val mobileAllChannelsCount = remember(
                     visibleEnrichedState.value.tree,
                     lastKnownPagedTotal,
@@ -3609,7 +3682,7 @@ fun LiveTvScreen(
                         requestCategorySelection(group.id)
                     },
                     onOpenSearch = { searchOpen = true },
-                    providers = providerFilters,
+                    providers = sidebarProviderFilters,
                     selectedProviderId = selectedProviderId,
                     onSelectProvider = { id ->
                         noteGuideUserNavigation()
@@ -3628,135 +3701,214 @@ fun LiveTvScreen(
                         .padding(top = contentTopPadding),
                 )
             } else if (isTouchDevice) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = contentTopPadding),
-                ) {
-                    Row(
+                // Telefon og tablet løser guiden forskelligt. Telefonen får et bundark
+                // der kan trækkes op over afspilleren; tabletten en fast gruppekolonne
+                // i venstre side, som på TV. Indholdet er det samme — kun rammen skifter.
+                val touchPlayer: @Composable () -> Unit = {
+                MiniPlayerRow(
+                    focusedProgrammeProvider = { focusedProgramme.takeIf { focusZone == LiveTvFocusZone.EPG } },
+                    exoPlayer = exoPlayer,
+                    channel = playingDisplayChannel,
+                    clockTickMillis = guideClockMillis,
+                    nowNext = currentNowNext,
+                    onFavoriteToggle = { viewModel.toggleFavoriteChannel(it) },
+                    favoriteSet = favSet,
+                    onFullscreenClick = openFullScreenPlayer,
+                    variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
+                    onOpenVariants = playingChannel?.let { channel -> { openVariantPicker(channel) } },
+                    // Målt på en 1280x800dp tablet: med compact=true blev videoen
+                    // 1232x574dp og fyldte hele indholdsområdet, så guiden aldrig
+                    // blev tegnet. liveTvMiniPlayerLayout() svarer STANDARD for
+                    // alt med smallestScreenWidthDp >= 600 — den blev bare ikke spurgt.
+                    compact = miniPlayerLayout != LiveTvMiniPlayerLayout.STANDARD,
+                    landscapeCompact = landscapeCompactMiniPlayer,
+                    newDesign = newGuideDesign,
+                    playerActive = miniPlayerActive,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                }
+                val touchCategories: @Composable () -> Unit = {
+                // Gruppevælgeren på berøringsskærme er en vandret karrusel af
+                // chips — søgning forrest, derefter kategorierne. Komponenten har
+                // ligget færdig i TouchCategoryRail.kt uden at blive kaldt nogen
+                // steder; her kobles den på.
+                TouchCategoryRail(
+                    tree = sportsSidebarTree,
+                    selectedId = if (sportsSelected) SPORTS_GUIDE_CATEGORY else selectedCategoryId,
+                    playlistSections = playlistCategorySections,
+                    onSelect = { id -> requestCategorySelection(id) },
+                    onOpenSearch = { searchOpen = true },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                }
+                val touchGuide: @Composable () -> Unit = {
+                if (sportsSelected) SportsGuidePane(
+                    events = sportsDisplayEvents,
+                    now = guideClockMillis,
+                    loading = sportsDisplayLoading,
+                    clockFormat = sportsClockFormat,
+                    failed = sportsError,
+                    onRetry = { sportsRefresh++ },
+                    providerNames = sportsProviderNames,
+                    focusSignal = sportsFocusSignal,
+                    onContentFocused = { focusZone = LiveTvFocusZone.SPORTS },
+                    onOpenCategories = {
+                        sportsSelected = false
+                        if (useTouchRail) currentMode = LiveTvStartup.LiveTvMode.GroupHome
+                    },
+                    onPlay = { channel -> playLiveFullscreen(channel.enrich(0)) },
+                    sidebarOpen = false,
+                    showHeader = false,
+                    onOpenSearch = { searchOpen = true },
+                    modifier = Modifier.fillMaxSize(),
+                ) else EpgGrid(
+                    channels = filteredChannels,
+                    playbackQuality = playbackQuality,
+                    totalChannelCount = selectedCategoryTotalCount,
+                    categoryTitle = sportsSidebarTree.byId(selectedCategoryId)?.label ?: "All channels",
+                    clockTickMillis = guideClockMillis,
+                    nowNext = effectiveGuideNowNext,
+                    epgLoadingChannelIds = state.epgLoadingChannelIds,
+                    epgAttemptedChannelIds = state.epgAttemptedChannelIds,
+                    isGuideBackfillLoading = false,
+                    hasGuideSource = state.hasPotentialGuideSource,
+                    selectedChannelId = selectedDisplayChannelId,
+                    playingChannelId = playingDisplayChannelId ?: playingChannelId,
+                    focusSelectedChannelSignal = focusSelectedChannelSignal,
+                    focusEpgSignal = focusEpgSignal,
+                    focusMode = if (focusZone == LiveTvFocusZone.EPG) {
+                        EpgGridFocusMode.Epg
+                    } else {
+                        EpgGridFocusMode.ChannelList
+                    },
+                    scrollResetKey = filteredChannelsScopeKey,
+                    compact = true,
+                    // Uden denne fik telefon og tablet altid standardværdien true,
+                    // så kontakten i indstillingerne var uden virkning der.
+                    newDesign = newGuideDesign,
+                    gridFocused = focusZone == LiveTvFocusZone.EPG,
+                    backHandlingEnabled = channelMenu == null && !searchOpen && variantPickerChannel == null,
+                    onChannelSelect = { channel ->
+                        focusZone = LiveTvFocusZone.CHANNEL_LIST
+                        selectChannel(channel)
+                    },
+                    onProgramSelect = { channel, program ->
+                        program?.let { selectEpgProgram(channel, it) }
+                    },
+                    onChannelFocused = { channel -> commitFocusedChannel(channel) },
+                    onProgramFocused = { channel, programme -> focusedProgramme = channel to programme },
+                    onChannelLongPress = { channel, fromKeyHold -> openChannelMenu(channel, fromKeyHold) },
+                    favorites = favSet,
+                    variantCountFor = { channel -> variantCountFor(channel, variantGroups) },
+                    onMoveLeftFromChannels = { focusPlaylistSearch() },
+                    onBackToGroups = null,
+                    onEnterEpg = { channel -> focusEpg(channel.id) },
+                    onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
+                    onRequestNextChannels = ::requestGuideWindowAfter,
+                    onVisibleChannelRange = ::onGuideVisibleRange,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                }
+
+                if (useTouchRail) {
+                    Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .fillMaxSize()
+                            .padding(top = contentTopPadding),
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                            tint = TextPrimary,
+                        Row(
                             modifier = Modifier
-                                .clickable {
-                                    sportsSelected = false
-                                    currentMode = LiveTvStartup.LiveTvMode.GroupHome
-                                }
-                                .padding(end = 16.dp)
-                                .size(28.dp),
-                        )
-                        Text(
-                            text = if (sportsSelected) stringResource(R.string.live_quick_sports)
-                            else (sportsSidebarTree.byId(selectedCategoryId)?.label ?: "All channels"),
-                            style = ArflixTypography.heroTitle.copy(fontSize = 24.sp),
-                            color = TextPrimary,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = stringResource(R.string.search),
-                            tint = TextPrimary,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clickable { searchOpen = true },
-                        )
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.back),
+                                tint = TextPrimary,
+                                modifier = Modifier
+                                    .clickable {
+                                        sportsSelected = false
+                                        currentMode = LiveTvStartup.LiveTvMode.GroupHome
+                                    }
+                                    .padding(end = 16.dp)
+                                    .size(28.dp),
+                            )
+                            Text(
+                                text = if (sportsSelected) stringResource(R.string.live_quick_sports)
+                                else (sportsSidebarTree.byId(selectedCategoryId)?.label ?: "All channels"),
+                                style = ArflixTypography.heroTitle.copy(fontSize = 24.sp),
+                                color = TextPrimary,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = stringResource(R.string.search),
+                                tint = TextPrimary,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clickable { searchOpen = true },
+                            )
+                        }
+                        if (playlistCategorySections.isEmpty()) {
+                            ProviderSelector(
+                                providers = sidebarProviderFilters,
+                                selectedId = selectedProviderId,
+                                onSelect = { id ->
+                                    noteGuideUserNavigation()
+                                    selectedProviderId = id
+                                    selectedCategoryId = "all"
+                                    focusedChannelId = null
+                                    epgPrefetchAnchorId = null
+                                },
+                                onMoveDown = { focusPlaylistSearch() },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            TouchGuideSheet(
+                                player = touchPlayer,
+                                categories = touchCategories,
+                                guide = touchGuide,
+                            )
+                        }
                     }
-                    if (playlistCategorySections.isEmpty()) {
-                        ProviderSelector(
-                            providers = providerFilters,
-                            selectedId = selectedProviderId,
-                            onSelect = { id ->
-                                noteGuideUserNavigation()
-                                selectedProviderId = id
-                                selectedCategoryId = "all"
-                                focusedChannelId = null
-                                epgPrefetchAnchorId = null
-                            },
-                            onMoveDown = { focusPlaylistSearch() },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    if (!sportsSelected) MiniPlayerRow(
-                        focusedProgrammeProvider = { focusedProgramme.takeIf { focusZone == LiveTvFocusZone.EPG } },
-                        exoPlayer = exoPlayer,
-                        channel = playingDisplayChannel,
-                        clockTickMillis = guideClockMillis,
-                        nowNext = currentNowNext,
-                        onFavoriteToggle = { viewModel.toggleFavoriteChannel(it) },
-                        favoriteSet = favSet,
-                        onFullscreenClick = openFullScreenPlayer,
-                        variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
-                        onOpenVariants = playingChannel?.let { channel -> { openVariantPicker(channel) } },
-                        compact = true,
-                        landscapeCompact = landscapeCompactMiniPlayer,
-                        playerActive = miniPlayerActive,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (sportsSelected) SportsGuidePane(
-                        events = sportsDisplayEvents, now = guideClockMillis, loading = sportsDisplayLoading, clockFormat = sportsClockFormat,
-                        failed = sportsError, onRetry = { sportsRefresh++ }, providerNames = sportsProviderNames,
-                        focusSignal = sportsFocusSignal,
-                        onContentFocused = { focusZone = LiveTvFocusZone.SPORTS },
-                        onOpenCategories = {
-                            sportsSelected = false
-                            currentMode = LiveTvStartup.LiveTvMode.GroupHome
+                } else {
+                    TabletGuideWorkspace(
+                        groups = {
+                            CategorySidebar(
+                                tree = sportsSidebarTree,
+                                selectedId = if (sportsSelected) SPORTS_GUIDE_CATEGORY else selectedCategoryId,
+                                playlistSections = playlistCategorySections,
+                                expanded = true,
+                                fixedViewport = true,
+                                sidebarWidth = TabletGuideGeometry.GroupColumnDp.dp,
+                                newDesign = newGuideDesign,
+                                isTouchDevice = true,
+                                listState = sidebarListState,
+                                providers = sidebarProviderFilters,
+                                selectedProviderId = selectedProviderId,
+                                onProviderSelect = { id ->
+                                    noteGuideUserNavigation()
+                                    selectedProviderId = id
+                                    selectedCategoryId = "all"
+                                    focusedChannelId = null
+                                    epgPrefetchAnchorId = null
+                                },
+                                onSelect = { id -> requestCategorySelection(id) },
+                                onSelectKeepOpen = { id -> requestCategorySelection(id, closeDrawer = false) },
+                                onOpenSearch = { searchOpen = true },
+                                onToggleCategoryLock = ::requestCategoryLockToggle,
+                                modifier = Modifier.fillMaxHeight(),
+                            )
                         },
-                        onPlay = { channel -> playLiveFullscreen(channel.enrich(0)) },
-                        sidebarOpen = false,
-                        showHeader = false,
-                        onOpenSearch = { searchOpen = true },
-                        modifier = Modifier.weight(1f),
-                    ) else EpgGrid(
-                        channels = filteredChannels,
-                        playbackQuality = playbackQuality,
-                        totalChannelCount = selectedCategoryTotalCount,
-                        categoryTitle = sportsSidebarTree.byId(selectedCategoryId)?.label ?: "All channels",
-                        clockTickMillis = guideClockMillis,
-                        nowNext = effectiveGuideNowNext,
-                        epgLoadingChannelIds = state.epgLoadingChannelIds,
-                        epgAttemptedChannelIds = state.epgAttemptedChannelIds,
-                        isGuideBackfillLoading = false,
-                        hasGuideSource = state.hasPotentialGuideSource,
-                        selectedChannelId = selectedDisplayChannelId,
-                        playingChannelId = playingDisplayChannelId ?: playingChannelId,
-                        focusSelectedChannelSignal = focusSelectedChannelSignal,
-                        focusEpgSignal = focusEpgSignal,
-                        focusMode = if (focusZone == LiveTvFocusZone.EPG) {
-                            EpgGridFocusMode.Epg
-                        } else {
-                            EpgGridFocusMode.ChannelList
-                        },
-                        scrollResetKey = filteredChannelsScopeKey,
-                        compact = true,
-                        gridFocused = focusZone == LiveTvFocusZone.EPG,
-                        backHandlingEnabled = channelMenu == null && !searchOpen && variantPickerChannel == null,
-                        onChannelSelect = { channel ->
-                            focusZone = LiveTvFocusZone.CHANNEL_LIST
-                            selectChannel(channel)
-                        },
-                        onProgramSelect = { channel, program ->
-                            program?.let { selectEpgProgram(channel, it) }
-                        },
-                        onChannelFocused = { channel -> commitFocusedChannel(channel) },
-                        onProgramFocused = { channel, programme -> focusedProgramme = channel to programme },
-                        onChannelLongPress = { channel, fromKeyHold -> openChannelMenu(channel, fromKeyHold) },
-                        favorites = favSet,
-                        variantCountFor = { channel -> variantCountFor(channel, variantGroups) },
-                        onMoveLeftFromChannels = { focusPlaylistSearch() },
-                        onBackToGroups = null,
-                        onEnterEpg = { channel -> focusEpg(channel.id) },
-                        onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
-                        onRequestNextChannels = ::requestGuideWindowAfter,
-                        onVisibleChannelRange = ::onGuideVisibleRange,
-                        modifier = Modifier.fillMaxSize(),
+                        info = touchPlayer,
+                        guide = touchGuide,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = contentTopPadding),
                     )
                 }
             } else LiveDrawerWorkspace(expanded = sidebarExpanded,
@@ -3769,7 +3921,8 @@ fun LiveTvScreen(
                     expanded = sidebarExpanded,
                     fixedViewport = true,
                     sidebarWidth = LiveDims.SidebarExpanded,
-                    providers = providerFilters,
+                    newDesign = newGuideDesign,
+                    providers = sidebarProviderFilters,
                     selectedProviderId = selectedProviderId,
                     onProviderSelect = { id ->
                         noteGuideUserNavigation()
@@ -3782,6 +3935,9 @@ fun LiveTvScreen(
                     focusRequester = sidebarFocus,
                     onSelect = { id ->
                         requestCategorySelection(id)
+                    },
+                    onSelectKeepOpen = { id ->
+                        requestCategorySelection(id, closeDrawer = false)
                     },
                     onOpenSearch = { searchOpen = true },
                     onHideCategory = { playlistId, groupName ->
@@ -3810,18 +3966,19 @@ fun LiveTvScreen(
                         }
                     },
                     onMoveRight = {
-                        categoryDrawerOpen = false
-                        focusGuideAfterDrawerClose = false
                         if (sportsSelected) {
+                            focusGuideAfterDrawerClose = false
+                            categoryDrawerOpen = false
                             focusZone = LiveTvFocusZone.SPORTS
                             sportsFocusSignal++
                         } else {
-                        val target = rememberedChannelByCategory[categoryScope]
-                            ?.takeIf { it in filteredChannelIndexById }
-                            ?: playingChannelId?.let { displayChannelIdFor(it, visibleEnrichedState.value.index.byId, variantGroups) }
-                                ?.takeIf { it in filteredChannelIndexById }
-                            ?: filteredChannels.firstOrNull()?.id
-                        focusChannelList(target)
+                            // Samme udskudte sti som når man trykker OK på en
+                            // gruppe: luk skuffen, skift zone med det samme så
+                            // sidebar-effekten slipper fokus, og lad effekten
+                            // tage fokus når skuffen faktisk er lukket.
+                            focusGuideAfterDrawerClose = true
+                            categoryDrawerOpen = false
+                            focusZone = LiveTvFocusZone.CHANNEL_LIST
                         }
                     },
                     onMoveUpFromSearch = {
@@ -3857,6 +4014,7 @@ fun LiveTvScreen(
                         variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
                         onOpenVariants = playingChannel?.let { channel -> { openVariantPicker(channel) } },
                         compact = compactTouchLayout,
+                        newDesign = newGuideDesign,
                         playerActive = miniPlayerActive,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -3864,7 +4022,7 @@ fun LiveTvScreen(
                         events = sportsDisplayEvents, now = guideClockMillis, loading = sportsDisplayLoading, clockFormat = sportsClockFormat,
                         failed = sportsError, onRetry = { sportsRefresh++ }, providerNames = sportsProviderNames,
                         focusSignal = sportsFocusSignal,
-                        onContentFocused = { focusZone = LiveTvFocusZone.SPORTS; categoryDrawerOpen = false },
+                        onContentFocused = { focusZone = LiveTvFocusZone.SPORTS },
                         onOpenCategories = { openCategoryDrawer() },
                         onPlay = { channel -> playLiveFullscreen(channel.enrich(0)) },
                         modifier = Modifier.weight(1f),
@@ -3893,6 +4051,8 @@ fun LiveTvScreen(
                         compact = compactTouchLayout,
                         gridFocused = focusZone == LiveTvFocusZone.CHANNEL_LIST || focusZone == LiveTvFocusZone.EPG,
                         backHandlingEnabled = channelMenu == null && !searchOpen && variantPickerChannel == null,
+                        newDesign = newGuideDesign,
+                        rowHeightOverride = if (newGuideDesign) LiveGuideDensity.rowHeightDp(guideSettings.rowCount).dp else null,
                         onChannelSelect = { channel ->
                             selectChannel(channel)
                         },
@@ -3907,11 +4067,19 @@ fun LiveTvScreen(
                         // onOpenVariants dropped: quality variants are now an item in the
                         // channel long-press menu, so EpgGrid no longer takes that callback.
                         onMoveLeftFromChannels = { openCategoryDrawer() },
+                        onMoveUpFromTop = {
+                            // Øverste kanal, op igen: videre op i topbaren.
+                            noteGuideUserNavigation()
+                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile)
+                                .coerceIn(0, maxTopBarIndex)
+                            focusZone = LiveTvFocusZone.TOPBAR
+                            true
+                        },
                         onEnterEpg = { channel -> focusEpg(channel.id) },
                         onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
                         onRequestNextChannels = ::requestGuideWindowAfter,
                         onVisibleChannelRange = ::onGuideVisibleRange,
-                        channelColumnWidthOverride = guideChannelColumnWidth,
+                        channelColumnWidthOverride = if (!newGuideDesign) LiveDims.EpgChannelWideColWidth else LiveGuideDensity.ChannelColumnDp.dp,
                         modifier = Modifier
                             .fillMaxSize()
                             .then(if (!isTouchDevice) Modifier.focusRequester(epgFocus) else Modifier),
@@ -4374,7 +4542,9 @@ fun LiveTvScreen(
                         sportsSelected = false
                         currentMode = LiveTvStartup.LiveTvMode.Guide
                     }
-                    if (!useTouchRail) categoryDrawerOpen = false
+                    // Søgningen åbnes fra gruppekolonnen, så den står stadig åben
+                    // når man vælger en kanal. Intet andet i flowet lukker den.
+                    if (!isTouchDevice) categoryDrawerOpen = false
                     focusChannelList(channel.id)
                 },
             )

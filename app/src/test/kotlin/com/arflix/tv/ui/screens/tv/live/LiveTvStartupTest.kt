@@ -132,6 +132,19 @@ class LiveTvStartupTest {
     }
 
     @Test
+    fun backLeavesTvAtOnceWhenTheGroupColumnIsFixed() {
+        // Tabletten: kolonnen står altid fremme, så der er intet at åbne. Uden
+        // dette blev første tilbage-tryk slugt af en usynlig skuffe.
+        assertThat(
+            LiveTvStartup.guideBackAction(
+                isTouchDevice = false,
+                categoryDrawerOpen = false,
+                hasCollapsibleDrawer = false,
+            )
+        ).isEqualTo(LiveTvStartup.GuideBackAction.EXIT_TV)
+    }
+
+    @Test
     fun largePlaylistWindowIsAnchoredBeforeTheLastChannel() {
         assertThat(LiveTvStartup.anchoredWindowOffset(channelIndex = 20_000, visibleRowsBeforeAnchor = 16))
             .isEqualTo(19_984)
