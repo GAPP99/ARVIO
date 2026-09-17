@@ -120,6 +120,13 @@ data class SearchUiState(
     val year: Int? = null,
     /** Movies only — `discover/tv` has no certification parameter at TMDB. */
     val certification: String? = null,
+    /**
+     * The title's original language as a TMDB code, `null` for "any" (S3: one at a time).
+     *
+     * The original language, not the app's: it decides which titles the grid shows, never which
+     * words the app uses. The two live far apart on purpose — see [DiscoverRequest.language].
+     */
+    val language: String? = null,
     val hideWatched: Boolean = false,
     // Discover grid - shown instead of the five rows as soon as a filter is set
     val discoverGridItems: List<MediaItem> = EMPTY_MEDIA_ITEMS,
@@ -140,7 +147,7 @@ data class SearchUiState(
      */
     val hasDiscoverFilters: Boolean
         get() = selectedGenres.isNotEmpty() || rating.isSet || decade != null || year != null ||
-            certification != null || hideWatched
+            certification != null || language != null || hideWatched
 }
 
 @HiltViewModel
@@ -203,6 +210,11 @@ class SearchViewModel @Inject constructor(
 
                 // Each row brings its own sort and vote floor — that is what makes it a row and
                 // not a slice of the grid, so the sort chip deliberately does not reach here.
+                //
+                // The rows stay on the any-release window on purpose (B34): "New Releases" asks
+                // what turned up in the last 90 days, and a film that just landed on a platform
+                // belongs there. Only the grid, where the user compares the year against the
+                // card, moved to the premiere date.
                 fun row(sort: String, minVotes: Int, page: Int = 1, from: String? = null) = DiscoverRequest(
                     type = type, genres = genres, sort = sort, minVotes = minVotes, page = page,
                     releaseDateGte = from, releaseDateLte = today
@@ -286,8 +298,22 @@ class SearchViewModel @Inject constructor(
         val year: Int? = null,
         val certification: String? = null,
         val certificationCountry: String? = null,
+        /**
+         * The original language wanted, or `null` for any of them.
+         *
+         * `MediaRepository` calls its parameter `language` too, and there it becomes
+         * `with_original_language` — the language a title was made in. The language the app is
+         * read in travels beside it as `contentLanguage` and is none of this class's business
+         * (T8). Reading this name as "the app's language" builds the filter the wrong way round.
+         */
+        val language: String? = null,
         val releaseDateGte: String? = null,
-        val releaseDateLte: String? = null
+        val releaseDateLte: String? = null,
+        // The same window, but measured on the FIRST release instead of any release. The grid
+        // uses this one because the year on the card is the first release too; the browse rows
+        // above keep the old pair, where "anything out in the last 90 days" is what is meant.
+        val premiereDateGte: String? = null,
+        val premiereDateLte: String? = null
     )
 
     /**
@@ -321,10 +347,13 @@ class SearchViewModel @Inject constructor(
             year = request.year,
             releaseDateLte = request.releaseDateLte,
             releaseDateGte = request.releaseDateGte,
+            primaryReleaseDateLte = request.premiereDateLte,
+            primaryReleaseDateGte = request.premiereDateGte,
             minVoteAverage = request.minRating,
             maxVoteAverage = request.maxRating,
             certificationCountry = request.certification?.let { request.certificationCountry },
-            certificationLte = request.certification
+            certificationLte = request.certification,
+            language = request.language
         )
 
     private suspend fun discoverTvFor(
@@ -341,8 +370,11 @@ class SearchViewModel @Inject constructor(
             keywords = keywords,
             airDateLte = request.releaseDateLte,
             airDateGte = request.releaseDateGte,
+            firstAirDateLte = request.premiereDateLte,
+            firstAirDateGte = request.premiereDateGte,
             minVoteAverage = request.minRating,
-            maxVoteAverage = request.maxRating
+            maxVoteAverage = request.maxRating,
+            language = request.language
         )
 
     /**
@@ -466,6 +498,10 @@ class SearchViewModel @Inject constructor(
         // A release date in the future has no rating and usually no poster either, so the grid
         // stays on what is actually out — except when a year is asked for explicitly. A decade
         // turns that cap into a window; the rule itself lives in releaseWindowFor.
+        //
+        // The window travels as the PREMIERE date (B34): asked by any release, a film from 1994
+        // that came back to cinemas in 2021 answered the 2020s and then printed 1994 on its own
+        // card. The browse rows above are a different question and keep the old pair.
         val window = releaseWindowFor(state.decade, state.year, today)
         return DiscoverRequest(
             type = state.selectedType,
@@ -478,8 +514,9 @@ class SearchViewModel @Inject constructor(
             year = state.year,
             certification = state.certification.takeIf { supportsCertification(state.selectedType) },
             certificationCountry = ContentRating.regionOf(mediaRepository.contentLanguage),
-            releaseDateGte = window.from,
-            releaseDateLte = window.to
+            language = state.language,
+            premiereDateGte = window.from,
+            premiereDateLte = window.to
         )
     }
 
@@ -624,6 +661,19 @@ class SearchViewModel @Inject constructor(
         applyDiscoverSelection()
     }
 
+    /**
+     * Picks the original language a title has to be in, or drops the filter again with `null`.
+     *
+     * One at a time (S3), so a second press on another tile replaces the first rather than
+     * adding to it — and only ever one code leaves for TMDB.
+     */
+    fun selectLanguage(code: String?) {
+        val state = _uiState.value
+        if (state.language == code) return
+        _uiState.value = state.copy(language = code)
+        applyDiscoverSelection()
+    }
+
     fun setHideWatched(hide: Boolean) {
         val state = _uiState.value
         if (state.hideWatched == hide) return
@@ -648,6 +698,7 @@ class SearchViewModel @Inject constructor(
             decade = null,
             year = null,
             certification = null,
+            language = null,
             hideWatched = false
         )
         applyDiscoverSelection(debounce = false)

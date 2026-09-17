@@ -8,6 +8,7 @@
     <string name="tmdb_attribution" translatable="false">This product uses the TMDB API but is not endorsed or certified by TMDB.</string>
     <string name="authorized_sources_notice">ARVIO is a media hub for sources you configure. A catalog entry does not grant viewing rights. Connect only services and media you are authorized to use.</string>
     <string name="credits_and_copyright">Credits &amp; copyright reports</string>
+    <string name="thesportsdb_attribution">Sports data and artwork provided by TheSportsDB.</string>
     <string name="trailers_on_youtube">Trailers on YouTube</string>
     <string name="trailer_open_failed">Could not open the trailer. Install YouTube or a web browser and try again.</string>
     <string name="now_playing">NOW PLAYING</string>
@@ -322,6 +323,35 @@
     <string name="live_quick_recent">Recently watched</string>
     <string name="live_channels_count">%1$d channels</string>
     <string name="live_sports_live_and_upcoming">Live &amp; upcoming</string>
+    <string name="live_channel_count_one">%1$d channel</string>
+    <string name="live_cat_sports">Sports</string>
+
+    <!-- Extracted from code: Live TV sports guide -->
+    <string name="live_sports_badge_on_air">ON AIR</string>
+    <string name="live_sports_badge_scheduled_now">SCHEDULED NOW</string>
+    <string name="live_sports_reading_schedule">Reading sports schedule</string>
+    <string name="live_sports_schedule_unavailable">Schedule unavailable</string>
+    <string name="live_sports_artwork_unavailable">Event artwork unavailable</string>
+    <string name="live_sports_no_events_matched">No sports events matched to your channels</string>
+    <string name="live_sports_round">Round %1$s</string>
+    <string name="live_sports_show_score">Show score</string>
+    <string name="live_sports_channels">Channels</string>
+    <string name="live_sports_scheduled_channels">Scheduled channels</string>
+    <string name="live_sports_possible_broadcast">Possible broadcast</string>
+    <string name="live_sports_guide_match">Guide match</string>
+    <string name="live_sports_no_matching_channels">No matching channels in your playlists.</string>
+    <string name="live_sports_event_gone">This event is no longer in the available guide.</string>
+
+    <!-- Extracted from code: Live TV programme guide grid -->
+    <string name="live_guide_earlier_programmes">Earlier programmes</string>
+    <string name="live_guide_later_programmes">Later programmes</string>
+    <string name="live_guide_channels_count">%1$s channels</string>
+
+    <!-- Extracted from code: Live TV group home (touch) -->
+    <string name="live_home_all_providers">All providers</string>
+    <string name="live_home_current_playlist">Current playlist: %1$s. Tap to change playlist.</string>
+    <string name="live_home_select_playlist">Select playlist</string>
+    <string name="live_home_playlist_selected">Selected</string>
 
 
     <!-- Extracted from code: Settings screen -->
@@ -329,6 +359,10 @@
     <string name="settings_app_version_label">ARVIO V%1$s</string>
     <string name="settings_label_url">URL</string>
     <string name="settings_home_server_https_note">Use HTTPS where possible. HTTP server URLs are allowed for local networks but are not encrypted.</string>
+    <string name="homeserver_silo_help">Silo: use the Jellyfin-compatible server address supplied by the owner. If needed, enter username#ProfileName (or email#ProfileName). For a protected profile, enter password#PIN. An admin account is not required.</string>
+    <string name="homeserver_silo_profile">Silo needs a profile. Enter username#ProfileName (or email#ProfileName), using the exact profile name from Silo.</string>
+    <string name="homeserver_silo_pin">Silo needs a valid profile PIN. Enter username#ProfileName and use password#PIN in the password field.</string>
+    <string name="homeserver_compat_endpoint">This address did not provide the Jellyfin-compatible login API. For Silo, ask the server owner for its Jellyfin-compatible address; the website may use a different port or URL.</string>
     <string name="settings_label_server_name">Server name</string>
     <string name="settings_ph_server_name">Optional, shown in sources</string>
     <string name="settings_label_server_url">Server URL</string>
@@ -910,6 +944,7 @@
     <string name="crash_qr_hint">Scan to open arvio.tv — 1 tap to copy report &amp; jump into Discord.</string>
     <string name="crash_details_title">Crash Reference Details</string>
     <string name="crash_details_body">ID: %1$s\nTime: %2$s\nVersion: %3$s\nError: %4$s</string>
+    <string name="crash_error_unexpected">Unexpected error</string>
     <string name="crash_copied_toast">Crash details copied! Opening Discord...</string>
     <string name="crash_report_discord">Report on Discord</string>
     <string name="crash_restart_app">Restart ARVIO</string>
@@ -947,6 +982,8 @@
     <string name="collection_tab_live_upcoming">Live &amp; Upcoming</string>
 
     <!-- Extracted from code: Details, Home, Search and Player -->
+    <string name="details_episodes_previous_page">Previous page</string>
+    <string name="details_episodes_next_page">Next page</string>
     <string name="details_toast_debrid_downloading">This debrid torrent is still being downloaded. Try another source or wait a bit.</string>
     <string name="details_episode_code_short">S%1$d:E%2$d</string>
     <string name="details_label_tv_series">TV Series</string>
@@ -981,6 +1018,10 @@
     <string name="search_filter_rating">Rating</string>
     <string name="search_filter_year">Year</string>
     <string name="search_filter_age">Age rating</string>
+    <string name="search_filter_language">Language</string>
+    <string name="search_filter_language_ja">Japanese</string>
+    <string name="search_filter_language_ko">Korean</string>
+    <string name="search_filter_language_hi">Hindi</string>
     <string name="search_filter_hide_watched">Hide watched</string>
     <string name="search_filter_any">Any</string>
     <string name="search_filter_match_all">AND</string>
@@ -993,6 +1034,7 @@
     <string name="search_filter_clear">Clear filters</string>
     <string name="search_filter_panel_hint">The grid updates as you tick · BACK closes the panel</string>
     <string name="search_filter_age_movies_only">Movies only — TMDB has no age filter for series</string>
+    <string name="search_filter_language_hint">The language a title was made in — not the language of the app</string>
     <string name="search_filter_votes_hint">A high floor hides fresh releases, so the default stays Any</string>
     <string name="search_filter_match_hint">AND: only titles carrying every genre · OR: titles with at least one</string>
     <string name="search_filter_rating_from_short">From</string>
@@ -1139,6 +1181,12 @@
     <string name="live_cat_recently_watched">Recently Watched</string>
     <string name="live_cat_adult">Adult</string>
     <string name="live_cat_ungrouped">Ungrouped</string>
+    <string name="live_cat_global_sports">Sports · Global</string>
+    <string name="live_cat_global_movies">Movies · Global</string>
+    <string name="live_cat_global_news">News · Global</string>
+    <string name="live_cat_global_kids">Kids · Global</string>
+    <string name="live_cat_documentary">Documentary</string>
+    <string name="live_cat_music">Music</string>
     <string name="live_section_playlist">PLAYLIST</string>
     <string name="live_section_adult">ADULT</string>
     <string name="live_section_hidden">HIDDEN</string>

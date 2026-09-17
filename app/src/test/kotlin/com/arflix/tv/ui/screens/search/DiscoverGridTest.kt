@@ -34,7 +34,7 @@ class DiscoverGridTest {
         every { trakt.getWatchedMoviesFromCache() } returns setOf(1)
         var calls = 0
         coEvery {
-            repository.discoverMovies(genres = any(), page = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = any(), page = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } coAnswers {
             calls++
             if (arg<Int>(3) <= 5) listOf(movie(1)) else listOf(movie(2))
@@ -55,7 +55,7 @@ class DiscoverGridTest {
     @Test fun failedPageWaitsForExplicitRetryAndKeepsExistingTitles() = runBlocking {
         var attempts = 0
         coEvery {
-            repository.discoverMovies(genres = "28", page = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28", page = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } coAnswers {
             if (arg<Int>(3) == 1) listOf(movie(1))
             else if (++attempts == 1) throw java.io.IOException("offline")
@@ -80,7 +80,7 @@ class DiscoverGridTest {
         val started = kotlinx.coroutines.CompletableDeferred<Unit>()
         val cancelled = kotlinx.coroutines.CompletableDeferred<Unit>()
         coEvery {
-            repository.discoverMovies(genres = "28", page = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28", page = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } coAnswers {
             if (arg<Int>(3) == 1) listOf(movie(1)) else {
                 started.complete(Unit)
@@ -111,8 +111,8 @@ class DiscoverGridTest {
     @Before fun setUp() {
         Dispatchers.setMain(Dispatchers.Unconfined)
         coEvery { repository.getLogoUrl(any<MediaType>(), any()) } returns null
-        coEvery { repository.discoverMovies(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns emptyList()
-        coEvery { repository.discoverTv(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns emptyList()
+        coEvery { repository.discoverMovies(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns emptyList()
+        coEvery { repository.discoverTv(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns emptyList()
         model = SearchViewModel(repository, trakt)
         store.put("search", model)
     }
@@ -129,7 +129,7 @@ class DiscoverGridTest {
 
     @Test fun settingAGenreSwitchesFromRowsToTheGrid() = runBlocking {
         coEvery {
-            repository.discoverMovies(genres = "28", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(1), movie(2))
 
         model.toggleGenre(action)
@@ -143,10 +143,10 @@ class DiscoverGridTest {
 
     @Test fun loadMoreAppendsTheNextPageAndDropsDuplicates() = runBlocking {
         coEvery {
-            repository.discoverMovies(genres = "28", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(1), movie(2))
         coEvery {
-            repository.discoverMovies(genres = "28", page = 2, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28", page = 2, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(2), movie(3))
 
         model.toggleGenre(action)
@@ -160,7 +160,7 @@ class DiscoverGridTest {
 
     @Test fun anEmptyPageEndsThePagingSoTheGridStopsAsking() = runBlocking {
         coEvery {
-            repository.discoverMovies(genres = "28", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns emptyList()
 
         model.toggleGenre(action)
@@ -169,16 +169,16 @@ class DiscoverGridTest {
         model.loadMoreDiscoverGrid()
 
         coVerify(exactly = 0) {
-            repository.discoverMovies(genres = "28", page = 2, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28", page = 2, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         }
     }
 
     @Test fun clearingTheGenreBringsTheRowsBack() = runBlocking {
         coEvery {
-            repository.discoverMovies(genres = "28", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(1))
         coEvery {
-            repository.discoverMovies(genres = null, page = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = null, page = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(9))
 
         model.toggleGenre(action)
@@ -192,7 +192,7 @@ class DiscoverGridTest {
 
     @Test fun theGridFollowsTheMediaTypeAndUsesTheSeriesGenreId() = runBlocking {
         coEvery {
-            repository.discoverTv(genres = "10759", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), airDateLte = any(), airDateGte = any(), minVoteAverage = any(), maxVoteAverage = any())
+            repository.discoverTv(genres = "10759", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), airDateLte = any(), airDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), firstAirDateLte = any(), firstAirDateGte = any())
         } returns listOf(show(5))
 
         model.selectType(DiscoverType.TV_SHOWS)
@@ -207,7 +207,7 @@ class DiscoverGridTest {
     @Test fun twoGenresAreSentAsOneAndedValue() = runBlocking {
         val sciFi = MOVIE_GENRES.first { it.id == 878 }
         coEvery {
-            repository.discoverMovies(genres = "28,878", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28,878", page = 1, sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(1))
 
         model.toggleGenre(action)
@@ -220,7 +220,7 @@ class DiscoverGridTest {
 
     @Test fun theSortChipReachesTheGridRequest() = runBlocking {
         coEvery {
-            repository.discoverMovies(genres = "28", sortBy = "vote_average.desc", page = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(genres = "28", sortBy = "vote_average.desc", page = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(7))
 
         model.toggleGenre(action)
@@ -232,7 +232,7 @@ class DiscoverGridTest {
 
     @Test fun theRatingRangeAndVoteFloorBothReachTheRequest() = runBlocking {
         coEvery {
-            repository.discoverMovies(minVoteAverage = 7.0, maxVoteAverage = 9.0, minVoteCount = 500, genres = any(), sortBy = any(), page = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(minVoteAverage = 7.0, maxVoteAverage = 9.0, minVoteCount = 500, genres = any(), sortBy = any(), page = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(8))
 
         model.setRating(RatingFilter(min = 7.0, max = 9.0, minVotes = 500))
@@ -242,16 +242,51 @@ class DiscoverGridTest {
         assertEquals(listOf(8), state.discoverGridItems.map { it.id })
     }
 
-    /** A year is an explicit ask, so the "nothing unreleased" cut-off has to step aside for it. */
+    /**
+     * A year is an explicit ask, so the "nothing unreleased" cut-off has to step aside for it.
+     *
+     * It also travels on its own parameter (`primary_release_year`), which is why the year never
+     * showed the wrong numbers and the decade did (B34) — so no date window may go out with it.
+     */
     @Test fun askingForAYearDropsTheReleasedUpToTodayLimit() = runBlocking {
         coEvery {
-            repository.discoverMovies(year = 1999, releaseDateLte = null, genres = any(), sortBy = any(), minVoteCount = any(), page = any(), language = any(), keywords = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(year = 1999, releaseDateLte = null, releaseDateGte = null, primaryReleaseDateLte = null, primaryReleaseDateGte = null, genres = any(), sortBy = any(), minVoteCount = any(), page = any(), language = any(), keywords = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
         } returns listOf(movie(11))
 
         model.selectYear(1999)
         val state = withTimeout(5_000) { model.uiState.first { it.discoverGridItems.isNotEmpty() } }
 
         assertEquals(listOf(11), state.discoverGridItems.map { it.id })
+    }
+
+    // ── B34: the decade asks for the date the card actually prints ─────
+
+    /**
+     * Filtered by any release, a film from 1994 that returned to cinemas in 2021 answered the
+     * 2020s and then printed 1994 on its own card. `primary_release_date` is the first release.
+     */
+    @Test fun aDecadeAsksMoviesForTheirFirstReleaseNotForEveryRerun() = runBlocking {
+        coEvery {
+            repository.discoverMovies(primaryReleaseDateGte = "1990-01-01", primaryReleaseDateLte = "1999-12-31", releaseDateGte = null, releaseDateLte = null, genres = any(), sortBy = any(), minVoteCount = any(), page = any(), language = any(), year = any(), keywords = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+        } returns listOf(movie(90))
+
+        model.selectDecade(Decade(1990, 1999))
+        val state = withTimeout(5_000) { model.uiState.first { it.discoverGridItems.isNotEmpty() } }
+
+        assertEquals(listOf(90), state.discoverGridItems.map { it.id })
+    }
+
+    /** The same bug on the series side: `air_date` is one episode, `first_air_date` the start. */
+    @Test fun aDecadeAsksSeriesWhenTheyStartedNotWhenAnEpisodeAired() = runBlocking {
+        coEvery {
+            repository.discoverTv(firstAirDateGte = "1990-01-01", firstAirDateLte = "1999-12-31", airDateGte = null, airDateLte = null, genres = any(), sortBy = any(), minVoteCount = any(), page = any(), language = any(), year = any(), keywords = any(), minVoteAverage = any(), maxVoteAverage = any())
+        } returns listOf(show(91))
+
+        model.selectType(DiscoverType.TV_SHOWS)
+        model.selectDecade(Decade(1990, 1999))
+        val state = withTimeout(5_000) { model.uiState.first { it.discoverGridItems.isNotEmpty() } }
+
+        assertEquals(listOf(91), state.discoverGridItems.map { it.id })
     }
 
     @Test fun anAgeRatingIsNeverSentForSeriesBecauseTmdbHasNoSuchFilter() = runBlocking {
@@ -265,13 +300,56 @@ class DiscoverGridTest {
         assertNull("and it cannot be set again while series are shown", model.uiState.value.certification)
     }
 
+    /**
+     * T8 in one test: the wanted language has to leave as the title's ORIGINAL language.
+     *
+     * `MediaRepository` calls the parameter `language` and hands it on as
+     * `with_original_language`, while the language the app is read in travels separately. A
+     * filter wired to the wrong one would quietly switch the app's words instead of narrowing
+     * the grid, and nothing on the screen would say so.
+     */
+    @Test fun aChosenLanguageTravelsAsTheTitlesOriginalLanguage() = runBlocking {
+        coEvery {
+            repository.discoverMovies(language = "ja", genres = any(), sortBy = any(), minVoteCount = any(), page = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
+        } returns listOf(movie(21))
+
+        model.selectLanguage("ja")
+        val state = withTimeout(5_000) { model.uiState.first { it.discoverGridItems.isNotEmpty() } }
+
+        assertEquals(listOf(21), state.discoverGridItems.map { it.id })
+        assertTrue(state.hasDiscoverFilters)
+    }
+
+    /** The series path reaches TMDB through its own wrapper, so it needs its own proof. */
+    @Test fun theLanguageReachesTheSeriesRequestToo() = runBlocking {
+        coEvery {
+            repository.discoverTv(language = "ko", genres = any(), sortBy = any(), minVoteCount = any(), page = any(), year = any(), keywords = any(), airDateLte = any(), airDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), firstAirDateLte = any(), firstAirDateGte = any())
+        } returns listOf(show(22))
+
+        model.selectType(DiscoverType.TV_SHOWS)
+        model.selectLanguage("ko")
+        val state = withTimeout(5_000) { model.uiState.first { it.discoverGridItems.isNotEmpty() } }
+
+        assertEquals(listOf(22), state.discoverGridItems.map { it.id })
+    }
+
+    @Test fun pickingASecondLanguageReplacesTheFirstInsteadOfAddingToIt() = runBlocking {
+        model.selectLanguage("ja")
+        model.selectLanguage("hi")
+        assertEquals("hi", model.uiState.value.language)
+
+        model.selectLanguage(null)
+        assertNull("and \"any\" takes the filter off again", model.uiState.value.language)
+        assertFalse(model.uiState.value.hasDiscoverFilters)
+    }
+
     @Test fun hideWatchedDropsWatchedTitlesAndKeepsPagingUntilSomethingIsLeft() = runBlocking {
         every { trakt.getWatchedMoviesFromCache() } returns setOf(1, 2)
         coEvery {
-            repository.discoverMovies(page = 1, genres = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(page = 1, genres = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(1), movie(2))
         coEvery {
-            repository.discoverMovies(page = 2, genres = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any())
+            repository.discoverMovies(page = 2, genres = any(), sortBy = any(), minVoteCount = any(), language = any(), year = any(), keywords = any(), releaseDateLte = any(), releaseDateGte = any(), minVoteAverage = any(), maxVoteAverage = any(), certificationCountry = any(), certificationLte = any(), primaryReleaseDateLte = any(), primaryReleaseDateGte = any())
         } returns listOf(movie(3))
 
         model.setHideWatched(true)
@@ -283,13 +361,32 @@ class DiscoverGridTest {
         assertFalse(state.gridEndReached)
     }
 
+    @Test fun theResetChipComesWithTheGridAndLeavesWithIt() = runBlocking {
+        // The whole round trip the chip goes through, on the state the row is built from: it is
+        // not in the row while nothing is set, it is there once a filter is, and one press later
+        // both the filter and the chip itself are gone again.
+        assertFalse(showsClearChip(model.uiState.value))
+
+        model.toggleGenre(action)
+        model.setHideWatched(true)
+        withTimeout(5_000) { model.uiState.first { showsClearChip(it) } }
+
+        model.clearDiscoverFilters()
+        val state = withTimeout(5_000) { model.uiState.first { !showsClearChip(it) } }
+
+        assertFalse(state.hasDiscoverFilters)
+        assertTrue(state.selectedGenres.isEmpty())
+        assertFalse(state.hideWatched)
+    }
+
     @Test fun clearingEveryFilterBringsTheRowsBackInOneStep() = runBlocking {
         model.toggleGenre(action)
-        // The decade belongs in here: a filter the reset forgets leaves the screen on the grid
-        // with nothing on it explaining why.
+        // The decade belongs in here, and so does the language: a filter the reset forgets
+        // leaves the screen on the grid with nothing on it explaining why.
         model.selectDecade(Decade(2000, 2009))
         model.selectYear(2001)
         model.setRating(RatingFilter(min = 7.0))
+        model.selectLanguage("ja")
         model.setHideWatched(true)
         withTimeout(5_000) { model.uiState.first { it.hasDiscoverFilters } }
 
@@ -300,6 +397,7 @@ class DiscoverGridTest {
         assertNull(state.decade)
         assertNull(state.year)
         assertFalse(state.rating.isSet)
+        assertNull(state.language)
         assertFalse(state.hideWatched)
         assertTrue(state.discoverGridItems.isEmpty())
     }

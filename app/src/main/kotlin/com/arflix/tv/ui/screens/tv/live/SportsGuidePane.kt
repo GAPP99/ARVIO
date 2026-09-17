@@ -85,6 +85,9 @@ internal const val SPORTS_CHANNEL_CATEGORY = "g-sports"
  * kampguiden lige efter "Alle kanaler"; ellers kunne man slet ikke nå den.
  */
 internal fun LiveCategoryTree.withSportsDestination(inAccordion: Boolean = true): LiveCategoryTree {
+    // Etiketten bliver stående på engelsk, så gruppering og sammenligning stadig
+    // virker; liveCategoryLabel() oversætter den ved tegning, som for de andre
+    // kategorier.
     val guide = LiveCategory(SPORTS_GUIDE_CATEGORY, "Sports", 0, CategoryIcon.Sport)
     val udenGuide = top.filterNot { it.id == SPORTS_GUIDE_CATEGORY }
     if (!inAccordion) {
@@ -219,14 +222,20 @@ internal fun SportsGuidePane(
         else java.text.SimpleDateFormat(if (clockFormat == "12h") "h:mm a" else "HH:mm", java.util.Locale.getDefault())
     }
     val today = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate()
+    // Resolved up here because eventTime() is a plain local function, not a composable.
+    val labelLive = stringResource(R.string.live_badge_live)
+    val labelOnAir = stringResource(R.string.live_sports_badge_on_air)
+    val labelScheduledNow = stringResource(R.string.live_sports_badge_scheduled_now)
+    val labelToday = stringResource(R.string.live_label_today)
+    val labelTomorrow = stringResource(R.string.live_label_tomorrow)
     fun eventTime(event: SportsGuideEvent): String {
-        if (event.isConfirmedLive(now) || (event.channelOnly && event.isOnAir(now))) return "LIVE"
-        if (event.isOnAir(now)) return "ON AIR"
-        if (event.isScheduledNow(now)) return "SCHEDULED NOW"
+        if (event.isConfirmedLive(now) || (event.channelOnly && event.isOnAir(now))) return labelLive
+        if (event.isOnAir(now)) return labelOnAir
+        if (event.isScheduledNow(now)) return labelScheduledNow
         val date = Instant.ofEpochMilli(event.programme.startUtcMillis).atZone(ZoneId.systemDefault())
         val day = when (date.toLocalDate()) {
-            today -> "Today"
-            today.plusDays(1) -> "Tomorrow"
+            today -> labelToday
+            today.plusDays(1) -> labelTomorrow
             else -> date.format(DateTimeFormatter.ofPattern("EEE d MMM"))
         }
         return "$day ${timeFormat.format(Date(event.programme.startUtcMillis))}"
@@ -305,7 +314,7 @@ internal fun SportsGuidePane(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text("Sports", color = LiveColors.Fg, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.live_quick_sports), color = LiveColors.Fg, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -314,13 +323,13 @@ internal fun SportsGuidePane(
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 if (loading) CircularProgressIndicator(color = accentColor, modifier = Modifier.size(24.dp))
                 else Icon(Icons.Default.SportsSoccer, null, tint = LiveColors.FgDim, modifier = Modifier.size(32.dp))
-                Text(if (loading) "Reading sports schedule" else if (failed) "Schedule unavailable"
-                    else if (events.any { it.hasChannels(now) && (it.isOnAir(now) || it.programme.startUtcMillis > now) }) "Event artwork unavailable"
-                    else "No sports events matched to your channels",
+                Text(if (loading) stringResource(R.string.live_sports_reading_schedule) else if (failed) stringResource(R.string.live_sports_schedule_unavailable)
+                    else if (events.any { it.hasChannels(now) && (it.isOnAir(now) || it.programme.startUtcMillis > now) }) stringResource(R.string.live_sports_artwork_unavailable)
+                    else stringResource(R.string.live_sports_no_events_matched),
                     color = LiveColors.FgDim, modifier = Modifier.padding(14.dp))
-                if (!loading) Text("Retry", color = LiveColors.Fg,
+                if (!loading) Text(stringResource(R.string.retry), color = LiveColors.Fg,
                     modifier = Modifier.clickable { artworkRetry++; onRetry() }.padding(16.dp))
-                Text("Groups", color = LiveColors.Fg, modifier = Modifier.focusRequester(firstFocus)
+                Text(stringResource(R.string.live_groups_title), color = LiveColors.Fg, modifier = Modifier.focusRequester(firstFocus)
                     .clickable(onClick = onOpenCategories).padding(16.dp))
             }
         } else LazyColumn(Modifier.fillMaxSize().testTag("sports-guide-list"), state = listState, contentPadding = PaddingValues(bottom = 24.dp),
@@ -464,7 +473,7 @@ internal fun SportsGuidePane(
                         modifier = Modifier.padding(top = 7.dp))
                 }
                 var closeFocused by remember { mutableStateOf(false) }
-                Icon(Icons.Default.Close, "Close", tint = LiveColors.Fg,
+                Icon(Icons.Default.Close, stringResource(R.string.close), tint = LiveColors.Fg,
                     modifier = Modifier.size(44.dp)
                         .then(if (sourceChannels.isEmpty()) Modifier.focusRequester(initialFocus) else Modifier)
                         .onFocusChanged { closeFocused = it.isFocused }
@@ -472,16 +481,16 @@ internal fun SportsGuidePane(
                         .clickable(onClick = ::dismiss).padding(10.dp))
             }
             event?.fixture?.let { fixture ->
-                Text(listOfNotNull(event.competition, fixture.venue, fixture.round?.let { "Round $it" }).joinToString(" · "),
+                Text(listOfNotNull(event.competition, fixture.venue, fixture.round?.let { stringResource(R.string.live_sports_round, it) }).joinToString(" · "),
                     color = LiveColors.FgDim, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 10.dp))
                 if (fixture.homeScore != null && fixture.awayScore != null && event?.isConfirmedLive(now) == true) {
-                    Text(if (showScore) "${fixture.homeScore} : ${fixture.awayScore}" else "Show score", color = LiveColors.Fg,
+                    Text(if (showScore) "${fixture.homeScore} : ${fixture.awayScore}" else stringResource(R.string.live_sports_show_score), color = LiveColors.Fg,
                         fontSize = 12.sp, modifier = Modifier.clickable { showScore = !showScore }.padding(vertical = 10.dp))
                 }
             }
             Row(Modifier.fillMaxWidth().padding(top = 9.dp, bottom = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (onAir) "Channels" else "Scheduled channels", fontSize = 14.sp, color = LiveColors.Fg,
+                Text(if (onAir) stringResource(R.string.live_sports_channels) else stringResource(R.string.live_sports_scheduled_channels), fontSize = 14.sp, color = LiveColors.Fg,
                     fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                 Text(channelCount(sourceChannels.size), fontSize = 11.sp, color = LiveColors.FgDim)
             }
@@ -506,7 +515,7 @@ internal fun SportsGuidePane(
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text(channel.name, color = LiveColors.Fg, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val provider = providerNames[channelPlaylistId(channel.id)]
-                            Text("${provider ?: channel.group.orEmpty()} · ${if (channel.id in possibleIds) "Possible broadcast" else "Guide match"}", color = LiveColors.FgDim, fontSize = 10.sp, lineHeight = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${provider ?: channel.group.orEmpty()} · ${if (channel.id in possibleIds) stringResource(R.string.live_sports_possible_broadcast) else stringResource(R.string.live_sports_guide_match)}", color = LiveColors.FgDim, fontSize = 10.sp, lineHeight = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         val enriched = remember(channel) { channel.enrich(0) }
                         if (enriched.quality != Quality.UNKNOWN) PickerBadge(enriched.quality.label)
@@ -518,15 +527,18 @@ internal fun SportsGuidePane(
                     Box(Modifier.fillMaxWidth().height(1.dp).background(LiveColors.Divider))
                 }
             }
-            if (sourceChannels.isEmpty()) Text("No matching channels in your playlists.", color = LiveColors.FgDim,
+            if (sourceChannels.isEmpty()) Text(stringResource(R.string.live_sports_no_matching_channels), color = LiveColors.FgDim,
                 fontSize = 12.sp, modifier = Modifier.padding(vertical = 20.dp))
-            if (event == null) Text("This event is no longer in the available guide.", color = LiveColors.FgDim)
+            if (event == null) Text(stringResource(R.string.live_sports_event_gone), color = LiveColors.FgDim)
         }
     }
     }
 }
 
-private fun channelCount(count: Int) = "$count ${if (count == 1) "channel" else "channels"}"
+@Composable
+private fun channelCount(count: Int) =
+    if (count == 1) stringResource(R.string.live_channel_count_one, count)
+    else stringResource(R.string.live_channels_count, count)
 
 @Composable
 private fun EventArtwork(event: SportsGuideEvent, modifier: Modifier = Modifier, onUnavailable: () -> Unit = {}) {
