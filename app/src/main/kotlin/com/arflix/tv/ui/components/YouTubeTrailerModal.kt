@@ -1,12 +1,14 @@
 package com.arflix.tv.ui.components
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.SystemClock
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -16,6 +18,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,10 +33,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -46,14 +49,15 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -61,12 +65,13 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -82,6 +87,18 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.Abs
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import kotlinx.coroutines.delay
+
+/**
+ * Height of the TV control strip below the video.
+ *
+ * The strip is reserved permanently, even while it looks empty: the modal
+ * background is black, so an empty strip is invisible, and the video never has
+ * to change size when our bar appears or hides.
+ */
+private val tvStripHeight = 64.dp
+
+/** Space reserved for our close button on mobile. Never sits over the player. */
+private val mobileCloseSlot = 72.dp
 
 private fun formatTime(seconds: Float): String {
     val totalSec = seconds.toInt().coerceAtLeast(0)
@@ -102,36 +119,182 @@ private data class TransientIndicator(
 )
 
 /**
+ * The embedded player itself. Nothing is ever drawn on top of this.
+ *
+ * @param youTubeControls true hands playback control to YouTube's own controls
+ *   (mobile); false is the official controls=0 parameter and leaves the
+ *   controls to the caller, drawn beside the player (TV).
+ * @param blockInput true stops the WebView taking focus or touches, which TV
+ *   needs so the D-pad cannot get trapped inside the web page. On mobile it
+ *   must stay false, otherwise YouTube's own controls never see a tap.
+ */
+@Composable
+private fun TrailerPlayerSurface(
+    youtubeKey: String,
+    youTubeControls: Boolean,
+    blockInput: Boolean,
+    modifier: Modifier = Modifier,
+    onReady: (YouTubePlayer) -> Unit = {},
+    onStateChange: (PlayerConstants.PlayerState) -> Unit = {},
+    onSecond: (Float) -> Unit = {},
+    onDuration: (Float) -> Unit = {},
+    onError: () -> Unit = {},
+    onReleased: () -> Unit = {}
+) {
+    val onReadyCb by rememberUpdatedState(onReady)
+    val onStateChangeCb by rememberUpdatedState(onStateChange)
+    val onSecondCb by rememberUpdatedState(onSecond)
+    val onDurationCb by rememberUpdatedState(onDuration)
+    val onErrorCb by rememberUpdatedState(onError)
+    val onReleasedCb by rememberUpdatedState(onReleased)
+
+    AndroidView(
+        factory = { ctx ->
+            YouTubePlayerView(ctx).apply {
+                enableAutomaticInitialization = false
+
+                // Switches off the embedding library's own overlay UI, which
+                // would itself sit on top of the player.
+                setCustomPlayerUi(android.view.View(ctx).apply { visibility = android.view.View.GONE })
+
+                if (blockInput) {
+                    // CRITICAL FOR TV: Compose owns the D-pad, so the WebView
+                    // must never become focusable or swallow keys.
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                    setOnTouchListener { _, _ -> true }
+                }
+
+                val iFrameOptions = IFramePlayerOptions.Builder(ctx)
+                    .controls(if (youTubeControls) 1 else 0)
+                    .rel(0)
+                    .ivLoadPolicy(3)
+                    .ccLoadPolicy(0)
+                    .fullscreen(0)
+                    .build()
+
+                initialize(
+                    object : AbstractYouTubePlayerListener() {
+                        override fun onReady(youTubePlayer: YouTubePlayer) {
+                            onReadyCb(youTubePlayer)
+                            youTubePlayer.loadVideo(youtubeKey, 0f)
+                        }
+
+                        override fun onStateChange(
+                            youTubePlayer: YouTubePlayer,
+                            state: PlayerConstants.PlayerState
+                        ) {
+                            onStateChangeCb(state)
+                        }
+
+                        override fun onCurrentSecond(
+                            youTubePlayer: YouTubePlayer,
+                            second: Float
+                        ) {
+                            onSecondCb(second)
+                        }
+
+                        override fun onVideoDuration(
+                            youTubePlayer: YouTubePlayer,
+                            duration: Float
+                        ) {
+                            onDurationCb(duration)
+                        }
+
+                        override fun onError(
+                            youTubePlayer: YouTubePlayer,
+                            error: PlayerConstants.PlayerError
+                        ) {
+                            onErrorCb()
+                        }
+                    },
+                    iFrameOptions
+                )
+            }
+        },
+        modifier = modifier,
+        onRelease = { playerView ->
+            playerView.release()
+            onReleasedCb()
+        }
+    )
+}
+
+/** Shown in place of the player when YouTube refuses to embed the video. */
+@Composable
+private fun TrailerEmbedFallback(onOpenExternally: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "This trailer cannot be embedded directly by YouTube.",
+            style = ArvioSkin.typography.body.copy(color = Color.White.copy(alpha = 0.8f)),
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+        var fallbackBtnFocused by remember { mutableStateOf(false) }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (fallbackBtnFocused) ArvioSkin.colors.focusOutline else Color(0xFFCC0000))
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .onFocusChanged { fallbackBtnFocused = it.isFocused }
+                .clickable { onOpenExternally() }
+        ) {
+            Text(
+                text = "Watch on YouTube",
+                style = ArvioSkin.typography.button.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = if (fallbackBtnFocused) Color.Black else Color.White
+                )
+            )
+        }
+    }
+}
+
+/**
  * Clean cinema-grade YouTube trailer modal for TV and Mobile.
  *
- * Highlights:
- * - Pure video canvas: nothing of ours is drawn on top of the player.
- * - TV remote controls:
+ * Nothing of ours is ever drawn on top of the player - our own controls live
+ * beside it, which is what YouTube's "no overlays or frames in front of any
+ * part of an embedded player" rule requires.
+ *
+ * Mobile: YouTube's own controls are switched on (controls=1). They bring
+ * play/pause, a draggable scrubber, captions, quality and YouTube's own
+ * attribution, so the only thing we add is a close button - below the video in
+ * portrait, in the black letterbox strip beside it in landscape.
+ *
+ * TV: a D-pad cannot drive a web control bar, so TV keeps controls=0 and our
+ * own bar, drawn in a permanently reserved strip *below* the video:
  *   - [DPAD_CENTER] / [ENTER]: Play / Pause toggle
  *   - [DPAD_LEFT] / [MediaRewind]: Seek backward 10s
  *   - [DPAD_RIGHT] / [MediaFastForward]: Seek forward 10s
- *   - [DPAD_UP]: Focus top action buttons (Close ✕ & Watch in YouTube)
- *   - [DPAD_DOWN]: Focus video player canvas
+ *   - [DPAD_DOWN]: reveal the bar and move focus into the strip
+ *   - [DPAD_UP]: reveal the bar, or return to the video from the strip
  *   - [BACK]: Dismiss modal cleanly and restore focus to Details
- * - Auto-hiding HUD: fades out after 3.5s of playback, reappears on any remote key press or tap.
+ * The strip always shows a focusable "YouTube" button: it is the attribution
+ * that controls=0 takes away, and it doubles as the way out to the YouTube app.
  */
 @Composable
 fun YouTubeTrailerModal(
     youtubeKey: String,
-    title: String = "",
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val isMobile = LocalDeviceType.current.isTouchDevice()
+    val isLandscape =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     val playerFocusRequester = remember { FocusRequester() }
-    val closeFocusRequester = remember { FocusRequester() }
-    val extFocusRequester = remember { FocusRequester() }
+    val youtubeFocusRequester = remember { FocusRequester() }
 
     var isPlayerFocused by remember { mutableStateOf(false) }
-    var isCloseFocused by remember { mutableStateOf(false) }
-    var isExtFocused by remember { mutableStateOf(false) }
+    var isYouTubeFocused by remember { mutableStateOf(false) }
 
     var activePlayer by remember(youtubeKey) { mutableStateOf<YouTubePlayer?>(null) }
     var playbackError by remember(youtubeKey) { mutableStateOf(false) }
@@ -140,7 +303,8 @@ fun YouTubeTrailerModal(
     var currentSecond by remember { mutableFloatStateOf(0f) }
     var duration by remember { mutableFloatStateOf(0f) }
 
-    var showHud by remember { mutableStateOf(true) }
+    // Our own bar starts hidden and is only ever shown on a key press (TV).
+    var showBar by remember { mutableStateOf(false) }
     var lastInteractionTime by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
     var transientIndicator by remember { mutableStateOf<TransientIndicator?>(null) }
 
@@ -149,17 +313,20 @@ fun YouTubeTrailerModal(
         onClose()
     }
 
-    // Auto-focus player container for direct remote interaction on start
-    LaunchedEffect(Unit) {
-        delay(150)
-        runCatching { playerFocusRequester.requestFocus() }
+    // TV drives the player with the D-pad, so the video takes focus on open.
+    // On mobile the taps go to YouTube's own controls instead.
+    LaunchedEffect(isMobile) {
+        if (!isMobile) {
+            delay(150)
+            runCatching { playerFocusRequester.requestFocus() }
+        }
     }
 
-    // Auto-hide HUD after 3.5s when playing and no buttons are focused
-    LaunchedEffect(showHud, isPlaying, lastInteractionTime, isCloseFocused, isExtFocused) {
-        if (showHud && isPlaying && !isCloseFocused && !isExtFocused) {
+    // Auto-hide our bar after 3.5s - kept from the original implementation
+    LaunchedEffect(showBar, isPlaying, lastInteractionTime, isYouTubeFocused) {
+        if (showBar && isPlaying && !isYouTubeFocused) {
             delay(3500)
-            showHud = false
+            showBar = false
         }
     }
 
@@ -175,6 +342,11 @@ fun YouTubeTrailerModal(
         transientIndicator = TransientIndicator(type, text, icon)
     }
 
+    fun markInteraction() {
+        showBar = true
+        lastInteractionTime = SystemClock.uptimeMillis()
+    }
+
     fun openExternalYouTube() {
         try {
             val url = "https://www.youtube.com/watch?v=$youtubeKey"
@@ -184,6 +356,52 @@ fun YouTubeTrailerModal(
             onClose()
         } catch (_: Exception) {
             Toast.makeText(context, R.string.trailer_open_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val barAlpha by animateFloatAsState(
+        targetValue = if (showBar) 1f else 0f,
+        label = "trailerBarFade"
+    )
+
+    val videoSurface: @Composable (Modifier) -> Unit = { modifier ->
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black)
+        ) {
+            if (!playbackError) {
+                TrailerPlayerSurface(
+                    youtubeKey = youtubeKey,
+                    youTubeControls = isMobile,
+                    blockInput = !isMobile,
+                    modifier = Modifier.fillMaxSize(),
+                    onReady = { player ->
+                        activePlayer = player
+                        player.unMute()
+                    },
+                    onStateChange = { state ->
+                        when (state) {
+                            PlayerConstants.PlayerState.PLAYING -> isPlaying = true
+                            PlayerConstants.PlayerState.PAUSED -> {
+                                isPlaying = false
+                                if (!isMobile) showBar = true
+                            }
+                            PlayerConstants.PlayerState.ENDED -> {
+                                isPlaying = false
+                                if (!isMobile) showBar = true
+                            }
+                            else -> {}
+                        }
+                    },
+                    onSecond = { currentSecond = it },
+                    onDuration = { duration = it },
+                    onError = { playbackError = true },
+                    onReleased = { activePlayer = null }
+                )
+            } else {
+                TrailerEmbedFallback(onOpenExternally = { openExternalYouTube() })
+            }
         }
     }
 
@@ -208,471 +426,235 @@ fun YouTubeTrailerModal(
             },
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth(if (isMobile) 0.96f else 0.88f)
-                .widthIn(max = 1000.dp)
-                .padding(vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // 16:9 Cinema Video Container
-            Box(
+        if (isMobile) {
+            // Size the player ourselves so it is exactly 16:9 and never
+            // screen-filling: then the black letterbox strips belong to us and
+            // a button placed there sits beside the player, not over it.
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                // One frame for both orientations: side slots in landscape, a
+                // slot underneath in portrait. The player keeps the same place
+                // in the layout either way, so turning the phone does not
+                // dispose it and restart the trailer - the activity handles the
+                // orientation change itself (configChanges in the manifest).
+                val sideSlot: Dp = if (isLandscape) mobileCloseSlot else 0.dp
+                val availableWidth: Dp =
+                    if (isLandscape) maxWidth - sideSlot * 2 else maxWidth * 0.96f
+                val availableHeight: Dp =
+                    if (isLandscape) maxHeight else maxHeight - mobileCloseSlot
+                val videoWidth = minOf(availableWidth, availableHeight * (16f / 9f))
+                val videoHeight = videoWidth * (9f / 16f)
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Mirror of the button slot, so the video stays centred
+                        Spacer(modifier = Modifier.width(sideSlot))
+                        videoSurface(
+                            Modifier
+                                .width(videoWidth)
+                                .height(videoHeight)
+                        )
+                        Box(
+                            modifier = Modifier.width(sideSlot),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isLandscape) {
+                                TrailerCloseButton(onClose = onClose)
+                            }
+                        }
+                    }
+                    if (!isLandscape) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        TrailerCloseButton(onClose = onClose)
+                    }
+                }
+            }
+        } else {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black)
-                    .border(
-                        width = if (isPlayerFocused) 2.dp else 1.dp,
-                        color = if (isPlayerFocused) ArvioSkin.colors.focusOutline else Color.White.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    .focusRequester(playerFocusRequester)
-                    .onFocusChanged { isPlayerFocused = it.isFocused }
-                    .focusable()
-                    .onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown) {
-                            when (event.key) {
-                                Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> {
-                                    if (isPlaying) {
-                                        activePlayer?.pause()
-                                        isPlaying = false
-                                        triggerIndicator(IndicatorType.PAUSE, "Paused", Icons.Default.Pause)
-                                    } else {
+                    .fillMaxWidth(0.80f)
+                    .widthIn(max = 1000.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                videoSurface(
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .border(
+                            width = if (isPlayerFocused) 2.dp else 1.dp,
+                            color = if (isPlayerFocused) {
+                                ArvioSkin.colors.focusOutline
+                            } else {
+                                Color.White.copy(alpha = 0.15f)
+                            },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .focusRequester(playerFocusRequester)
+                        .onFocusChanged { isPlayerFocused = it.isFocused }
+                        .focusable()
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown) {
+                                when (event.key) {
+                                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> {
+                                        if (isPlaying) {
+                                            activePlayer?.pause()
+                                            isPlaying = false
+                                            triggerIndicator(IndicatorType.PAUSE, "Paused", Icons.Default.Pause)
+                                        } else {
+                                            activePlayer?.play()
+                                            isPlaying = true
+                                            triggerIndicator(IndicatorType.PLAY, "Playing", Icons.Default.PlayArrow)
+                                        }
+                                        markInteraction()
+                                        true
+                                    }
+                                    Key.MediaPlay -> {
                                         activePlayer?.play()
                                         isPlaying = true
                                         triggerIndicator(IndicatorType.PLAY, "Playing", Icons.Default.PlayArrow)
+                                        markInteraction()
+                                        true
                                     }
-                                    showHud = true
-                                    lastInteractionTime = SystemClock.uptimeMillis()
-                                    true
+                                    Key.MediaPause -> {
+                                        activePlayer?.pause()
+                                        isPlaying = false
+                                        triggerIndicator(IndicatorType.PAUSE, "Paused", Icons.Default.Pause)
+                                        markInteraction()
+                                        true
+                                    }
+                                    Key.DirectionLeft, Key.MediaRewind -> {
+                                        val target = (currentSecond - 10f).coerceAtLeast(0f)
+                                        activePlayer?.seekTo(target)
+                                        currentSecond = target
+                                        triggerIndicator(IndicatorType.SEEK_BACK, "-10s", Icons.Default.FastRewind)
+                                        markInteraction()
+                                        true
+                                    }
+                                    Key.DirectionRight, Key.MediaFastForward -> {
+                                        val target = (currentSecond + 10f).coerceAtMost(duration)
+                                        activePlayer?.seekTo(target)
+                                        currentSecond = target
+                                        triggerIndicator(IndicatorType.SEEK_FORWARD, "+10s", Icons.Default.FastForward)
+                                        markInteraction()
+                                        true
+                                    }
+                                    Key.DirectionUp -> {
+                                        // Nothing lives above the video any more
+                                        markInteraction()
+                                        true
+                                    }
+                                    Key.DirectionDown -> {
+                                        markInteraction()
+                                        runCatching { youtubeFocusRequester.requestFocus() }
+                                        true
+                                    }
+                                    Key.Back, Key.Escape -> {
+                                        onClose()
+                                        true
+                                    }
+                                    else -> false
                                 }
-                                Key.MediaPlay -> {
-                                    activePlayer?.play()
-                                    isPlaying = true
-                                    triggerIndicator(IndicatorType.PLAY, "Playing", Icons.Default.PlayArrow)
-                                    showHud = true
-                                    lastInteractionTime = SystemClock.uptimeMillis()
-                                    true
+                            } else if (event.type == KeyEventType.KeyUp) {
+                                when (event.key) {
+                                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter,
+                                    Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp, Key.DirectionDown,
+                                    Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause,
+                                    Key.MediaFastForward, Key.MediaRewind,
+                                    Key.Back, Key.Escape -> true
+                                    else -> false
                                 }
-                                Key.MediaPause -> {
-                                    activePlayer?.pause()
-                                    isPlaying = false
-                                    triggerIndicator(IndicatorType.PAUSE, "Paused", Icons.Default.Pause)
-                                    showHud = true
-                                    lastInteractionTime = SystemClock.uptimeMillis()
-                                    true
-                                }
-                                Key.DirectionLeft, Key.MediaRewind -> {
-                                    val target = (currentSecond - 10f).coerceAtLeast(0f)
-                                    activePlayer?.seekTo(target)
-                                    currentSecond = target
-                                    triggerIndicator(IndicatorType.SEEK_BACK, "-10s", Icons.Default.FastRewind)
-                                    showHud = true
-                                    lastInteractionTime = SystemClock.uptimeMillis()
-                                    true
-                                }
-                                Key.DirectionRight, Key.MediaFastForward -> {
-                                    val target = (currentSecond + 10f).coerceAtMost(duration)
-                                    activePlayer?.seekTo(target)
-                                    currentSecond = target
-                                    triggerIndicator(IndicatorType.SEEK_FORWARD, "+10s", Icons.Default.FastForward)
-                                    showHud = true
-                                    lastInteractionTime = SystemClock.uptimeMillis()
-                                    true
-                                }
-                                Key.DirectionUp -> {
-                                    showHud = true
-                                    lastInteractionTime = SystemClock.uptimeMillis()
-                                    closeFocusRequester.requestFocus()
-                                    true
-                                }
-                                Key.DirectionDown -> {
-                                    showHud = true
-                                    lastInteractionTime = SystemClock.uptimeMillis()
-                                    true
-                                }
-                                Key.Back, Key.Escape -> {
-                                    onClose()
-                                    true
-                                }
-                                else -> false
-                            }
-                        } else if (event.type == KeyEventType.KeyUp) {
-                            when (event.key) {
-                                Key.DirectionCenter, Key.Enter, Key.NumPadEnter,
-                                Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp, Key.DirectionDown,
-                                Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause,
-                                Key.MediaFastForward, Key.MediaRewind,
-                                Key.Back, Key.Escape -> true
-                                else -> false
-                            }
-                        } else false
-                    }
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        showHud = !showHud
-                        lastInteractionTime = SystemClock.uptimeMillis()
-                    }
-            ) {
-                if (!playbackError) {
-                    AndroidView(
-                        factory = { ctx ->
-                            YouTubePlayerView(ctx).apply {
-                                enableAutomaticInitialization = false
-
-                                // Replace default UI (huge play/pause button, etc.) with empty view
-                                setCustomPlayerUi(android.view.View(ctx).apply { visibility = android.view.View.GONE })
-
-                                // Block touch and remote focus on WebView so Compose manages it
-                                isFocusable = false
-                                isFocusableInTouchMode = false
-                                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                                setOnTouchListener { _, _ -> true }
-
-                                val iFrameOptions = IFramePlayerOptions.Builder(ctx)
-                                    .controls(0) // Official parameter: YouTube draws no controls
-                                    .rel(0)
-                                    .ivLoadPolicy(3)
-                                    .ccLoadPolicy(0) // Official way to default captions off
-                                    .fullscreen(0)
-                                    .build()
-
-                                initialize(
-                                    object : AbstractYouTubePlayerListener() {
-                                        override fun onReady(youTubePlayer: YouTubePlayer) {
-                                            activePlayer = youTubePlayer
-                                            youTubePlayer.unMute()
-                                            youTubePlayer.loadVideo(youtubeKey, 0f)
-                                        }
-
-                                        override fun onStateChange(
-                                            youTubePlayer: YouTubePlayer,
-                                            state: PlayerConstants.PlayerState
-                                        ) {
-                                            when (state) {
-                                                PlayerConstants.PlayerState.PLAYING -> {
-                                                    isPlaying = true
-                                                }
-                                                PlayerConstants.PlayerState.PAUSED -> {
-                                                    isPlaying = false
-                                                    showHud = true
-                                                }
-                                                PlayerConstants.PlayerState.ENDED -> {
-                                                    isPlaying = false
-                                                    showHud = true
-                                                }
-                                                else -> {}
-                                            }
-                                        }
-
-                                        override fun onCurrentSecond(
-                                            youTubePlayer: YouTubePlayer,
-                                            second: Float
-                                        ) {
-                                            currentSecond = second
-                                        }
-
-                                        override fun onVideoDuration(
-                                            youTubePlayer: YouTubePlayer,
-                                            durationSec: Float
-                                        ) {
-                                            duration = durationSec
-                                        }
-
-                                        override fun onError(
-                                            youTubePlayer: YouTubePlayer,
-                                            error: PlayerConstants.PlayerError
-                                        ) {
-                                            playbackError = true
-                                        }
-                                    },
-                                    iFrameOptions
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                        onRelease = { playerView ->
-                            playerView.release()
-                            activePlayer = null
+                            } else false
                         }
-                    )
-                } else {
-                    // Fallback UI when video cannot be embedded
-                    Column(
+                )
+
+                // The strip below the video: reserved permanently, so the video
+                // never resizes. Everything of ours lives in here.
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(tvStripHeight)
+                        .padding(top = 10.dp)
+                ) {
+                    val progress = if (duration > 0f) {
+                        (currentSecond / duration).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                    Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .alpha(barAlpha)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.25f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction = progress)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(ArvioSkin.colors.focusOutline)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "This trailer cannot be embedded directly by YouTube.",
-                            style = ArvioSkin.typography.body.copy(color = Color.White.copy(alpha = 0.8f)),
-                            modifier = Modifier.padding(bottom = 16.dp)
+                            text = "${formatTime(currentSecond)} / ${formatTime(duration)}",
+                            style = ArvioSkin.typography.caption.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.9f)
+                            ),
+                            modifier = Modifier.alpha(barAlpha)
                         )
-                        var fallbackBtnFocused by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (fallbackBtnFocused) ArvioSkin.colors.focusOutline else Color(0xFFCC0000))
-                                .padding(horizontal = 20.dp, vertical = 10.dp)
-                                .onFocusChanged { fallbackBtnFocused = it.isFocused }
-                                .clickable { openExternalYouTube() }
-                        ) {
-                            Text(
-                                text = "Watch on YouTube",
-                                style = ArvioSkin.typography.button.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (fallbackBtnFocused) Color.Black else Color.White
-                                )
-                            )
-                        }
-                    }
-                }
 
-                // Transient Feedback Badge (Play / Pause / Seek ±10s)
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = transientIndicator != null,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.align(Alignment.Center)
-                ) {
-                    transientIndicator?.let { ind ->
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(Color.Black.copy(alpha = 0.78f))
-                                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
-                                .padding(horizontal = 18.dp, vertical = 10.dp),
-                            contentAlignment = Alignment.Center
+                        // The +/-10s badge used to sit in the middle of the
+                        // video. It lives down here now.
+                        AnimatedVisibility(
+                            visible = transientIndicator != null,
+                            enter = fadeIn(),
+                            exit = fadeOut()
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = ind.icon,
-                                    contentDescription = null,
-                                    tint = ArvioSkin.colors.focusOutline,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Text(
-                                    text = ind.text,
-                                    style = ArvioSkin.typography.body.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = Color.White
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Native TV & Cinema HUD (Top Header & Bottom Progress Controls)
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = showHud || !isPlaying,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // Top Header with Title and Action buttons
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.TopCenter)
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Black.copy(alpha = 0.85f),
-                                            Color.Black.copy(alpha = 0.45f),
-                                            Color.Transparent
-                                        )
-                                    )
-                                )
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = if (title.isNotBlank()) "$title - ${stringResource(R.string.trailer)}" else stringResource(R.string.trailer),
-                                style = ArvioSkin.typography.body.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 16.sp,
-                                    color = Color.White
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                // Watch externally in YouTube App
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isExtFocused) ArvioSkin.colors.focusOutline else Color.White.copy(alpha = 0.15f))
-                                        .border(
-                                            width = if (isExtFocused) 2.dp else 1.dp,
-                                            color = if (isExtFocused) ArvioSkin.colors.focusOutline else Color.White.copy(alpha = 0.25f),
-                                            shape = CircleShape
-                                        )
-                                        .focusRequester(extFocusRequester)
-                                        .onFocusChanged { isExtFocused = it.isFocused }
-                                        .focusable()
-                                        .onPreviewKeyEvent { event ->
-                                            if (event.type == KeyEventType.KeyDown) {
-                                                when (event.key) {
-                                                    Key.DirectionDown -> {
-                                                        playerFocusRequester.requestFocus()
-                                                        true
-                                                    }
-                                                    Key.DirectionRight -> {
-                                                        closeFocusRequester.requestFocus()
-                                                        true
-                                                    }
-                                                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                                                        openExternalYouTube()
-                                                        true
-                                                    }
-                                                    Key.Back, Key.Escape -> {
-                                                        onClose()
-                                                        true
-                                                    }
-                                                    else -> false
-                                                }
-                                            } else false
-                                        }
-                                        .clickable { openExternalYouTube() },
-                                    contentAlignment = Alignment.Center
+                            transientIndicator?.let { ind ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.OpenInNew,
-                                        contentDescription = "Watch on YouTube",
-                                        tint = if (isExtFocused) Color.Black else Color.White,
-                                        modifier = Modifier.size(18.dp)
+                                        imageVector = ind.icon,
+                                        contentDescription = null,
+                                        tint = ArvioSkin.colors.focusOutline,
+                                        modifier = Modifier.size(16.dp)
                                     )
-                                }
-
-                                // Close Button (✕)
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isCloseFocused) ArvioSkin.colors.focusOutline else Color.White.copy(alpha = 0.18f))
-                                        .border(
-                                            width = if (isCloseFocused) 2.dp else 1.dp,
-                                            color = if (isCloseFocused) ArvioSkin.colors.focusOutline else Color.White.copy(alpha = 0.3f),
-                                            shape = CircleShape
+                                    Text(
+                                        text = ind.text,
+                                        style = ArvioSkin.typography.caption.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = Color.White
                                         )
-                                        .focusRequester(closeFocusRequester)
-                                        .onFocusChanged { isCloseFocused = it.isFocused }
-                                        .focusable()
-                                        .onPreviewKeyEvent { event ->
-                                            if (event.type == KeyEventType.KeyDown) {
-                                                when (event.key) {
-                                                    Key.DirectionDown -> {
-                                                        playerFocusRequester.requestFocus()
-                                                        true
-                                                    }
-                                                    Key.DirectionLeft -> {
-                                                        extFocusRequester.requestFocus()
-                                                        true
-                                                    }
-                                                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                                                        onClose()
-                                                        true
-                                                    }
-                                                    Key.Back, Key.Escape -> {
-                                                        onClose()
-                                                        true
-                                                    }
-                                                    else -> false
-                                                }
-                                            } else false
-                                        }
-                                        .clickable { onClose() },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = stringResource(R.string.close),
-                                        tint = if (isCloseFocused) Color.Black else Color.White,
-                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
                         }
 
-                        // Bottom Scrim & Progress Bar with Time and TV Remote Hints
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Transparent,
-                                            Color.Black.copy(alpha = 0.55f),
-                                            Color.Black.copy(alpha = 0.90f)
-                                        )
-                                    )
-                                )
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
-                        ) {
-                            // Progress bar
-                            val progress = if (duration > 0f) (currentSecond / duration).coerceIn(0f, 1f) else 0f
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(4.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(Color.White.copy(alpha = 0.25f))
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(fraction = progress)
-                                        .height(4.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(ArvioSkin.colors.focusOutline)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            // Time and TV Remote Navigation Hints
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "${formatTime(currentSecond)} / ${formatTime(duration)}",
-                                    style = ArvioSkin.typography.caption.copy(
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 12.sp,
-                                        color = Color.White.copy(alpha = 0.9f)
-                                    )
-                                )
-
-                                Text(
-                                    text = if (isMobile) "Tap to show/hide controls" else "[OK] Play/Pause   ◄/► Seek 10s   ▲ Menu   Back Exit",
-                                    style = ArvioSkin.typography.caption.copy(
-                                        fontSize = 11.sp,
-                                        color = Color.White.copy(alpha = 0.65f)
-                                    )
-                                )
-                            }
-                        }
+                        YouTubeStripButton(
+                            isFocused = isYouTubeFocused,
+                            onFocusChanged = { isYouTubeFocused = it },
+                            focusRequester = youtubeFocusRequester,
+                            onActivate = { openExternalYouTube() },
+                            onUp = { runCatching { playerFocusRequester.requestFocus() } },
+                            onBack = onClose
+                        )
                     }
                 }
             }
@@ -692,5 +674,90 @@ fun YouTubeTrailerModal(
             lifecycleOwner.lifecycle.removeObserver(observer)
             activePlayer?.pause()
         }
+    }
+}
+
+/** The one thing we draw on mobile - and never over the player. */
+@Composable
+private fun TrailerCloseButton(onClose: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.18f))
+            .clickable { onClose() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Close,
+            contentDescription = stringResource(R.string.close),
+            tint = Color.White,
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+/**
+ * Permanent item in the TV strip. It carries two jobs at once: it is the
+ * attribution that controls=0 takes away from us, and it is the way out into
+ * the YouTube app - a path that would otherwise disappear entirely, because
+ * nothing calls OpenYouTubeTrailer any more.
+ */
+@Composable
+private fun YouTubeStripButton(
+    isFocused: Boolean,
+    onFocusChanged: (Boolean) -> Unit,
+    focusRequester: FocusRequester,
+    onActivate: () -> Unit,
+    onUp: () -> Unit,
+    onBack: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(
+                if (isFocused) ArvioSkin.colors.focusOutline else Color.White.copy(alpha = 0.12f)
+            )
+            .focusRequester(focusRequester)
+            .onFocusChanged { onFocusChanged(it.isFocused) }
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.DirectionUp -> {
+                            onUp()
+                            true
+                        }
+                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                            onActivate()
+                            true
+                        }
+                        Key.Back, Key.Escape -> {
+                            onBack()
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            }
+            .clickable { onActivate() }
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+            contentDescription = null,
+            tint = if (isFocused) Color.Black else Color.White,
+            modifier = Modifier.size(14.dp)
+        )
+        Text(
+            text = "YouTube",
+            style = ArvioSkin.typography.caption.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp,
+                color = if (isFocused) Color.Black else Color.White
+            )
+        )
     }
 }

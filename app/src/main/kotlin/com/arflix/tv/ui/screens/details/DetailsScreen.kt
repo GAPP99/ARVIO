@@ -991,7 +991,6 @@ fun DetailsScreen(
         if (showTrailerPlayer && uiState.trailerKey != null) {
             YouTubeTrailerModal(
                 youtubeKey = uiState.trailerKey!!,
-                title = uiState.item?.title ?: "",
                 onClose = {
                     showTrailerPlayer = false
                     runCatching { focusRequester.requestFocus() }
