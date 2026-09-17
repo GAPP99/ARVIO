@@ -268,6 +268,7 @@ fun ProviderSelector(
     onMoveDown: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val accentColor = liveAccent()
     if (providers.size <= 1) return
     var focusedId by remember { mutableStateOf<String?>(null) }
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -291,7 +292,7 @@ fun ProviderSelector(
                         width = if (focused) 2.dp else 1.dp,
                         color = when {
                             focused -> LiveColors.FocusRing
-                            selected -> LiveColors.Accent
+                            selected -> accentColor
                             else -> LiveColors.Divider
                         },
                         shape = RoundedCornerShape(999.dp),
@@ -340,7 +341,7 @@ fun ProviderSelector(
                     Icon(
                         imageVector = Icons.Filled.SettingsInputAntenna,
                         contentDescription = null,
-                        tint = if (selected) LiveColors.Accent else LiveColors.FgMute,
+                        tint = if (selected) accentColor else LiveColors.FgMute,
                         modifier = Modifier.size(14.dp),
                     )
                     Text(
@@ -369,6 +370,7 @@ fun EpgStatusStrip(
     hasGuideSource: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val accentColor = liveAccent()
     val visible = isLoading ||
         !warning.isNullOrBlank() ||
         (!hasGuideSource && totalChannels > 0)
@@ -395,7 +397,7 @@ fun EpgStatusStrip(
             Icon(
                 imageVector = Icons.Filled.Info,
                 contentDescription = null,
-                tint = if (warning.isNullOrBlank()) LiveColors.Accent else Color(0xFFFFC04A),
+                tint = if (warning.isNullOrBlank()) accentColor else Color(0xFFFFC04A),
                 modifier = Modifier.size(14.dp),
             )
             Text(
@@ -451,6 +453,7 @@ fun PlaybackDiagnosticBanner(
     diagnostic: PlaybackDiagnostic?,
     modifier: Modifier = Modifier,
 ) {
+    val accentColor = liveAccent()
     var visible by remember(diagnostic) { mutableStateOf(diagnostic != null) }
     LaunchedEffect(diagnostic) {
         if (diagnostic != null) {
@@ -466,7 +469,7 @@ fun PlaybackDiagnosticBanner(
     ) {
         val current = diagnostic ?: return@AnimatedVisibility
         val tint = when (current.severity) {
-            PlaybackDiagnosticSeverity.Info -> LiveColors.Accent
+            PlaybackDiagnosticSeverity.Info -> accentColor
             PlaybackDiagnosticSeverity.Warning -> Color(0xFFFFC04A)
             PlaybackDiagnosticSeverity.Error -> Color(0xFFFF6B81)
         }
@@ -506,6 +509,7 @@ fun VariantPickerOverlay(
     onDismiss: () -> Unit,
     onPick: (EnrichedChannel) -> Unit,
 ) {
+    val accentColor = liveAccent()
     if (channel == null || variants.size <= 1) return
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(channel.id, variants) {
@@ -545,7 +549,7 @@ fun VariantPickerOverlay(
                 Icon(
                     imageVector = Icons.Filled.SwapHoriz,
                     contentDescription = null,
-                    tint = LiveColors.Accent,
+                    tint = accentColor,
                     modifier = Modifier.size(22.dp),
                 )
                 Column {
@@ -586,6 +590,7 @@ private fun VariantRow(
     onPick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val accentColor = liveAccent()
     var focused by remember { mutableStateOf(false) }
     Row(
         modifier = modifier
@@ -615,7 +620,7 @@ private fun VariantRow(
         Box(
             modifier = Modifier
                 .size(8.dp)
-                .background(if (focused) LiveColors.Accent else LiveColors.FgMute, CircleShape),
+                .background(if (focused) accentColor else LiveColors.FgMute, CircleShape),
         )
         Text(
             text = channel.number.toString(),

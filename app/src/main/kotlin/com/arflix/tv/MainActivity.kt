@@ -299,8 +299,18 @@ class MainActivity : ComponentActivity() {
             val oledBlackBackground by remember {
                 this@MainActivity.settingsDataStore.data.map { it[OLED_BLACK_BACKGROUND_KEY] ?: false }
             }.collectAsStateWithLifecycle(initialValue = false)
+            // Samme opslag som indstillingssiden bruger (SettingsViewModel): ny
+            // nøgle, ellers den gamle "focus_border_color", ellers White. Uden
+            // de to sidste led blev LocalAccentColorOverride null på installationer
+            // der aldrig havde rørt farvevalget efter omdøbningen — Indstillinger
+            // viste den valgte farve, mens resten af appen faldt tilbage til sine
+            // egne standardfarver.
             val accentColorName by remember {
-                this@MainActivity.settingsDataStore.data.map { it[ACCENT_COLOR_KEY] }
+                this@MainActivity.settingsDataStore.data.map { prefs ->
+                    prefs[ACCENT_COLOR_KEY]
+                        ?: prefs[stringPreferencesKey("focus_border_color")]
+                        ?: "White"
+                }
             }.collectAsStateWithLifecycle(initialValue = null)
             val activeProfileId by remember {
                 profileRepository.get().activeProfileId

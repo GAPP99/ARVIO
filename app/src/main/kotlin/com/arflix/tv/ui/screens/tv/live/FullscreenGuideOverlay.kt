@@ -290,6 +290,7 @@ private fun FullscreenGuideContent(
     onDismiss: () -> Unit,
     onProgramSelect: (IptvProgram?) -> Unit,
 ) {
+    val accentColor = liveAccent()
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(if (isTouchDevice) 10.dp else 14.dp),
@@ -338,7 +339,7 @@ private fun FullscreenGuideContent(
                         GuideChip(channel.quality.label, LiveColors.FgDim, Color.White.copy(alpha = 0.08f))
                     }
                     if (catchupSupported) {
-                        GuideChip(stringResource(R.string.live_label_catchup), LiveColors.Bg, LiveColors.Accent)
+                        GuideChip(stringResource(R.string.live_label_catchup), LiveColors.Bg, accentColor)
                     }
                 }
             }
@@ -431,6 +432,7 @@ private fun GuideTimelineSummary(
     catchupSupported: Boolean,
     isTouchDevice: Boolean,
 ) {
+    val accentColor = liveAccent()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -444,7 +446,7 @@ private fun GuideTimelineSummary(
         GuideTimelinePill(
             label = stringResource(R.string.live_label_aired),
             value = pastCount.toString(),
-            accent = if (catchupSupported) LiveColors.Accent else LiveColors.FgMute,
+            accent = if (catchupSupported) accentColor else LiveColors.FgMute,
             modifier = Modifier.weight(1f),
         )
         GuideTimelinePill(
@@ -504,6 +506,7 @@ private fun GuideProgramRow(
     isTouchDevice: Boolean,
     onClick: () -> Unit,
 ) {
+    val accentColor = liveAccent()
     var focused by remember { mutableStateOf(false) }
     val playable = item.state == GuideProgramState.PastPlayable || item.state == GuideProgramState.Live
     val active = focused || selected
@@ -513,7 +516,7 @@ private fun GuideProgramRow(
         else -> Color.White.copy(alpha = 0.07f)
     }
     val border = when {
-        selected -> LiveColors.Accent
+        selected -> accentColor
         focused -> LiveColors.Fg.copy(alpha = 0.42f)
         else -> Color.White.copy(alpha = 0.08f)
     }
@@ -550,7 +553,7 @@ private fun GuideProgramRow(
                 text = timelineDateLabel(item.program, nowMillis),
                 style = LiveType.Badge.copy(
                     color = when (item.state) {
-                        GuideProgramState.PastPlayable -> LiveColors.Accent
+                        GuideProgramState.PastPlayable -> accentColor
                         GuideProgramState.PastUnavailable -> LiveColors.FgDim
                         GuideProgramState.Live -> LiveColors.LiveRed
                         GuideProgramState.Future -> LiveColors.FgDim
@@ -574,7 +577,7 @@ private fun GuideProgramRow(
                 .clip(CircleShape)
                 .background(
                     when (item.state) {
-                        GuideProgramState.PastPlayable -> LiveColors.Accent.copy(alpha = 0.18f)
+                        GuideProgramState.PastPlayable -> accentColor.copy(alpha = 0.18f)
                         GuideProgramState.PastUnavailable -> Color.White.copy(alpha = 0.06f)
                         GuideProgramState.Live -> LiveColors.LiveRed.copy(alpha = 0.22f)
                         GuideProgramState.Future -> Color.White.copy(alpha = 0.08f)
@@ -591,7 +594,7 @@ private fun GuideProgramRow(
                 },
                 contentDescription = null,
                 tint = when (item.state) {
-                    GuideProgramState.PastPlayable -> LiveColors.Accent
+                    GuideProgramState.PastPlayable -> accentColor
                     GuideProgramState.PastUnavailable -> LiveColors.FgDim
                     GuideProgramState.Live -> LiveColors.LiveRed
                     GuideProgramState.Future -> LiveColors.FgDim
@@ -622,7 +625,7 @@ private fun GuideProgramRow(
                         GuideProgramState.Future -> LiveColors.FgDim
                     },
                     bg = when (item.state) {
-                        GuideProgramState.PastPlayable -> LiveColors.Accent
+                        GuideProgramState.PastPlayable -> accentColor
                         GuideProgramState.PastUnavailable -> Color.White.copy(alpha = 0.08f)
                         GuideProgramState.Live -> LiveColors.LiveRed
                         GuideProgramState.Future -> Color.White.copy(alpha = 0.08f)
@@ -658,7 +661,7 @@ private fun GuideProgramRow(
                             .fillMaxWidth()
                             .height(3.dp)
                             .clip(RoundedCornerShape(2.dp)),
-                        color = LiveColors.Accent,
+                        color = accentColor,
                         trackColor = LiveColors.Panel,
                     )
                 }

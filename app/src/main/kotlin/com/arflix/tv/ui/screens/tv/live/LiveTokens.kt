@@ -1,5 +1,6 @@
 package com.arflix.tv.ui.screens.tv.live
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -10,6 +11,7 @@ import androidx.compose.ui.text.font.FontVariation
 import com.arflix.tv.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.arflix.tv.ui.skin.LocalAccentColorOverride
 import com.arflix.tv.ui.theme.InterFontFamily
 
 // ARVIO Live TV — design tokens. OKLCH reference kept in spec.md §2.
@@ -108,6 +110,21 @@ object LiveDims {
     val FocusBorder     = 2.dp
     val ActiveIndicator = 3.dp
 }
+
+/**
+ * Guidens accentfarve — nu-linjen, datoen, den kanal der spiller, ▶ og prikken.
+ *
+ * Bruger nøjagtig samme farve som resten af appen: brugerens valg under
+ * Indstillinger → Udseende → Accentfarve, lagt i `LocalAccentColorOverride` af
+ * [com.arflix.tv.ui.theme.ArflixTheme]. Fallback er hvid, som i AppTopBar og
+ * afspilleren — ikke guidens gamle turkis, der gjorde TV-siden til det ene
+ * sted i appen med sin egen farve.
+ *
+ * Skal værdien bruges i en tegne-lambda (`drawBehind`, `Canvas`), så læs den i
+ * composable-scope først — `DrawScope` kan ikke læse en CompositionLocal.
+ */
+@Composable
+fun liveAccent(): Color = LocalAccentColorOverride.current ?: Color.White
 
 val LocalLiveColors = staticCompositionLocalOf { LiveColors }
 val LocalLiveType   = staticCompositionLocalOf { LiveType }

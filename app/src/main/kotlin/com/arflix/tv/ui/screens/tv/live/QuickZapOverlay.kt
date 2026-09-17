@@ -114,6 +114,7 @@ fun QuickZapOverlay(
     onRightClick: (EnrichedChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val accentColor = liveAccent()
     val categories = remember(categoriesTree) { getAvailableCategories(categoriesTree) }
 
     var selectedCategoryIndex by remember(categories, selectedCategoryId) {
@@ -257,7 +258,7 @@ fun QuickZapOverlay(
                         "< ${stringResource(R.string.channel_categories).uppercase()}"
                     },
                     style = LiveType.SectionTag.copy(
-                        color = if (categoryListFocused) LiveColors.Accent else LiveColors.FgMute,
+                        color = if (categoryListFocused) accentColor else LiveColors.FgMute,
                         fontSize = 11.sp,
                         letterSpacing = 1.sp,
                         fontWeight = if (categoryListFocused) FontWeight.Bold else FontWeight.Normal
@@ -378,6 +379,7 @@ private fun NonFocusedCategoryRow(label: String) {
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun FocusedCategoryRow(label: String, isFocused: Boolean) {
+    val accentColor = liveAccent()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -401,14 +403,14 @@ private fun FocusedCategoryRow(label: String, isFocused: Boolean) {
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowUp,
                     contentDescription = null,
-                    tint = LiveColors.Accent,
+                    tint = accentColor,
                     modifier = Modifier.size(10.dp)
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
                     contentDescription = null,
-                    tint = LiveColors.Accent,
+                    tint = accentColor,
                     modifier = Modifier.size(10.dp)
                 )
             }
@@ -416,7 +418,7 @@ private fun FocusedCategoryRow(label: String, isFocused: Boolean) {
         Text(
             text = label,
             style = LiveType.CellTitle.copy(
-                color = if (isFocused) LiveColors.Accent else LiveColors.Fg,
+                color = if (isFocused) accentColor else LiveColors.Fg,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             ),
@@ -544,6 +546,7 @@ private fun FocusedChannelSlot(
     nowNext: IptvNowNext?,
     isFocused: Boolean
 ) {
+    val accentColor = liveAccent()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -575,7 +578,7 @@ private fun FocusedChannelSlot(
             Text(
                 text = number.toString(),
                 style = LiveType.NumberMono.copy(
-                    color = if (isFocused) LiveColors.Accent else LiveColors.FgDim,
+                    color = if (isFocused) accentColor else LiveColors.FgDim,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -625,7 +628,7 @@ private fun FocusedChannelSlot(
                     Text(
                         text = formatTimeWindow(it),
                         style = LiveType.TimeMono.copy(
-                            color = LiveColors.Accent,
+                            color = accentColor,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         ),
@@ -643,7 +646,7 @@ private fun FocusedChannelSlot(
                     .fillMaxWidth()
                     .height(3.dp)
                     .clip(RoundedCornerShape(1.5.dp)),
-                color = LiveColors.Accent,
+                color = accentColor,
                 trackColor = LiveColors.Divider
             )
         }

@@ -110,6 +110,7 @@ fun FullscreenHud(
     showControls: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
+    val accentColor = liveAccent()
     var visible by remember { mutableStateOf(true) }
     var lastPoke by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -206,7 +207,7 @@ fun FullscreenHud(
             ) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(44.dp),
-                    color = LiveColors.Accent,
+                    color = accentColor,
                     strokeWidth = 4.dp,
                 )
             }
@@ -579,6 +580,7 @@ private fun HudSeekBar(
     onOpenQuickZap: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val accentColor = liveAccent()
     var isFocused by remember { mutableStateOf(false) }
 
     Column(
@@ -641,7 +643,7 @@ private fun HudSeekBar(
                     .fillMaxWidth(clampedProgress)
                     .height(if (isFocused) 6.dp else 4.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(LiveColors.Accent),
+                    .background(accentColor),
             )
 
             // Circular white Scrubber Thumb Ball when focused
@@ -669,6 +671,7 @@ private fun HudIconButton(
     focusRequester: FocusRequester? = null,
     onClick: () -> Unit,
 ) {
+    val accentColor = liveAccent()
     var isFocused by remember { mutableStateOf(false) }
 
     val size = if (emphasis) 54.dp else 42.dp
@@ -676,7 +679,7 @@ private fun HudIconButton(
 
     val bgColor = when {
         isFocused -> Color.White
-        emphasis -> LiveColors.Accent
+        emphasis -> accentColor
         else -> Color.Black.copy(alpha = 0.55f)
     }
 
@@ -734,13 +737,14 @@ private fun HudActionButton(
     label: String,
     onClick: () -> Unit,
 ) {
+    val accentColor = liveAccent()
     var isFocused by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .onFocusChanged { isFocused = it.isFocused }
-            .background(if (isFocused) Color.White else LiveColors.Accent)
+            .background(if (isFocused) Color.White else accentColor)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
     ) {

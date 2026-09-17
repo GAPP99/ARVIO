@@ -35,12 +35,13 @@ import com.arflix.tv.util.LocalDeviceType
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun LoadingPane(message: String?, percent: Int) {
+    val accentColor = liveAccent()
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator(color = LiveColors.Accent)
+        CircularProgressIndicator(color = accentColor)
         if (!message.isNullOrBlank()) {
             Box(Modifier.padding(top = 20.dp)) {
                 Text(message, style = LiveType.CellTitle.copy(color = LiveColors.FgDim))
@@ -50,7 +51,7 @@ fun LoadingPane(message: String?, percent: Int) {
             LinearProgressIndicator(
                 progress = { (percent / 100f).coerceIn(0f, 1f) },
                 modifier = Modifier.padding(top = 12.dp).width(260.dp),
-                color = LiveColors.Accent,
+                color = accentColor,
                 trackColor = LiveColors.Divider,
             )
         }

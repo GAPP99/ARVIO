@@ -78,6 +78,7 @@ fun SearchOverlay(
     onDismiss: () -> Unit,
     onPick: (EnrichedChannel) -> Unit,
 ) {
+    val accentColor = liveAccent()
     var query by remember { mutableStateOf("") }
     var debounced by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
@@ -207,7 +208,7 @@ fun SearchOverlay(
                     keyboardActions = KeyboardActions(
                         onSearch = { runCatching { firstResultFocus.requestFocus() } },
                     ),
-                    cursorBrush = SolidColor(LiveColors.Accent),
+                    cursorBrush = SolidColor(accentColor),
                     textStyle = TextStyle(
                         color = LiveColors.Fg,
                         fontSize = 18.sp,

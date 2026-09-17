@@ -51,6 +51,7 @@ fun TouchCategoryRail(
     onOpenSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val accentColor = liveAccent()
     var expandedPlaylistIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
     LaunchedEffect(selectedId, playlistSections) {
         playlistSections.firstOrNull { section ->
@@ -106,7 +107,7 @@ fun TouchCategoryRail(
                 modifier = Modifier
                     .height(38.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (active) LiveColors.Accent else LiveColors.Panel)
+                    .background(if (active) accentColor else LiveColors.Panel)
                     .clickable {
                         if (sectionId != null) {
                             expandedPlaylistIds = if (isSectionOpen) {
