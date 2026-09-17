@@ -79,8 +79,10 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.arflix.tv.R
+import com.arflix.tv.ui.screens.player.common.PlayerSystemBarsEffect
 import com.arflix.tv.ui.skin.ArvioSkin
 import com.arflix.tv.util.LocalDeviceType
+import com.arflix.tv.util.findActivity
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
@@ -313,6 +315,17 @@ fun YouTubeTrailerModal(
         onClose()
     }
 
+    // Turning the phone sideways goes fullscreen, which is what gets the
+    // navigation bar off the video. We do it ourselves rather than through
+    // YouTube's fullscreen button, which stays switched off (fullscreen=0).
+    val activity = remember(context) { context.findActivity() }
+    PlayerSystemBarsEffect(
+        activity = activity,
+        showBars = false,
+        enabled = isMobile && isLandscape,
+        deviceType = LocalDeviceType.current
+    )
+
     // TV drives the player with the D-pad, so the video takes focus on open.
     // On mobile the taps go to YouTube's own controls instead.
     LaunchedEffect(isMobile) {
@@ -388,8 +401,10 @@ fun YouTubeTrailerModal(
                                 if (!isMobile) showBar = true
                             }
                             PlayerConstants.PlayerState.ENDED -> {
+                                // Stop before YouTube's end-screen cards come
+                                // up. Stopping is not covering something up.
                                 isPlaying = false
-                                if (!isMobile) showBar = true
+                                onClose()
                             }
                             else -> {}
                         }
@@ -478,19 +493,22 @@ fun YouTubeTrailerModal(
                     .widthIn(max = 1000.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                videoSurface(
-                    Modifier
+                // The focus ring sits on this wrapper and the padding keeps it
+                // clear of the video: a ring drawn on the video's own edge is
+                // itself something lying over the player.
+                Box(
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
                         .border(
-                            width = if (isPlayerFocused) 2.dp else 1.dp,
+                            width = 2.dp,
                             color = if (isPlayerFocused) {
                                 ArvioSkin.colors.focusOutline
                             } else {
-                                Color.White.copy(alpha = 0.15f)
+                                Color.Transparent
                             },
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(15.dp)
                         )
+                        .padding(3.dp)
                         .focusRequester(playerFocusRequester)
                         .onFocusChanged { isPlayerFocused = it.isFocused }
                         .focusable()
@@ -567,7 +585,13 @@ fun YouTubeTrailerModal(
                                 }
                             } else false
                         }
-                )
+                ) {
+                    videoSurface(
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                    )
+                }
 
                 // The strip below the video: reserved permanently, so the video
                 // never resizes. Everything of ours lives in here.
