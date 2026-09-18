@@ -170,6 +170,9 @@ val bottomBarItems = listOf(
 /** Bottom clearance applied inside scrolling content rather than to its viewport. */
 val LocalBottomBarInset = staticCompositionLocalOf { 0.dp }
 
+/** Full height of the bottom bar including system navigation bar insets when visible. */
+val LocalBottomBarHeight = staticCompositionLocalOf { 0.dp }
+
 @Composable
 internal fun currentBottomBarSpec(): AppBottomBarSpec {
     val config = LocalConfiguration.current

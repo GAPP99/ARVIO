@@ -160,4 +160,12 @@ class SearchViewModelTest {
     private suspend fun awaitResults(query: String) = withTimeout(5_000) {
         model.uiState.first { it.query == query && !it.isLoading }
     }
+
+    @Test fun selectTypeUpdatesSelectedTypeDirectly() {
+        assertEquals(DiscoverType.MOVIES, model.uiState.value.selectedType)
+        model.selectType(DiscoverType.ANIME)
+        assertEquals(DiscoverType.ANIME, model.uiState.value.selectedType)
+        model.selectType(DiscoverType.TV_SHOWS)
+        assertEquals(DiscoverType.TV_SHOWS, model.uiState.value.selectedType)
+    }
 }

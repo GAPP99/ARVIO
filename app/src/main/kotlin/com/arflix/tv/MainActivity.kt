@@ -47,6 +47,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import com.arflix.tv.ui.components.LocalBottomBarInset
+import com.arflix.tv.ui.components.LocalBottomBarHeight
 import com.arflix.tv.ui.components.mobileContentInsets
 import com.arflix.tv.ui.components.currentBottomBarSpec
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -730,6 +731,9 @@ fun ArflixApp(
     }
 
     val barInset = if (showBottomBar) navigationInset else 0.dp
+    val fullBarHeight = if (showBottomBar) {
+        maxOf(measuredBarHeight, (barSpec.itemHeightDp ?: 52).dp + navigationInset)
+    } else 0.dp
 
     val nestedScrollConnection = remember(measuredBarHeightPx) {
         object : NestedScrollConnection {
@@ -835,7 +839,10 @@ fun ArflixApp(
                 else -> Modifier
             })
     ) {
-        CompositionLocalProvider(LocalBottomBarInset provides if (showBottomBar) barInset else 0.dp) {
+        CompositionLocalProvider(
+            LocalBottomBarInset provides if (showBottomBar) barInset else 0.dp,
+            LocalBottomBarHeight provides fullBarHeight
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
