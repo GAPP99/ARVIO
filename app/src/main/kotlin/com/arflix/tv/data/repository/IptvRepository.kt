@@ -629,8 +629,6 @@ class IptvRepository @Inject constructor(
 
     internal class EpgNotModifiedException : Exception("EPG content has not modified (HTTP 304)")
 
-    internal class M3uNotModifiedException : Exception("Playlist content has not modified (HTTP 304)")
-
     private fun getEpgHttpCachePrefs() = context.getSharedPreferences("arvio_epg_http_cache", Context.MODE_PRIVATE)
 
     private fun getEpgCachedEtag(url: String): String? {
@@ -2556,21 +2554,14 @@ class IptvRepository @Inject constructor(
                                     }
                             } catch (error: Throwable) {
                                 if (error is kotlinx.coroutines.CancellationException) throw error
-                                if (error is M3uNotModifiedException) {
-                                    // Playlist unchanged (HTTP 304): reuse the persisted
-                                    // channels for this playlist instead of failing it.
-                                    // Not recorded in playlistErrors — this is a success.
-                                    cachedChannels.filter { it.id.startsWith("${playlist.id}:") }
-                                } else {
-                                    synchronized(playlistResultsLock) {
-                                        playlistErrors[playlistIndex] = error
-                                    }
-                                    System.err.println(
-                                        "IptvRepository: playlist ${playlist.id} failed without blocking other providers: " +
-                                            error.message
-                                    )
-                                    emptyList()
+                                synchronized(playlistResultsLock) {
+                                    playlistErrors[playlistIndex] = error
                                 }
+                                System.err.println(
+                                    "IptvRepository: playlist ${playlist.id} failed without blocking other providers: " +
+                                        error.message
+                                )
+                                emptyList()
                             }
                             if (playlistChannels.isNotEmpty()) {
                                 val currentList = synchronized(playlistResultsLock) {
@@ -3936,17 +3927,10 @@ class IptvRepository @Inject constructor(
                             }
                     } catch (error: Throwable) {
                         if (error is kotlinx.coroutines.CancellationException) throw error
-                        // Unchanged playlist during startup prefetch: nothing to
-                        // store, and not worth an error log. The disk cache that
-                        // triggered the conditional request stays authoritative.
-                        if (error is M3uNotModifiedException) {
-                            emptyList()
-                        } else {
-                            System.err.println(
-                                "IptvRepository: startup prefetch skipped failed playlist ${playlist.id}: ${error.message}"
-                            )
-                            emptyList()
-                        }
+                        System.err.println(
+                            "IptvRepository: startup prefetch skipped failed playlist ${playlist.id}: ${error.message}"
+                        )
+                        emptyList()
                     }
                 }
             }.awaitAll().flatten()
@@ -4614,10 +4598,6 @@ class IptvRepository @Inject constructor(
                 lastError = IllegalStateException(context.getString(R.string.iptv_no_channels))
             }.onFailure { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
-                // Unchanged playlist (HTTP 304) is not a failure: retrying the
-                // same conditional request would return 304 again. Propagate so
-                // callers can reuse their persisted channels for this playlist.
-                if (error is M3uNotModifiedException) throw error
                 lastError = error
             }
 
@@ -7928,26 +7908,17 @@ class IptvRepository @Inject constructor(
         client: OkHttpClient = iptvHttpClient,
     ): List<IptvChannel> {
         val startedAt = System.currentTimeMillis()
-        val requestBuilder = Request.Builder()
+        // The in-memory channel list may be capped. Until a complete per-playlist
+        // cache owns its validators, refreshes must request the full response.
+        val request = Request.Builder()
             .url(validatedIptvHttpUrl(url, "IPTV playlist URL"))
             .header("User-Agent", OkHttpProvider.userAgentOr(IPTV_USER_AGENT))
             .header("Accept", "*/*")
-        // Conditional GET exactly like the EPG path: validators are keyed by
-        // URL in the same prefs, so an unchanged playlist costs one 304 round
-        // trip instead of a full re-download + re-parse of 10k+ lines.
-        getEpgCachedEtag(url)?.let { etag ->
-            requestBuilder.header("If-None-Match", etag)
-        }
-        getEpgCachedLastModified(url)?.let { lastModified ->
-            requestBuilder.header("If-Modified-Since", lastModified)
-        }
-        val request = requestBuilder.get().build()
+            .get()
+            .build()
         client.newCall(request).execute().use { response ->
             if (response.code == 304) {
-                throw M3uNotModifiedException()
-            }
-            if (response.isSuccessful) {
-                saveEpgHttpCacheHeaders(url, response.header("ETag"), response.header("Last-Modified"))
+                throw IOException("Playlist returned HTTP 304 without a complete cached response")
             }
             val raw = response.body?.byteStream() ?: throw IllegalStateException(context.getString(R.string.iptv_m3u_empty))
             val contentLength = response.body?.contentLength()?.takeIf { it > 0L }

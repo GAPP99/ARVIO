@@ -1,6 +1,7 @@
 package com.arflix.tv.ui.screens.search
 
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.PersonDetails
@@ -36,8 +37,14 @@ class SearchViewModelTest {
     }
 
     @After fun tearDown() {
-        store.clear()
-        Dispatchers.resetMain()
+        val job = model.viewModelScope.coroutineContext[kotlinx.coroutines.Job]
+        try {
+            store.clear()
+            // IO children must finish cancellation before Main is removed.
+            runBlocking { withTimeout(5_000) { job?.join() } }
+        } finally {
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun resultsPublishBeforeSlowLogosAndDoNotWaitForPeopleRequests() = runBlocking {
