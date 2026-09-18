@@ -184,6 +184,8 @@ data class SettingsUiState(
     val trailerAutoPlay: Boolean = true,
     val trailerSoundEnabled: Boolean = false,
     val trailerDelaySeconds: Int = 2,
+    /** 0 keeps the fixed row height; 6..10 divides the TV guide into that many rows. */
+    val guideRowCount: Int = 0,
     val trailerInCards: Boolean = true,
     val showBudget: Boolean = true,
     val showEpisodeRatings: Boolean = false,
@@ -387,6 +389,7 @@ class SettingsViewModel @Inject constructor(
     private fun trailerAutoPlayKey() = profileManager.profileBooleanKey("trailer_auto_play")
     private fun trailerSoundEnabledKey() = profileManager.profileBooleanKey("trailer_sound_enabled")
     private fun trailerDelayKey() = profileManager.profileStringKey("trailer_delay_seconds")
+    private fun guideRowCountKey() = profileManager.profileStringKey("guide_row_count")
     private fun trailerInCardsKey() = profileManager.profileBooleanKey("trailer_in_cards")
     private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
     private fun showEpisodeRatingsKey() = profileManager.profileBooleanKey("show_episode_ratings")
@@ -596,6 +599,7 @@ class SettingsViewModel @Inject constructor(
             val trailerAutoPlay = prefs[trailerAutoPlayKey()] ?: true
             val trailerSoundEnabled = prefs[trailerSoundEnabledKey()] ?: false
             val trailerDelaySeconds = prefs[trailerDelayKey()]?.toIntOrNull() ?: 2
+            val guideRowCount = prefs[guideRowCountKey()]?.toIntOrNull() ?: 0
             val trailerInCards = prefs[trailerInCardsKey()] ?: true
             val spoilerBlurEnabled = prefs[spoilerBlurKey()] ?: false
             val showBudget = prefs[showBudgetKey()] ?: true
@@ -712,6 +716,7 @@ class SettingsViewModel @Inject constructor(
                 trailerAutoPlay = trailerAutoPlay,
                 trailerSoundEnabled = trailerSoundEnabled,
                 trailerDelaySeconds = trailerDelaySeconds,
+                guideRowCount = guideRowCount,
                 trailerInCards = trailerInCards,
                 showBudget = showBudget,
                 showEpisodeRatings = showEpisodeRatings,
@@ -1673,6 +1678,19 @@ class SettingsViewModel @Inject constructor(
 
     fun setTrailerInCards(enabled: Boolean) {
         viewModelScope.launch { context.settingsDataStore.edit { it[trailerInCardsKey()] = enabled }; _uiState.value = _uiState.value.copy(trailerInCards = enabled); syncLocalStateToCloud(silent = true) }
+    }
+
+    fun cycleGuideRowCount() {
+        val next = when (val n = _uiState.value.guideRowCount) {
+            0 -> 6
+            10 -> 0
+            else -> n + 1
+        }
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[guideRowCountKey()] = next.toString() }
+            _uiState.value = _uiState.value.copy(guideRowCount = next)
+            syncLocalStateToCloud(silent = true)
+        }
     }
 
     fun cycleTrailerDelay() {
