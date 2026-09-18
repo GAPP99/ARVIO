@@ -4,56 +4,57 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
 /**
- * Specen er guidens kontrakt. Testene her fastholder de beslutninger der
- * ellers ville blive gentaget — og glide fra hinanden — i fem composables.
+ * The spec is the guide's contract. These tests pin down the decisions that
+ * would otherwise be repeated — and drift apart — across five composables.
  */
 class LiveGuideDensityTest {
 
     @Test
-    fun raekkeantalletErDetSammeMedOgUdenTopbar() {
-        // Pointen med hele omlægningen: at gå til højre må ikke flytte rækkerne.
-        val medTopbar = LiveGuideDensity.visibleRowCount(540, topBarVisible = true)
-        val udenTopbar = LiveGuideDensity.visibleRowCount(540, topBarVisible = false)
+    fun rowCountIsTheSameWithAndWithoutTopBar() {
+        // The point of the whole rearrangement: moving right must not shift
+        // the rows.
+        val withTopBar = LiveGuideDensity.visibleRowCount(540, topBarVisible = true)
+        val withoutTopBar = LiveGuideDensity.visibleRowCount(540, topBarVisible = false)
 
-        assertThat(medTopbar).isEqualTo(udenTopbar)
-        assertThat(medTopbar).isEqualTo(8)
+        assertThat(withTopBar).isEqualTo(withoutTopBar)
+        assertThat(withTopBar).isEqualTo(8)
     }
 
     @Test
-    fun infoPanelAbsorbererTopbarensPlads() {
-        val fuldt = LiveGuideDensity.infoPanelHeightDp(topBarVisible = false)
-        val medTopbar = LiveGuideDensity.infoPanelHeightDp(topBarVisible = true)
+    fun infoPanelAbsorbsTheTopBarSpace() {
+        val full = LiveGuideDensity.infoPanelHeightDp(topBarVisible = false)
+        val withTopBar = LiveGuideDensity.infoPanelHeightDp(topBarVisible = true)
 
-        assertThat(fuldt - medTopbar).isEqualTo(LiveGuideDensity.TopBarDp)
+        assertThat(full - withTopBar).isEqualTo(LiveGuideDensity.TopBarDp)
     }
 
     @Test
-    fun geometrienGaarOpPaaEtTusindeOgFirsPHundredeSkaerm() {
+    fun geometryAddsUpOnA1080pScreen() {
         val rows = LiveGuideDensity.visibleRowCount(540, topBarVisible = false)
-        val brugt = LiveGuideDensity.infoPanelHeightDp(false) +
+        val used = LiveGuideDensity.infoPanelHeightDp(false) +
             LiveGuideDensity.RulerHeightDp +
             rows * LiveGuideDensity.RowHeightDp
 
-        assertThat(brugt).isAtMost(540)
-        // Intet nævneværdigt spild i bunden.
-        assertThat(540 - brugt).isLessThan(LiveGuideDensity.RowHeightDp)
+        assertThat(used).isAtMost(540)
+        // No meaningful waste at the bottom.
+        assertThat(540 - used).isLessThan(LiveGuideDensity.RowHeightDp)
     }
 
     @Test
-    fun raekkehojdenDelerChromepladsenUdFoerRaekeantallet() {
+    fun rowHeightDividesUpTheChromeSpaceBeforeTheRowCount() {
         assertThat(LiveGuideDensity.rowHeightDp(8)).isEqualTo(38)
         assertThat(LiveGuideDensity.rowHeightDp(6)).isEqualTo(46)
         assertThat(LiveGuideDensity.rowHeightDp(10)).isEqualTo(30)
     }
 
     @Test
-    fun raekkehojdenKlemmesTilIntervallet() {
+    fun rowHeightIsClampedToTheInterval() {
         assertThat(LiveGuideDensity.rowHeightDp(4)).isEqualTo(46)
         assertThat(LiveGuideDensity.rowHeightDp(50)).isEqualTo(28)
     }
 
     @Test
-    fun alleRaekeantalMellemSeksOgTiGiverEnLaesbarHoejde() {
+    fun allRowCountsBetweenSixAndTenGiveAReadableHeight() {
         (6..10).forEach { rowCount ->
             assertThat(LiveGuideDensity.rowHeightDp(rowCount)).isAtLeast(28)
             assertThat(LiveGuideDensity.rowHeightDp(rowCount)).isLessThan(47)
@@ -61,26 +62,26 @@ class LiveGuideDensityTest {
     }
 
     @Test
-    fun synligtRaekeantalFoelgerDenValgteRaekehojde() {
+    fun visibleRowCountFollowsTheChosenRowHeight() {
         assertThat(LiveGuideDensity.visibleRowCount(540, topBarVisible = false, rowCount = 8)).isEqualTo(8)
         assertThat(LiveGuideDensity.visibleRowCount(540, topBarVisible = false, rowCount = 6)).isEqualTo(6)
         assertThat(LiveGuideDensity.visibleRowCount(540, topBarVisible = false, rowCount = 10)).isEqualTo(10)
     }
 
     @Test
-    fun kanalraekkenViserIkkePillsOgProgressStreg() {
+    fun channelRowShowsNoPillsOrProgressBar() {
         val spec = LiveGuideDensity.channelRowSpec()
 
         assertThat(spec.showQualityPill).isFalse()
         assertThat(spec.showLanguagePill).isFalse()
         assertThat(spec.showProgressBar).isFalse()
         assertThat(spec.showCatchupIcon).isFalse()
-        // Kvaliteten forsvinder ikke — den flytter ind i navnet.
+        // The quality does not disappear — it moves into the name.
         assertThat(spec.showQualitySuffix).isTrue()
     }
 
     @Test
-    fun kompaktLayoutTaenderPillsProgressOgCatchup() {
+    fun compactLayoutTurnsOnPillsProgressAndCatchup() {
         val spec = LiveGuideDensity.channelRowSpec(rowHeightDp = 52, compact = true)
 
         assertThat(spec.showQualityPill).isTrue()
@@ -91,7 +92,7 @@ class LiveGuideDensityTest {
     }
 
     @Test
-    fun kanalraekkenBeholderNummerStjerneOgAfspilningsmarkoer() {
+    fun channelRowKeepsNumberStarAndPlayingMarker() {
         val spec = LiveGuideDensity.channelRowSpec()
 
         assertThat(spec.showNumber).isTrue()
@@ -100,12 +101,12 @@ class LiveGuideDensityTest {
     }
 
     @Test
-    fun kompaktLayoutSkjulerKanalnummeret() {
+    fun compactLayoutHidesTheChannelNumber() {
         assertThat(LiveGuideDensity.channelRowSpec(compact = true).showNumber).isFalse()
     }
 
     @Test
-    fun programcellenViserKunTitlen() {
+    fun programCellShowsOnlyTheTitle() {
         val spec = LiveGuideDensity.programCellSpec(cellWidthDp = 240)
 
         assertThat(spec.showTitle).isTrue()
@@ -115,16 +116,16 @@ class LiveGuideDensityTest {
     }
 
     @Test
-    fun smalleCellerDropperBadges() {
+    fun narrowCellsDropBadges() {
         assertThat(LiveGuideDensity.programCellSpec(cellWidthDp = 60).showBadges).isFalse()
         assertThat(LiveGuideDensity.programCellSpec(cellWidthDp = 240).showBadges).isTrue()
     }
 
     @Test
-    fun raekkehoejdenHolderSigUnderCanvasGraensen() {
-        // Over 60 dp falder ProgramCell ud af den tegnede sti og layouter et
-        // helt komposit-træ pr. celle. Det ville koste den scroll-ydelse der
-        // blev arbejdet frem i docs/iptv-scroll-performance-2026-09-08.md.
+    fun rowHeightStaysUnderTheCanvasLimit() {
+        // Above 60 dp ProgramCell falls out of the drawn path and lays out an
+        // entire composite tree per cell. That would cost the scroll
+        // performance worked for in docs/iptv-scroll-performance-2026-09-08.md.
         assertThat(LiveGuideDensity.RowHeightDp).isLessThan(60)
     }
 }

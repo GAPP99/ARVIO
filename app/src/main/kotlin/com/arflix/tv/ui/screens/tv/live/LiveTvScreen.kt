@@ -838,14 +838,14 @@ fun LiveTvScreen(
     }
 
     val guideSettings = rememberLiveGuideSettings()
-    // Kontakten "New Guide Design" står i TV-indstillingerne og kan ikke nås fra
-    // en telefon eller tablet. Berøringsskærmene har kun ét guide-layout — det
-    // nye — så dér spørges der ikke; ellers ville en gemt frafravælgelse give en
-    // ny ramme med gamle celler indeni.
+    // The "New Guide Design" toggle lives in the TV settings and cannot be
+    // reached from a phone or tablet. Touch screens have only one guide
+    // layout — the new one — so they are never asked; otherwise a saved
+    // opt-out would wrap the new frame around old cells.
     val newGuideDesign = guideSettings.newDesign || isTouchDevice
-    // "Senest sete" har ingen række i gruppelisten i det nye design. Er den gemt
-    // fra en tidligere session, ville guiden åbne på en kategori der ikke kan
-    // ses markeret nogen steder — send den til "alle kanaler" i stedet.
+    // "Recently watched" has no row in the group list in the new design. If it
+    // was saved from an earlier session, the guide would open on a category
+    // that cannot be seen selected anywhere — send it to "all channels" instead.
     LaunchedEffect(newGuideDesign, isTouchDevice, selectedCategoryId) {
         if (newGuideDesign && !isTouchDevice && selectedCategoryId == "recent") {
             selectedCategoryId = "all"
@@ -2320,26 +2320,27 @@ fun LiveTvScreen(
         focusedChannelObject[0] = null
         selectedCategoryId = categoryId
         if (isTouchDevice) currentMode = LiveTvStartup.LiveTvMode.Guide
-        // At gå ind i en gruppe folder gruppekolonnen væk, så guiden får hele
-        // bredden. Back — eller venstre fra kanalkolonnen — henter den tilbage
+        // Entering a group collapses the group column so the guide gets the
+        // full width. Back — or left from the channel column — brings it back
         // via guideBackAction/openCategoryDrawer.
         //
-        // Fokus flyttes IKKE her. Det gør effekten der venter på at skuffen
-        // faktisk er lukket og kanalerne er indlæst; at gøre begge dele samtidig
-        // var årsagen til det fokus-riv kritikken fandt.
-        // Rækker med underpunkter ("Alle kanaler", lande) folder sig ud ved klik
-        // i stedet for at gå ind i gruppen. De vælger stadig kategorien, så
-        // guiden bagved viser den — men kolonnen bliver stående, ellers kunne
-        // man aldrig nå ind til underpunkterne.
+        // Focus is NOT moved here. That is done by the effect that waits for
+        // the drawer to actually close and the channels to load; doing both at
+        // once was what caused the focus rip the review found.
+        // Rows with sub-items ("All channels", countries) expand on click
+        // instead of entering the group. They still select the category, so
+        // the guide behind shows it — but the column stays put, otherwise you
+        // could never reach the sub-items.
         focusGuideAfterDrawerClose = closeDrawer
-        // Sammenklapningen er TV'ets. Tabletten har en fast gruppekolonne,
-        // og telefonen har slet ingen.
+        // Collapsing is the TV's behaviour. The tablet has a fixed group
+        // column, and the phone has none at all.
         if (!isTouchDevice && closeDrawer) {
             categoryDrawerOpen = false
-            // Zonen skal skifte i SAMME frame som skuffen lukkes. Effekten ved
-            // linje ~2239 griber fokus tilbage til sidebaren så længe zonen er
-            // CATEGORY_LIST, og ville ellers trække fokus ind i en kolonne der
-            // lige er foldet væk — hvorefter siden ser død ud.
+            // The zone must switch in the SAME frame the drawer closes. The
+            // effect near line ~2239 grabs focus back to the sidebar for as
+            // long as the zone is CATEGORY_LIST, and would otherwise pull
+            // focus into a column that just collapsed — leaving the screen
+            // looking dead.
             focusZone = LiveTvFocusZone.CHANNEL_LIST
         }
         viewModel.rememberTvSession(
@@ -2403,13 +2404,13 @@ fun LiveTvScreen(
         focusCategoryAfterDrawerOpen = false
     }
 
-    // Sikkerhedsnet: lukkede vi gruppekolonnen for at gå ind i en gruppe der
-    // viser sig at være tom, er der intet fokuserbart tilbage på siden, og
-    // fjernbetjeningen holder op med at gøre noget. Hellere folde grupperne ud
-    // igen end at efterlade brugeren i en blindgyde.
-    // filteredChannelsWindowKey SKAL være en nøgle: uden den ser koroutinen
-    // stadig den tomme kanalliste efter sit delay og folder grupperne ud igen
-    // 1,2 sekund efter man er gået ind i gruppen.
+    // Safety net: if we collapsed the group column to enter a group that turns
+    // out to be empty, nothing focusable is left on the page and the remote
+    // stops doing anything. Better to expand the groups again than to leave
+    // the user in a dead end.
+    // filteredChannelsWindowKey MUST be a key: without it the coroutine still
+    // sees the empty channel list after its delay and expands the groups again
+    // 1.2 seconds after the group was entered.
     LaunchedEffect(categoryDrawerOpen, focusGuideAfterDrawerClose, categoryScope, filteredChannelsScopeKey, filteredChannelsWindowKey) {
         if (categoryDrawerOpen || !focusGuideAfterDrawerClose || isTouchDevice) return@LaunchedEffect
         if (filteredChannelsScopeKey != categoryScope) return@LaunchedEffect
@@ -3542,10 +3543,10 @@ fun LiveTvScreen(
                                             focusZone = LiveTvFocusZone.CATEGORY_LIST
                                             runCatching { emptyStateButtonFocus.requestFocus() }
                                         } else if (!categoryDrawerOpen && filteredChannels.isNotEmpty()) {
-                                            // Kom du op hertil fra kanallisten med gruppemenuen
-                                            // foldet væk, skal ned føre dig tilbage samme sted.
-                                            // Ellers sprang menuen ud igen, og op/ned var ikke
-                                            // hinandens modsætning.
+                                            // If you came up here from the channel list with the
+                                            // group menu collapsed, down must take you back to that
+                                            // same spot. Otherwise the menu sprang back open, and
+                                            // up/down were not each other's inverse.
                                             focusChannelList(focusedChannelId ?: playingChannelId)
                                         } else {
                                             focusProviderSwitcher()
@@ -3698,9 +3699,10 @@ fun LiveTvScreen(
                         .padding(top = contentTopPadding),
                 )
             } else if (isTouchDevice) {
-                // Telefon og tablet løser guiden forskelligt. Telefonen får et bundark
-                // der kan trækkes op over afspilleren; tabletten en fast gruppekolonne
-                // i venstre side, som på TV. Indholdet er det samme — kun rammen skifter.
+                // Phone and tablet solve the guide differently. The phone gets a
+                // bottom sheet that can be pulled up over the player; the tablet
+                // a fixed group column on the left, like on TV. The content is
+                // the same — only the frame changes.
                 val touchPlayer: @Composable () -> Unit = {
                 MiniPlayerRow(
                     focusedProgrammeProvider = { focusedProgramme.takeIf { focusZone == LiveTvFocusZone.EPG } },
@@ -3713,10 +3715,11 @@ fun LiveTvScreen(
                     onFullscreenClick = openFullScreenPlayer,
                     variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
                     onOpenVariants = playingChannel?.let { channel -> { openVariantPicker(channel) } },
-                    // Målt på en 1280x800dp tablet: med compact=true blev videoen
-                    // 1232x574dp og fyldte hele indholdsområdet, så guiden aldrig
-                    // blev tegnet. liveTvMiniPlayerLayout() svarer STANDARD for
-                    // alt med smallestScreenWidthDp >= 600 — den blev bare ikke spurgt.
+                    // Measured on a 1280x800dp tablet: with compact=true the video
+                    // was 1232x574dp and filled the whole content area, so the guide
+                    // never got drawn. liveTvMiniPlayerLayout() answers STANDARD
+                    // for anything with smallestScreenWidthDp >= 600 — it just was
+                    // not asked.
                     compact = miniPlayerLayout != LiveTvMiniPlayerLayout.STANDARD,
                     landscapeCompact = landscapeCompactMiniPlayer,
                     newDesign = newGuideDesign,
@@ -3725,10 +3728,10 @@ fun LiveTvScreen(
                 )
                 }
                 val touchCategories: @Composable () -> Unit = {
-                // Gruppevælgeren på berøringsskærme er en vandret karrusel af
-                // chips — søgning forrest, derefter kategorierne. Komponenten har
-                // ligget færdig i TouchCategoryRail.kt uden at blive kaldt nogen
-                // steder; her kobles den på.
+                // The group picker on touch screens is a horizontal carousel of
+                // chips — search first, then the categories. The component sat
+                // finished in TouchCategoryRail.kt without being called anywhere;
+                // this is where it gets wired up.
                 TouchCategoryRail(
                     tree = sportsSidebarTree,
                     selectedId = if (sportsSelected) SPORTS_GUIDE_CATEGORY else selectedCategoryId,
@@ -3780,8 +3783,8 @@ fun LiveTvScreen(
                     },
                     scrollResetKey = filteredChannelsScopeKey,
                     compact = true,
-                    // Uden denne fik telefon og tablet altid standardværdien true,
-                    // så kontakten i indstillingerne var uden virkning der.
+                    // Without this, phone and tablet always got the default value
+                    // true, so the settings toggle had no effect there.
                     newDesign = newGuideDesign,
                     gridFocused = focusZone == LiveTvFocusZone.EPG,
                     backHandlingEnabled = channelMenu == null && !searchOpen && variantPickerChannel == null,
@@ -3969,10 +3972,10 @@ fun LiveTvScreen(
                             focusZone = LiveTvFocusZone.SPORTS
                             sportsFocusSignal++
                         } else {
-                            // Samme udskudte sti som når man trykker OK på en
-                            // gruppe: luk skuffen, skift zone med det samme så
-                            // sidebar-effekten slipper fokus, og lad effekten
-                            // tage fokus når skuffen faktisk er lukket.
+                            // Same deferred path as pressing OK on a group: close
+                            // the drawer, switch the zone immediately so the
+                            // sidebar effect lets go of focus, and let that effect
+                            // take focus once the drawer has actually closed.
                             focusGuideAfterDrawerClose = true
                             categoryDrawerOpen = false
                             focusZone = LiveTvFocusZone.CHANNEL_LIST
@@ -4066,7 +4069,7 @@ fun LiveTvScreen(
                         // channel long-press menu, so EpgGrid no longer takes that callback.
                         onMoveLeftFromChannels = { openCategoryDrawer() },
                         onMoveUpFromTop = {
-                            // Øverste kanal, op igen: videre op i topbaren.
+                            // Top channel, up again: on to the top bar.
                             noteGuideUserNavigation()
                             topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile)
                                 .coerceIn(0, maxTopBarIndex)
@@ -4540,8 +4543,9 @@ fun LiveTvScreen(
                         sportsSelected = false
                         currentMode = LiveTvStartup.LiveTvMode.Guide
                     }
-                    // Søgningen åbnes fra gruppekolonnen, så den står stadig åben
-                    // når man vælger en kanal. Intet andet i flowet lukker den.
+                    // Search is opened from the group column, so it is still
+                    // open when a channel is picked. Nothing else in the flow
+                    // closes it.
                     if (!isTouchDevice) categoryDrawerOpen = false
                     focusChannelList(channel.id)
                 },

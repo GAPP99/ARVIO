@@ -1,36 +1,36 @@
 package com.arflix.tv.ui.screens.tv.live
 
 /**
- * Tætheds- og indholdsspec for TV-guiden.
+ * Density and content spec for the TV guide.
  *
- * Holdt som rene tal og datatyper uden Compose- eller Android-afhængigheder, så
- * hver beslutning kan efterprøves i en almindelig JVM-test i stedet for kun på
- * en emulator. Samme mønster som [LiveTvStartup] og `liveTvMiniPlayerLayout`.
+ * Kept as plain numbers and data types with no Compose or Android dependencies,
+ * so every decision can be verified in a plain JVM test instead of only on an
+ * emulator. Same pattern as [LiveTvStartup] and `liveTvMiniPlayerLayout`.
  *
- * Baggrunden: guiden viste fem-ti tekstelementer pr. række — nummer, logo, navn,
- * stjerne, catch-up-ikon, progress-streg, kvalitets-pill, sprog-pill, equalizer,
- * og i programcellen både badge, titel, beskrivelse, starttid og varighed. Det
- * var støjen, ikke skriftstørrelsen, der gjorde guiden svær at overskue.
- * Specen herunder bestemmer ét sted hvad der faktisk tegnes.
+ * The background: the guide showed five to ten text elements per row — number,
+ * logo, name, star, catch-up icon, progress bar, quality pill, language pill,
+ * equalizer, and in the program cell badge, title, description, start time and
+ * duration. It was the noise, not the font size, that made the guide hard to
+ * take in. The spec below decides in one place what actually gets drawn.
  *
- * Målene er i dp mod et 960x540 dp-lærred, altså 1080p ved densitet 2.0.
+ * Measurements are in dp against a 960x540 dp canvas, i.e. 1080p at density 2.0.
  */
 object LiveGuideDensity {
 
-    /** Højden af AppTopBar-båndet, jf. LiveDims.ContentTopInset. */
+    /** Height of the AppTopBar band, cf. LiveDims.ContentTopInset. */
     const val TopBarDp = 74
 
-    /** Tidslinjens hoved. Datoen bor i venstre stub, ikke i en separat bjælke. */
+    /** The timeline's header. The date lives in the left stub, not a separate bar. */
     const val RulerHeightDp = 36
 
     /**
-     * Fast rækkehøjde. Rækkerne må ikke skifte størrelse når man bevæger sig
-     * mellem grupper og guide — det er dét, der får layoutet til at falde til ro.
-     * 38 dp giver otte rækker på en 1080p-skærm.
+     * Fixed row height. The rows must not resize when moving between groups
+     * and guide — that is what lets the layout settle. 38 dp gives eight rows
+     * on a 1080p screen.
      *
-     * Bemærk at værdien bevidst holdes under 60 dp: over den grænse falder
-     * [ProgramCell] ud af sin tegnede canvas-sti og begynder at layoute et helt
-     * komposit-træ pr. celle.
+     * Note the value is deliberately kept below 60 dp: above that threshold
+     * [ProgramCell] falls out of its drawn canvas path and starts laying out
+     * a full composite tree per cell.
      */
     const val RowHeightDp = 38
 
@@ -38,25 +38,25 @@ object LiveGuideDensity {
         ((540 - TopBarDp - InfoPanelWithTopBarDp - RulerHeightDp) / rowCount.coerceAtLeast(6))
             .coerceIn(28, 46)
 
-    /** Kanalkolonnen. Bredere end før, fordi navnet nu bærer kvalitets-suffikset. */
+    /** The channel column. Wider than before, because the name now carries the quality suffix. */
     const val ChannelColumnDp = 248
 
-    /** Info-panelet over guiden. Det er panelet — ikke rækkerne — der giver plads
-     *  til topbaren, så rækkeantallet er det samme i alle fokus-trin. */
+    /** The info panel above the guide. It is the panel — not the rows — that makes
+     *  room for the top bar, so the row count is the same in every focus step. */
     const val InfoPanelFullDp = 200
     const val InfoPanelWithTopBarDp = InfoPanelFullDp - TopBarDp
 
     fun infoPanelHeightDp(topBarVisible: Boolean): Int =
         if (topBarVisible) InfoPanelWithTopBarDp else InfoPanelFullDp
 
-    /** Antal hele kanalrækker der er plads til under panel og lineal. */
+    /** Number of whole channel rows that fit below the panel and the ruler. */
     fun visibleRowCount(screenHeightDp: Int, topBarVisible: Boolean, rowCount: Int = 8): Int {
         val chrome = (if (topBarVisible) TopBarDp else 0) +
             infoPanelHeightDp(topBarVisible) + RulerHeightDp
         return ((screenHeightDp - chrome) / rowHeightDp(rowCount)).coerceAtLeast(0)
     }
 
-    // ── kanalrækken ────────────────────────────────────────────────────────
+    // ── channel row ────────────────────────────────────────────────────────
 
     data class ChannelRowSpec(
         val showNumber: Boolean,
@@ -81,13 +81,13 @@ object LiveGuideDensity {
             showPlayingMarker = true,
         )
 
-    // ── programcellen ──────────────────────────────────────────────────────
+    // ── program cell ───────────────────────────────────────────────────────
 
-    /** Mellemrum mellem celler. 1 dp læste som en streg; 3 dp læser som luft. */
+    /** Gap between cells. 1 dp read as a bar; 3 dp reads as air. */
     const val CellGutterDp = 3
     const val CellRadiusDp = 5
 
-    /** Under denne bredde er der ikke plads til andet end en forkortet titel. */
+    /** Below this width there is only room for a truncated title. */
     const val BadgeMinCellWidthDp = 180
 
     data class ProgramCellSpec(
@@ -99,9 +99,9 @@ object LiveGuideDensity {
     )
 
     /**
-     * Cellen viser kun titlen. Start- og sluttid stod tidligere i hver eneste
-     * celle, selvom tidslinjen ovenover og info-panelet siger det samme —
-     * tre gentagelser af den samme oplysning pr. skærmbillede.
+     * The cell shows only the title. Start and end time used to sit in every
+     * single cell, even though the timeline above and the info panel say the
+     * same thing — three repetitions of the same information per screen.
      */
     fun programCellSpec(
         rowHeightDp: Int = RowHeightDp,

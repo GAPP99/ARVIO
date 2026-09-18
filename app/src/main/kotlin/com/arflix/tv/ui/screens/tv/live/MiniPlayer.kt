@@ -351,9 +351,9 @@ private fun GuideProgrammeSummary(
             }
         }
         if (programme == null) {
-            // Uden programdata stod hele feltet under titlen tomt. Kanalens egne
-            // oplysninger er stadig bedre end en sort boks, og siger samtidig
-            // hvorfor der ikke er mere at vise.
+            // Without programme data the whole field under the title stood
+            // empty. The channel's own details are still better than a black
+            // box, and also convey why there is nothing more to show.
             Text(
                 text = listOfNotNull(
                     channel?.genre?.name?.let(::formatGenreName),
@@ -404,9 +404,9 @@ private fun GuideProgrammeSummary(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                // Genre/kategori og varighed hører til her i headeren — bevidst
-                // ikke i programcellerne, hvor de før gentog det samme tre gange
-                // pr. skærmbillede.
+                // Genre/category and duration belong here in the header —
+                // deliberately not in the program cells, where they used to
+                // repeat the same thing three times per screen.
                 val details = listOfNotNull(
                     programme.category?.trim()?.takeIf { it.isNotEmpty() },
                     channel?.genre?.name?.let(::formatGenreName)

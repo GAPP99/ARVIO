@@ -103,9 +103,9 @@ fun ProgramCell(
         rowHeightDp = rowHeight.value.toInt(),
         cellWidthDp = width.value.toInt(),
     )
-    // Kun designvalget afgør gengivelsen. Tidligere faldt alt over 48 dp tilbage
-    // til de gamle celler, hvilket ramte hver eneste berøringsskærm: telefonen og
-    // tabletten kører 52 dp og fik derfor aldrig det nye design at se.
+    // Only the design choice decides rendering. Previously anything above 48 dp
+    // fell back to the old cells, which hit every touch screen: the phone and
+    // tablet run 52 dp and so never got to see the new design.
     val legacy = !newDesign
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val currentOnClick by rememberUpdatedState(onClick)

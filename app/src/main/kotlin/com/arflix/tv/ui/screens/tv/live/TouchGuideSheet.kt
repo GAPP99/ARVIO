@@ -36,61 +36,62 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 /**
- * Geometrien bag telefon-guidens bundark, holdt som rene tal uden Compose-
- * eller Android-typer — samme mønster som [LiveGuideDensity], så hver
- * beslutning kan efterprøves i en almindelig JVM-test.
+ * The geometry behind the phone guide's bottom sheet, kept as plain numbers
+ * without Compose or Android types — same pattern as [LiveGuideDensity], so
+ * every decision can be verified in a plain JVM test.
  *
- * Videoen står fast øverst med 16:9-højde. Arket har to ankre: kollapset,
- * hvor toppen ligger lige under videoen minus et overlap så de afrundede
- * hjørner dækker videoens bundkant, og udfoldet, hvor arket dækker videoen
- * helt. Guiderne står i de dp der er tilbage efter greb og kategorier.
+ * The video stays fixed at the top with a 16:9 height. The sheet has two
+ * anchors: collapsed, where the top sits just below the video minus an
+ * overlap so the rounded corners cover the video's bottom edge, and
+ * expanded, where the sheet covers the video completely. The guides live in
+ * the dp left over after the handle and the categories.
  */
 internal object TouchGuideSheetGeometry {
 
-    /** Grebsbåndet i arket. En centreret streg, resten er luft og trykflade. */
+    /** The handle band of the sheet. A centered bar; the rest is air and touch surface. */
     const val HandleHeightDp = 22
 
     /**
-     * Hvor langt arket glider op over videoen når det er kollapset. Overlappet
-     * får de afrundede hjørner til at ligge hen over videoens bundkant i stedet
-     * for at tegne en hård skillelinje midt i billedet.
+     * How far the sheet slides up over the video when collapsed. The overlap
+     * makes the rounded corners sit across the video's bottom edge instead of
+     * drawing a hard dividing line in the middle of the picture.
      */
     const val SheetOverlapDp = 35
 
-    /** Videoens højde ved fuld bredde — 16:9, afrundet ned til hele dp. */
+    /** The video's height at full width — 16:9, rounded down to whole dp. */
     fun videoHeightDp(widthDp: Int): Int = widthDp * 9 / 16
 
-    /** Arkets top når det er kollapset: lige under videoen, minus overlap. */
+    /** The sheet's top when collapsed: just below the video, minus the overlap. */
     fun collapsedTopDp(widthDp: Int): Int = videoHeightDp(widthDp) - SheetOverlapDp
 
-    /** Arkets top når det er udfoldet: det dækker videoen helt. */
+    /** The sheet's top when expanded: it covers the video completely. */
     fun expandedTopDp(): Int = 0
 
-    /** Det synlige guideareal under greb og kategorier ved et givet ark-top. */
+    /** The visible guide area below handle and categories, for a given sheet top. */
     fun guideHeightDp(contentHeightDp: Int, sheetTopDp: Int, categoriesHeightDp: Int): Int =
         (contentHeightDp - sheetTopDp - HandleHeightDp - categoriesHeightDp).coerceAtLeast(0)
 
-    /** Hvor mange hele rækker der er plads til — halve rækker tælles ikke. */
+    /** How many whole rows fit — half rows do not count. */
     fun visibleRows(guideHeightDp: Int, rowHeightDp: Int): Int =
         if (rowHeightDp <= 0) 0 else guideHeightDp / rowHeightDp
 }
 
-/** Arkets to hvilepositioner. */
+/** The sheet's two resting positions. */
 private enum class TouchGuideSheetPosition { Collapsed, Expanded }
 
-/** Hastighedsovergangen mellem træk og snap — materialens 125 dp-svarelsesgrænse. */
+/** Velocity threshold between drag and snap — the material 125 dp response limit. */
 private const val DragVelocityThresholdDp = 125
 
 /**
- * Telefon-guiden: videoen fast øverst, og et bundark med kategorier og guide
- * der trækkes op hen over den med [androidx.compose.foundation.gestures.anchoredDraggable].
+ * The phone guide: video fixed at the top, and a bottom sheet with categories
+ * and guide that is dragged up over it with [androidx.compose.foundation.gestures.anchoredDraggable].
  *
- * Arket har to ankre — kollapset (toppen lige under videoen minus
- * [TouchGuideSheetGeometry.SheetOverlapDp] overlap, så de afrundede hjørner
- * dækker videoens bund) og udfoldet (toppen i 0, altså hele vejen op). Et tryk
- * på grebet skifter mellem dem; ellers følger arket fingeren og snapper ved
- * slip. Indholdet ovenfra er grebet, [categories] og [guide] som fylder
- * resten. [player] flytter sig aldrig — arket glider hen over den.
+ * The sheet has two anchors — collapsed (top just below the video minus
+ * [TouchGuideSheetGeometry.SheetOverlapDp] of overlap, so the rounded corners
+ * cover the video's bottom) and expanded (top at 0, i.e. all the way up). A tap
+ * on the handle toggles between them; otherwise the sheet follows the finger
+ * and snaps on release. The content from the top is the handle, [categories]
+ * and [guide] filling the rest. [player] never moves — the sheet slides over it.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -106,7 +107,7 @@ fun TouchGuideSheet(
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val widthDp = maxWidth.value.roundToInt()
 
-        // Ankrene regnes i den samme heltals-geometri som testene dækker.
+        // The anchors are computed in the same integer geometry the tests cover.
         val collapsedTopPx = with(density) {
             TouchGuideSheetGeometry.collapsedTopDp(widthDp).dp.toPx()
         }
@@ -123,8 +124,8 @@ fun TouchGuideSheet(
                 ),
             )
         }
-        // Samme instans så længe bredden står stille — updateAnchors no-op'er
-        // via equals i stedet for at rive et igangværende træk i stykker.
+        // Same instance as long as the width stays put — updateAnchors no-ops
+        // via equals instead of tearing an in-flight drag apart.
         val anchors = remember(collapsedTopPx) {
             DraggableAnchors {
                 TouchGuideSheetPosition.Collapsed at collapsedTopPx
@@ -133,7 +134,7 @@ fun TouchGuideSheet(
         }
         SideEffect { state.updateAnchors(anchors) }
 
-        // Videoen. Den flytter sig aldrig — arket lægger sig ovenpå.
+        // The video. It never moves — the sheet sits on top of it.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -142,8 +143,8 @@ fun TouchGuideSheet(
             player()
         }
 
-        // Bundarket. offset{} læser træk-offsettet under layout, så selve
-        // trækket ikke recomposer hele skærmen pr. frame.
+        // The bottom sheet. offset{} reads the drag offset during layout, so the
+        // drag itself does not recompose the whole screen per frame.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -157,7 +158,7 @@ fun TouchGuideSheet(
                 .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                 .background(LiveColors.Bg)
                 .drawBehind {
-                    // 1 dp topkant — mødet mellem video og ark.
+                    // 1 dp top edge — where video meets sheet.
                     drawLine(
                         color = LiveColors.Divider,
                         start = Offset(0f, 0.5f),

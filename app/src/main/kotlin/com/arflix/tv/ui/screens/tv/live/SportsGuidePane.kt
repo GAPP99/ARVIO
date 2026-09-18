@@ -67,36 +67,36 @@ import androidx.compose.animation.core.tween
 
 internal const val SPORTS_GUIDE_CATEGORY = "sports-hub"
 
-/** Genrefilteret "Sports · Global" — kanallisten, som kampguiden lægger sig foran. */
+/** The genre-filtered "Sports · Global" — the channel list the match guide sits in front of. */
 internal const val SPORTS_CHANNEL_CATEGORY = "g-sports"
 
 /**
- * Lægger kampguiden ind i gruppelisten som en selvstændig række ved siden af
- * genrefilteret `g-sports`.
+ * Inserts the match guide into the group list as a standalone row next to
+ * the genre-filtered `g-sports`.
  *
- * De to hører sammen, men gør ikke det samme: **"Sports"** åbner [SportsGuidePane]
- * med kampprogrammet, mens **"Sports · Global"** er den almindelige kanalliste.
- * Kun kanallisten har en tælling — tallet er det der skiller dem ad på et blik.
+ * The two belong together but do not do the same: **"Sports"** opens [SportsGuidePane]
+ * with the match schedule, while **"Sports · Global"** is the ordinary channel list.
+ * Only the channel list has a count — the number is what tells them apart at a glance.
  *
- * [inAccordion] følger gruppelistens form. TV og tablet har en foldbar liste, hvor
- * begge rækker hører hjemme inde under "Alle kanaler"; findes `g-sports` ikke —
- * playlisten har ingen sportskanaler — tilføjes ingenting, for kampguiden ville
- * alligevel stå tom. Telefonens karrusel er flad og viser kun `top`, så dér lægges
- * kampguiden lige efter "Alle kanaler"; ellers kunne man slet ikke nå den.
+ * [inAccordion] follows the shape of the group list. TV and tablet have a collapsible
+ * list, where both rows live inside "All channels"; if `g-sports` does not exist —
+ * the playlist has no sports channels — nothing is added, since the match guide
+ * would be empty anyway. The phone's carousel is flat and shows only `top`, so there
+ * the guide is placed right after "All channels"; otherwise it could not be reached at all.
  */
 internal fun LiveCategoryTree.withSportsDestination(inAccordion: Boolean = true): LiveCategoryTree {
-    // Etiketten bliver stående på engelsk, så gruppering og sammenligning stadig
-    // virker; liveCategoryLabel() oversætter den ved tegning, som for de andre
-    // kategorier.
+    // The label stays in English, so grouping and comparison still work;
+    // liveCategoryLabel() translates it at draw time, as for the other
+    // categories.
     val guide = LiveCategory(SPORTS_GUIDE_CATEGORY, "Sports", 0, CategoryIcon.Sport)
-    val udenGuide = top.filterNot { it.id == SPORTS_GUIDE_CATEGORY }
+    val withoutGuide = top.filterNot { it.id == SPORTS_GUIDE_CATEGORY }
     if (!inAccordion) {
         return copy(
-            top = udenGuide.flatMap { if (it.id == "all") listOf(it, guide) else listOf(it) },
+            top = withoutGuide.flatMap { if (it.id == "all") listOf(it, guide) else listOf(it) },
         )
     }
     return copy(
-        top = udenGuide.map { category ->
+        top = withoutGuide.map { category ->
             if (category.id != "all") category
             else category.copy(
                 children = category.children

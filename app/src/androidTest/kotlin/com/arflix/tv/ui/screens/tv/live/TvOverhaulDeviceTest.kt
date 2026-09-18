@@ -111,8 +111,8 @@ class TvOverhaulDeviceTest {
                 }
             }
             screenshot("01-guide-open")
-            // "Senest sete" har ikke længere en række i gruppelisten, så
-            // længste-label-tjekket bruger "All Channels" i stedet.
+            // "Recently Watched" no longer has a row in the group list, so the
+            // longest-label check uses "All Channels" instead.
             compose.onNodeWithText("Recently Watched").assertDoesNotExist()
             compose.onNodeWithText("All Channels").assertIsDisplayed()
             val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()

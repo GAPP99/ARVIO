@@ -4,85 +4,85 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
 /**
- * Bundarkets geometri er telefon-guidens kontrakt: videoen skal være synlig
- * når arket er kollapset, arket skal dække den når det er udfoldet, og der
- * skal altid være plads til et læsbart antal rækker. Regnestykkerne her er de
- * samme som composablen forankrer sit træk i.
+ * The bottom sheet's geometry is the phone guide's contract: the video must be
+ * visible when the sheet is collapsed, the sheet must cover it when expanded,
+ * and there must always be room for a readable number of rows. The arithmetic
+ * here is the same the composable anchors its drag in.
  */
 class TouchGuideSheetTest {
 
-    // Reference-telefonen: 411x834 dp, hvor 834 er indholdet efter statuslinje
-    // og bundnavigation. Kategorikarrusellen er 46 dp og rækkerne 56 dp.
-    private val telefonBreddeDp = 411
-    private val telefonHoejdeDp = 834
-    private val kategorierHoejdeDp = 46
-    private val raekkeHoejdeDp = 56
+    // Reference phone: 411x834 dp, where 834 is the content after status bar
+    // and bottom navigation. The category carousel is 46 dp and the rows 56 dp.
+    private val phoneWidthDp = 411
+    private val phoneHeightDp = 834
+    private val categoriesHeightDp = 46
+    private val rowHeightDp = 56
 
     @Test
-    fun kollapsetViserMindstOtteRaekkerPaaTelefonen() {
-        val topDp = TouchGuideSheetGeometry.collapsedTopDp(telefonBreddeDp)
-        val guideHoejdeDp = TouchGuideSheetGeometry.guideHeightDp(
-            telefonHoejdeDp, topDp, kategorierHoejdeDp,
+    fun collapsedShowsAtLeastEightRowsOnThePhone() {
+        val topDp = TouchGuideSheetGeometry.collapsedTopDp(phoneWidthDp)
+        val guideHeightDp = TouchGuideSheetGeometry.guideHeightDp(
+            phoneHeightDp, topDp, categoriesHeightDp,
         )
 
-        // 231 dp video - 35 overlap = 196 dp til arket; 834 - 196 - 22 - 46
-        // = 570 dp guide, og 570 / 56 = 10 hele rækker.
-        val raekker = TouchGuideSheetGeometry.visibleRows(guideHoejdeDp, raekkeHoejdeDp)
+        // 231 dp video - 35 overlap = 196 dp for the sheet; 834 - 196 - 22 - 46
+        // = 570 dp of guide, and 570 / 56 = 10 full rows.
+        val rows = TouchGuideSheetGeometry.visibleRows(guideHeightDp, rowHeightDp)
 
-        assertThat(raekker).isAtLeast(8)
+        assertThat(rows).isAtLeast(8)
     }
 
     @Test
-    fun udfoldetViserFlereRaekkerEndKollapset() {
-        fun raekker(topDp: Int) = TouchGuideSheetGeometry.visibleRows(
-            TouchGuideSheetGeometry.guideHeightDp(telefonHoejdeDp, topDp, kategorierHoejdeDp),
-            raekkeHoejdeDp,
+    fun expandedShowsMoreRowsThanCollapsed() {
+        fun rows(topDp: Int) = TouchGuideSheetGeometry.visibleRows(
+            TouchGuideSheetGeometry.guideHeightDp(phoneHeightDp, topDp, categoriesHeightDp),
+            rowHeightDp,
         )
 
-        assertThat(raekker(TouchGuideSheetGeometry.expandedTopDp()))
-            .isGreaterThan(raekker(TouchGuideSheetGeometry.collapsedTopDp(telefonBreddeDp)))
+        assertThat(rows(TouchGuideSheetGeometry.expandedTopDp()))
+            .isGreaterThan(rows(TouchGuideSheetGeometry.collapsedTopDp(phoneWidthDp)))
     }
 
     @Test
-    fun kollapsetToppenLiggerOverVideoensBund() {
-        // Arket skal overlappe videoen, så de afrundede hjørner dækker dens
-        // bundkant i stedet for at møde den med en hård skillelinje.
-        assertThat(TouchGuideSheetGeometry.collapsedTopDp(telefonBreddeDp))
-            .isLessThan(TouchGuideSheetGeometry.videoHeightDp(telefonBreddeDp))
+    fun collapsedTopSitsAboveTheVideoBottom() {
+        // The sheet must overlap the video so its rounded corners cover the
+        // video's bottom edge instead of meeting it with a hard dividing line.
+        assertThat(TouchGuideSheetGeometry.collapsedTopDp(phoneWidthDp))
+            .isLessThan(TouchGuideSheetGeometry.videoHeightDp(phoneWidthDp))
     }
 
     @Test
-    fun udfoldetToppenErSkærmensTop() {
+    fun expandedTopIsTheScreenTop() {
         assertThat(TouchGuideSheetGeometry.expandedTopDp()).isEqualTo(0)
     }
 
     @Test
-    fun guideHoejdenBliverAldrigNegativ() {
-        // Absurde skærme: 0x0 op til 4x4 dp — hverken video, overlap eller
-        // chrome kan presses ned under nul.
-        (0..4).forEach { breddeDp ->
-            (0..4).forEach { indholdHoejdeDp ->
-                val topDp = TouchGuideSheetGeometry.collapsedTopDp(breddeDp)
+    fun guideHeightIsNeverNegative() {
+        // Absurd screens: 0x0 up to 4x4 dp — neither video, overlap nor chrome
+        // can be pushed below zero.
+        (0..4).forEach { widthDp ->
+            (0..4).forEach { contentHeightDp ->
+                val topDp = TouchGuideSheetGeometry.collapsedTopDp(widthDp)
                 assertThat(
-                    TouchGuideSheetGeometry.guideHeightDp(indholdHoejdeDp, topDp, kategorierHoejdeDp)
+                    TouchGuideSheetGeometry.guideHeightDp(contentHeightDp, topDp, categoriesHeightDp)
                 ).isAtLeast(0)
             }
         }
     }
 
     @Test
-    fun synligeRaekkerTaelerIkkeHalveOgKrasjerIkkePaaNul() {
-        // 0 dp rækkehøjde (absurd input) må ikke dele med nul; under én hel
-        // række tælles som nul, præcis én som én.
+    fun visibleRowsDoesNotCountHalvesOrCrashOnZero() {
+        // A 0 dp row height (absurd input) must not divide by zero; anything
+        // under one full row counts as zero, exactly one as one.
         assertThat(TouchGuideSheetGeometry.visibleRows(570, 0)).isEqualTo(0)
-        assertThat(TouchGuideSheetGeometry.visibleRows(0, raekkeHoejdeDp)).isEqualTo(0)
-        assertThat(TouchGuideSheetGeometry.visibleRows(raekkeHoejdeDp - 1, raekkeHoejdeDp)).isEqualTo(0)
-        assertThat(TouchGuideSheetGeometry.visibleRows(raekkeHoejdeDp, raekkeHoejdeDp)).isEqualTo(1)
+        assertThat(TouchGuideSheetGeometry.visibleRows(0, rowHeightDp)).isEqualTo(0)
+        assertThat(TouchGuideSheetGeometry.visibleRows(rowHeightDp - 1, rowHeightDp)).isEqualTo(0)
+        assertThat(TouchGuideSheetGeometry.visibleRows(rowHeightDp, rowHeightDp)).isEqualTo(1)
     }
 
     @Test
-    fun videoHoejdenErSekstenNiAfBredden() {
-        // 411 * 9 / 16 = 231,19 — afrundes ned til 231 hele dp.
-        assertThat(TouchGuideSheetGeometry.videoHeightDp(telefonBreddeDp)).isEqualTo(231)
+    fun videoHeightIsSixteenByNineOfTheWidth() {
+        // 411 * 9 / 16 = 231.19 — rounded down to 231 whole dp.
+        assertThat(TouchGuideSheetGeometry.videoHeightDp(phoneWidthDp)).isEqualTo(231)
     }
 }

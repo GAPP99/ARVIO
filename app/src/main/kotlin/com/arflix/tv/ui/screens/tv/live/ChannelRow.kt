@@ -140,8 +140,8 @@ fun ChannelRow(
                 if (it.hasFocus) onFocused()
             }
             .drawWithContent {
-                // Det gamle design beholder sin oprindelige flade; kun det nye
-                // strammer inset og radius.
+                // The old design keeps the surface it always had; only the new
+                // one tightens the inset and the corner radius.
                 val inset = (if (newDesign) 1.5.dp else 2.dp).toPx()
                 val radius = (if (newDesign) LiveGuideDensity.CellRadiusDp.dp else 6.dp).toPx()
                 val surfaceSize = Size(

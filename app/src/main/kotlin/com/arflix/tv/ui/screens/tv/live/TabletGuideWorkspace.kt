@@ -14,16 +14,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * Tablet-guidens to-spaltede arbejdsflade.
+ * The tablet guide's two-column workspace.
  *
- * Samme opbygning som TV-versionen: grupperne står fast i venstre spalte,
- * afspiller-info og gitter ligger til højre. Forskellen er at der ikke er
- * animation eller sammenklapning — spalterne står fast, så layoutet falder
- * til ro i stedet for at flytte sig når fokus skifter. Det er hele pointen
- * med varianten.
+ * Same construction as the TV version: the groups sit fixed in the left
+ * column, player info and the grid are on the right. The difference is that
+ * there is no animation or collapsing — the columns stay put, so the layout
+ * settles instead of moving when focus changes. That is the entire point of
+ * this variant.
  *
- * Geometrien bor i [TabletGuideGeometry], som er rene tal uden Compose- eller
- * Android-typer, så beslutningerne kan efterprøves i en almindelig JVM-test.
+ * The geometry lives in [TabletGuideGeometry], which is plain numbers without
+ * Compose or Android types, so decisions can be verified in a plain JVM test.
  */
 @Composable
 fun TabletGuideWorkspace(
@@ -34,7 +34,7 @@ fun TabletGuideWorkspace(
     groupColumnWidthDp: Int = TabletGuideGeometry.GroupColumnDp,
 ) {
     Row(modifier = modifier.fillMaxSize()) {
-        // Venstre spalte: grupperne, med skillelinjen i højre kant.
+        // Left column: the groups, with the divider on the right edge.
         Box(
             modifier = Modifier
                 .width(groupColumnWidthDp.dp)
@@ -49,7 +49,7 @@ fun TabletGuideWorkspace(
                 .fillMaxHeight()
                 .background(LiveColors.Divider),
         )
-        // Højre spalte: afspiller-info øverst, guiden fylder resten.
+        // Right column: player info at the top, the guide fills the rest.
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -74,39 +74,39 @@ fun TabletGuideWorkspace(
 }
 
 /**
- * Tablet-guidens mål i dp, holdt som rene tal og funktioner uden Compose- eller
- * Android-afhængigheder — samme mønster som [LiveGuideDensity], så hver
- * beslutning kan efterprøves i en almindelig JVM-test i stedet for kun på en
- * emulator. Referencetabletten er 1280x800 dp, hvor indholdshøjden er 720 dp
- * (800 minus 24 dp statuslinje og 56 dp bundnavigation).
+ * The tablet guide's measurements in dp, kept as plain numbers and functions
+ * without Compose or Android dependencies — same pattern as [LiveGuideDensity],
+ * so every decision can be verified in a plain JVM test instead of only on an
+ * emulator. The reference tablet is 1280x800 dp, where the content height is
+ * 720 dp (800 minus 24 dp status bar and 56 dp bottom navigation).
  */
 internal object TabletGuideGeometry {
 
-    /** Venstre spalte med grupperne. Smalere end TV'ets sidebar — tabletten har brug for bredden til gitteret. */
+    /** Left column with the groups. Narrower than the TV's sidebar — the tablet needs the width for the grid. */
     const val GroupColumnDp = 220
 
-    /** Info-panelet over guiden: afspiller og det program der er valgt nu. */
+    /** The info panel above the guide: the player and the program selected right now. */
     const val InfoPanelDp = 150
 
-    /** Kanalkolonnen i gitteret, med nummer, logo og navn. */
+    /** The channel column in the grid, with number, logo and name. */
     const val ChannelColumnDp = 200
 
-    /** Mindste berøringsmål. En tablet er en berøringsskærm — ikke en fjernbetjening. */
+    /** Minimum touch target. A tablet is a touch screen — not a remote control. */
     const val MinTouchTargetDp = 48
 
-    /** Højden gitteret kan bruge: indholdet minus tidslinjens lineal. Aldrig negativ. */
+    /** Height available to the grid: content minus the timeline ruler. Never negative. */
     fun guideHeightDp(contentHeightDp: Int, rulerHeightDp: Int): Int =
         (contentHeightDp - rulerHeightDp).coerceAtLeast(0)
 
-    /** Antal hele kanalrækker der er plads til under linealen. */
+    /** Number of whole channel rows that fit below the ruler. */
     fun visibleRows(contentHeightDp: Int, rulerHeightDp: Int, rowHeightDp: Int): Int =
         guideHeightDp(contentHeightDp, rulerHeightDp) / rowHeightDp.coerceAtLeast(1)
 
-    /** Bredden gitterets tidslinje kan bruge: skærmen minus gruppekolonne og kanalkolonne. */
+    /** Width available to the grid's timeline: screen minus group column and channel column. */
     fun timelineWidthDp(screenWidthDp: Int, groupColumnDp: Int = GroupColumnDp): Int =
         (screenWidthDp - groupColumnDp - ChannelColumnDp).coerceAtLeast(0)
 
-    /** Hvor mange minutter tidslinjen rumer ved [pxPerMinute] dp pr. minut. */
+    /** How many minutes the timeline holds at [pxPerMinute] dp per minute. */
     fun timelineMinutes(timelineWidthDp: Int, pxPerMinute: Int = 4): Int =
         timelineWidthDp / pxPerMinute.coerceAtLeast(1)
 }

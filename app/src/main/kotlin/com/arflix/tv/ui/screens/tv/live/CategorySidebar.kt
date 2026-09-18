@@ -118,7 +118,7 @@ fun CategorySidebar(
     listState: LazyListState,
     focusRequester: FocusRequester? = null,
     onSelect: (String) -> Unit,
-    /** Vælg en kategori uden at gå ind i den — bruges af rækker der folder ud. */
+    /** Select a category without entering it — used by rows that expand. */
     onSelectKeepOpen: ((String) -> Unit)? = null,
     onOpenSearch: () -> Unit,
     onHideCategory: (String?, String) -> Unit = { _, _ -> },
@@ -259,25 +259,25 @@ fun CategorySidebar(
         }
     }
 
-    // Rækkefølgen er Dannys: søgning øverst som et lille symbol, så Favoritter,
-    // og derefter de kategorier Arvio selv udleder. Favoritter vises også når
-    // listen er tom, så det er synligt at muligheden findes.
+    // The order is Danny's: search at the top as a small icon, then Favorites,
+    // and then the categories Arvio derives itself. Favorites is also shown when
+    // the list is empty, so it's visible that the option exists.
     val visibleTopCategories = remember(tree.top, newDesign) {
-        // Favoritter trækkes op i toppen. Alt andet beholder den rækkefølge
-        // træet selv giver — sorteringen er stabil, så den bestemmer ikke hvor
-        // fx sportskategorien skal ligge.
+        // Favorites is pulled to the top. Everything else keeps the order the
+        // tree itself gives — the sort is stable, so it does not decide where
+        // e.g. the sports category ends up.
         //
-        // "Senest sete" er taget ud af gruppelisten i det nye design. Selve
-        // recents-funktionen består — den driver stadig zap-rækkefølgen,
-        // hurtiglisten og flisen i mobilvisningen — den har bare ikke sin egen
-        // række her længere.
-        // Kun det nye design ændrer rækkefølgen og viser Favoritter ved tom liste.
-        // Slår man designet fra, skal listen se ud præcis som før.
+        // "Recents" has been taken out of the group list in the new design. The
+        // recents feature itself remains — it still drives the zap order,
+        // the quick list and the tile in the mobile view — it just no longer has
+        // its own row here.
+        // Only the new design changes the order and shows Favorites on an empty list.
+        // Turn the design off and the list must look exactly as before.
         if (!newDesign) {
             return@remember tree.top.distinctBy { it.id }
                 .filter { it.id != "fav" || it.count > 0 }
         }
-        // "Senest sete" er filtreret væk, så Favoritter er den eneste der trækkes op.
+        // "Recents" is filtered away, so Favorites is the only one pulled up.
         tree.top.distinctBy { it.id }
             .filterNot { it.id == "recent" }
             .sortedBy { category -> if (category.id == "fav") 0 else 1 }
@@ -641,9 +641,9 @@ fun CategorySidebar(
                         },
                         onClick = {
                             if (isAllGroup) {
-                                // Foldes ud i stedet for at gå ind; ellers kunne man
-                                // aldrig nå underkategorierne, fordi guiden lagde sig
-                                // over kolonnen med det samme.
+                                // Expands instead of entering; otherwise you could
+                                // never reach the subcategories, because the guide
+                                // covered the column immediately.
                                 expandedAll = !expandedAll
                                 (onSelectKeepOpen ?: onSelect)(cat.id)
                             } else {
@@ -951,7 +951,7 @@ private fun SearchEntry(
     onFocusChanged: (Boolean) -> Unit = {},
     focusRequester: FocusRequester? = null,
     focusable: Boolean = true,
-    /** Nyt design: kun et lille forstørrelsesglas, der folder sig ud når det får fokus. */
+    /** New design: only a small magnifying glass that expands when focused. */
     compactIcon: Boolean = false,
 ) {
     val focusManager = LocalFocusManager.current
@@ -1213,10 +1213,10 @@ private fun SidebarRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // I det nye design bærer gruppelisten kun navne. Ikonerne gentog
-            // information der allerede står i teksten, og gjorde en ellers rolig
-            // kolonne til en stribe symboler. Landekode og flag bliver, fordi de
-            // er det eneste der skiller ellers enslydende landerækker ad.
+            // In the new design the group list carries names only. The icons
+            // repeated information already in the text, and turned an otherwise
+            // calm column into a strip of symbols. Country code and flag stay,
+            // because they are the only thing separating otherwise identical rows.
             when {
                 leadingCode != null -> Text(
                     text = leadingCode,

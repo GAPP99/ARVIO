@@ -14,9 +14,10 @@ class LiveTvGroupHomeTest {
             .enrichForFastStartup(1)
 
     @Test
-    fun alleFormfaktorerAabnerIGuiden() {
-        // Telefonen landede før på gruppesiden. Grupperne ligger i karrusellen
-        // øverst i arket, så siden var et ekstra tryk uden nyt indhold.
+    fun allFormFactorsOpenInTheGuide() {
+        // The phone used to land on the group page. The groups sit in the
+        // carousel at the top of the sheet, so that page was an extra tap
+        // without new content.
         val mobileMode = LiveTvStartup.initialMode(
             isTouchDevice = true,
             initialChannelId = null,
@@ -94,9 +95,9 @@ class LiveTvGroupHomeTest {
     }
 
     @Test
-    fun tilbageFraGuidenForladerTvPaaTelefon() {
-        // Der er ingen gruppeside at gå tilbage til længere, så Back forlader TV
-        // med det samme — som på tablet.
+    fun backFromTheGuideLeavesTvOnThePhone() {
+        // There is no group page to go back to anymore, so Back leaves TV
+        // right away — as on tablet.
         val action = LiveTvStartup.guideBackAction(
             isTouchDevice = true,
             categoryDrawerOpen = false,

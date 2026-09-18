@@ -112,16 +112,17 @@ object LiveDims {
 }
 
 /**
- * Guidens accentfarve — nu-linjen, datoen, den kanal der spiller, ▶ og prikken.
+ * The guide's accent color — the now-line, the date, the playing channel, ▶
+ * and the dot.
  *
- * Bruger nøjagtig samme farve som resten af appen: brugerens valg under
- * Indstillinger → Udseende → Accentfarve, lagt i `LocalAccentColorOverride` af
- * [com.arflix.tv.ui.theme.ArflixTheme]. Fallback er hvid, som i AppTopBar og
- * afspilleren — ikke guidens gamle turkis, der gjorde TV-siden til det ene
- * sted i appen med sin egen farve.
+ * Uses exactly the same color as the rest of the app: the user's pick under
+ * Settings → Appearance → Accent color, placed in `LocalAccentColorOverride`
+ * by [com.arflix.tv.ui.theme.ArflixTheme]. The fallback is white, as in
+ * AppTopBar and the player — not the guide's old turquoise, which made the
+ * TV page the one place in the app with a color of its own.
  *
- * Skal værdien bruges i en tegne-lambda (`drawBehind`, `Canvas`), så læs den i
- * composable-scope først — `DrawScope` kan ikke læse en CompositionLocal.
+ * If the value is used inside a draw lambda (`drawBehind`, `Canvas`), read it
+ * in composable scope first — `DrawScope` cannot read a CompositionLocal.
  */
 @Composable
 fun liveAccent(): Color = LocalAccentColorOverride.current ?: Color.White

@@ -70,9 +70,9 @@ fun TouchCategoryRail(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        // Søgning er et kvadratisk ikon uden tekst. Med etiketten fyldte den en
-        // tredjedel af karrusellen og skubbede grupperne ud over kanten; lupen
-        // siger det samme på en femtedel af pladsen.
+        // Search is a square icon without text. With the label it filled a
+        // third of the carousel and pushed the groups past the edge; the
+        // magnifier says the same thing in a fifth of the space.
         item(key = "search") {
             Box(
                 modifier = Modifier
@@ -84,9 +84,9 @@ fun TouchCategoryRail(
             ) {
                 Icon(
                     imageVector = Icons.Filled.Search,
-                    // R.string.search findes i alle 52 sprogfiler;
-                    // live_label_search_channels kun i seks. Skærmlæseren skal
-                    // ikke falde tilbage til engelsk, bare fordi etiketten er væk.
+                    // R.string.search exists in all 52 language files;
+                    // live_label_search_channels only in six. The screen reader
+                    // must not fall back to English just because the label is gone.
                     contentDescription = stringResource(R.string.search),
                     tint = LiveColors.FgDim,
                 )
@@ -163,9 +163,9 @@ private fun rememberTouchRailItems(
     expandedPlaylistIds: List<String>,
 ): List<TouchCategoryRailItem> {
     val base = buildList {
-        // "Senest sete" har ingen chip, præcis som den ikke har en række i
-        // gruppelisten på TV. Funktionen består — den driver stadig zap-
-        // rækkefølgen — den fylder bare ikke en plads i karrusellen.
+        // "Recents" has no chip, exactly as it has no row in the group list on
+        // TV. The feature remains — it still drives the zap order — it just
+        // does not take up a slot in the carousel.
         tree.top
             .filterNot { it.id == "recent" }
             .filter { it.id != "fav" || it.count > 0 }
@@ -193,10 +193,10 @@ private fun rememberTouchRailItems(
         }
     }.distinctBy { it.id }.toMutableList()
 
-    // Den valgte kategori får altid en chip, så man kan se hvor man står — men
-    // ikke "Senest sete": den er filtreret væk ovenfor, og uden dette ville den
-    // komme tilbage forrest og fremhævet i det øjeblik man valgte den fra
-    // gruppesiden eller genoptog en session der stod på den.
+    // The selected category always gets a chip, so you can see where you are —
+    // except "Recents": it is filtered out above, and without this it would
+    // come back first and highlighted the moment you selected it from the
+    // group page or resumed a session that was parked on it.
     val selected = tree.byId(selectedId)?.takeIf { it.id != "recent" }
     if (selected != null && tree.hidden.categories.none { it.id == selectedId } && base.none { it.id == selectedId }) {
         base.add(0, TouchCategoryRailItem(selected.id, liveCategoryLabel(selected.label), selected.count))

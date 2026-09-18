@@ -133,8 +133,9 @@ class LiveTvStartupTest {
 
     @Test
     fun backLeavesTvAtOnceWhenTheGroupColumnIsFixed() {
-        // Tabletten: kolonnen står altid fremme, så der er intet at åbne. Uden
-        // dette blev første tilbage-tryk slugt af en usynlig skuffe.
+        // Tablet: the column is always visible, so there is nothing to open.
+        // Without this the first back press was swallowed by an invisible
+        // drawer.
         assertThat(
             LiveTvStartup.guideBackAction(
                 isTouchDevice = false,

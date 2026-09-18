@@ -158,9 +158,9 @@ fun EpgGrid(
     newDesign: Boolean = true,
     rowHeightOverride: Dp? = null,
     /**
-     * Op-tast på den øverste kanal, når der ikke er flere at hente ind ovenfor.
-     * Uden den blev tasten slugt, og guiden føltes som en blindgyde i toppen.
-     * Returnér true når fokus er flyttet.
+     * Key-up on the topmost channel when there are no more to fetch above it.
+     * Without it the key was swallowed and the guide felt like a dead end at
+     * the top. Return true when focus has been moved.
      */
     onMoveUpFromTop: (() -> Boolean)? = null,
 ) {
@@ -172,8 +172,8 @@ fun EpgGrid(
     val headerHeight = when {
         compact -> 32.dp
         newDesign -> LiveGuideDensity.RulerHeightDp.dp
-        // 28dp er mains stramning af den gamle header; den skal ikke rulles
-        // tilbage, bare fordi det nye design har sin egen lineal.
+        // 28dp is main's tightening of the old header; it should not be rolled
+        // back just because the new design has its own ruler.
         else -> 28.dp
     }
     val channelColumnWidth = channelColumnWidthOverride
@@ -382,12 +382,12 @@ fun EpgGrid(
         return when {
             targetIdx < 0 -> {
                 if (channelWindowOffset > 0) {
-                    // Der er flere kanaler at hente ind ovenfor — bliv i listen.
+                    // More channels can be fetched above — stay in the list.
                     onRequestPreviousChannels()
                     true
                 } else {
-                    // Vi står på allerførste kanal: send fokus videre op i
-                    // topbaren i stedet for at sluge tasten.
+                    // We are on the very first channel: pass focus up to the
+                    // top bar instead of swallowing the key.
                     onMoveUpFromTop?.invoke() ?: true
                 }
             }
@@ -580,7 +580,7 @@ fun EpgGrid(
                 }
             }
         } else if (!compact && !newDesign) {
-            // Chrome-bjælken findes kun i det gamle design. Højden er mains 28dp.
+            // The chrome bar only exists in the old design. Height is main's 28dp.
             Row(Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Outlined.Menu, stringResource(R.string.live_groups_title), tint = LiveColors.Fg,
@@ -948,9 +948,9 @@ fun EpgGrid(
                                     },
                                     onMoveVertically = { targetRowIdx, anchorStartMin ->
                                         if (targetRowIdx < 0 && channelWindowOffset == 0) {
-                                            // Samme udgang som i kanalkolonnen:
-                                            // op fra øverste programrække går i
-                                            // topbaren.
+                                            // Same exit as in the channel column:
+                                            // up from the topmost programme row
+                                            // goes to the top bar.
                                             return@ProgramsRow onMoveUpFromTop?.invoke() ?: true
                                         }
                                         val targetChannel = channels.getOrNull(targetRowIdx)

@@ -91,9 +91,9 @@ object LiveTvStartup {
     }
 
     /**
-     * [hasCollapsibleDrawer] er kun sandt på TV. Tabletten har en fast
-     * gruppekolonne, så "åbn grupperne" ville ikke flytte noget synligt: første
-     * tilbage-tryk så dødt ud, og man skulle trykke to gange for at komme ud.
+     * [hasCollapsibleDrawer] is only true on TV. The tablet has a fixed
+     * group column, so "open groups" would not move anything visible: the first
+     * back press looked dead, and you had to press twice to get out.
      */
     fun guideBackAction(
         isTouchDevice: Boolean,
@@ -108,13 +108,13 @@ object LiveTvStartup {
     }
 
     /**
-     * Guiden er startskærmen på alle formfaktorer. Telefonen havde
-     * [LiveTvMode.GroupHome] foran sig, men karrusellen øverst i arket viser de
-     * samme grupper, så landingssiden kostede et tryk uden at tilføje noget.
+     * The guide is the start screen on every form factor. The phone used to
+     * get [LiveTvMode.GroupHome] first, but the carousel at the top of the sheet
+     * shows the same groups, so the landing page cost a press without adding anything.
      *
-     * Parametrene indgår ikke længere i svaret. De bliver stående, fordi det er
-     * her et formfaktor-afhængigt valg hører hjemme, hvis det skal tilbage —
-     * og fordi kaldestedet så ikke skal skrives om igen.
+     * The parameters no longer take part in the answer. They stay, because this is
+     * where a form-factor-dependent choice belongs if it ever needs to come back —
+     * and because the call site then does not have to be rewritten again.
      */
     @Suppress("UNUSED_PARAMETER")
     fun initialMode(

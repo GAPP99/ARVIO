@@ -4,61 +4,61 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
 /**
- * Tablet-geometrien er variantens kontrakt. Referencetabletten er 1280x800 dp
- * med 720 dp indhold (800 minus 24 dp statuslinje og 56 dp bundnavigation),
- * lineal 36 dp og rækkehøjde 52 dp.
+ * The tablet geometry is the variant's contract. The reference tablet is
+ * 1280x800 dp with 720 dp of content (800 minus a 24 dp status bar and 56 dp
+ * bottom navigation), a 36 dp ruler and 52 dp rows.
  */
 class TabletGuideWorkspaceTest {
 
-    private val indholdDp = 720
-    private val linealDp = 36
-    private val raekkeDp = 52
-    private val skaermBreddeDp = 1280
+    private val contentDp = 720
+    private val rulerDp = 36
+    private val rowDp = 52
+    private val screenWidthDp = 1280
 
     @Test
-    fun referencetablettenViserMindstTiRaekker() {
-        // Pointen med tablet-varianten: gitteret skal føles som et gitter,
-        // ikke som fem rækker på et forbryderisk stort lærred.
-        val raekker = TabletGuideGeometry.visibleRows(indholdDp, linealDp, raekkeDp)
+    fun theReferenceTabletShowsAtLeastTenRows() {
+        // The point of the tablet variant: the grid must feel like a grid, not
+        // like five rows on an outrageously large canvas.
+        val rows = TabletGuideGeometry.visibleRows(contentDp, rulerDp, rowDp)
 
-        assertThat(raekker).isAtLeast(10)
+        assertThat(rows).isAtLeast(10)
     }
 
     @Test
-    fun tidslinjenViserMindstTreTimerPaaReferencetabletten() {
-        // Med 4 dp pr. minut skal der være plads til en hel aften uden at
-        // brugeren skal scrolle for at se hvad der kommer.
-        val minutter = TabletGuideGeometry.timelineMinutes(
-            TabletGuideGeometry.timelineWidthDp(skaermBreddeDp),
+    fun theTimelineShowsAtLeastThreeHoursOnTheReferenceTablet() {
+        // At 4 dp per minute there must be room for a whole evening without
+        // the user having to scroll to see what comes next.
+        val minutes = TabletGuideGeometry.timelineMinutes(
+            TabletGuideGeometry.timelineWidthDp(screenWidthDp),
         )
 
-        assertThat(minutter).isAtLeast(180)
+        assertThat(minutes).isAtLeast(180)
     }
 
     @Test
-    fun raekkehojdenErEtGyldigtBeroeringsmaal() {
-        // En tablet er en berøringsskærm — rækken skal kunne rammes med en finger.
-        assertThat(raekkeDp).isAtLeast(TabletGuideGeometry.MinTouchTargetDp)
+    fun theRowHeightIsAValidTouchTarget() {
+        // A tablet is a touchscreen — the row must be hittable with a finger.
+        assertThat(rowDp).isAtLeast(TabletGuideGeometry.MinTouchTargetDp)
     }
 
     @Test
-    fun guideHoejdenBliverAldrigNegativ() {
-        // Absurd lave højder giver et tomt gitter, ikke et nedbrud.
-        assertThat(TabletGuideGeometry.guideHeightDp(0, linealDp)).isEqualTo(0)
-        assertThat(TabletGuideGeometry.guideHeightDp(10, linealDp)).isEqualTo(0)
-        assertThat(TabletGuideGeometry.guideHeightDp(-500, linealDp)).isEqualTo(0)
+    fun guideHeightIsNeverNegative() {
+        // Absurdly low heights give an empty grid, not a crash.
+        assertThat(TabletGuideGeometry.guideHeightDp(0, rulerDp)).isEqualTo(0)
+        assertThat(TabletGuideGeometry.guideHeightDp(10, rulerDp)).isEqualTo(0)
+        assertThat(TabletGuideGeometry.guideHeightDp(-500, rulerDp)).isEqualTo(0)
 
-        // Og dermed heller ikke et negativt rækkeantal.
-        assertThat(TabletGuideGeometry.visibleRows(0, linealDp, raekkeDp)).isEqualTo(0)
+        // And therefore never a negative row count either.
+        assertThat(TabletGuideGeometry.visibleRows(0, rulerDp, rowDp)).isEqualTo(0)
     }
 
     @Test
-    fun enBredereSkaermGiverEnLaengereTidslinje() {
-        val smal = TabletGuideGeometry.timelineWidthDp(800)
-        val bred = TabletGuideGeometry.timelineWidthDp(skaermBreddeDp)
+    fun aWiderScreenGivesALongerTimeline() {
+        val narrow = TabletGuideGeometry.timelineWidthDp(800)
+        val wide = TabletGuideGeometry.timelineWidthDp(screenWidthDp)
 
-        assertThat(bred).isGreaterThan(smal)
-        assertThat(TabletGuideGeometry.timelineMinutes(bred))
-            .isGreaterThan(TabletGuideGeometry.timelineMinutes(smal))
+        assertThat(wide).isGreaterThan(narrow)
+        assertThat(TabletGuideGeometry.timelineMinutes(wide))
+            .isGreaterThan(TabletGuideGeometry.timelineMinutes(narrow))
     }
 }
