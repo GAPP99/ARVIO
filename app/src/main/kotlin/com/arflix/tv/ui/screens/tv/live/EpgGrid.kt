@@ -142,6 +142,8 @@ fun EpgGrid(
     favorites: Set<String>,
     variantCountFor: (EnrichedChannel) -> Int = { 1 },
     compact: Boolean = false,
+    /** Divide the guide into this many rows instead of using the fixed row height. */
+    rowCount: Int? = null,
     gridFocused: Boolean = false,
     backHandlingEnabled: Boolean = true,
     onMoveLeftFromChannels: () -> Unit = {},
@@ -166,7 +168,6 @@ fun EpgGrid(
     val channelColumnWidth = channelColumnWidthOverride
         ?: if (compact) 164.dp else LiveDims.EpgChannelColWidth
     val halfHourWidth = (pxPerMin * 30f).dp
-    val rowHeight = if (compact) 52.dp else LiveDims.EpgRowHeight
     val channelFocusRequesters = remember { LinkedHashMap<String, FocusRequester>() }
     val programFocusRequesters = remember { LinkedHashMap<String, List<FocusRequester>>() }
     val programFocusTargets = remember { LinkedHashMap<String, List<ProgramFocusTarget>>() }
@@ -692,6 +693,10 @@ fun EpgGrid(
 
         // ─── Body ───────────────────────────────────────────────────
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            // The clamp keeps rows readable and under the 60dp at which cells
+            // start showing descriptions.
+            val rowHeight = rowCount?.let { (maxHeight / it).coerceIn(24.dp, 56.dp) }
+                ?: if (compact) 52.dp else LiveDims.EpgRowHeight
             val totalWidth = halfHourWidth * slots.size
             val viewportWidth = (maxWidth - channelColumnWidth - 1.dp).coerceAtLeast(0.dp)
             val renderWindow by remember(hScroll, density, viewportWidth, pxPerMin) {
