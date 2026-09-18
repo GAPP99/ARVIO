@@ -1037,23 +1037,11 @@ fun HomeScreen(
         else -> null
     }
 
-    var isTrailerPlaying by remember { mutableStateOf(false) }
     var trailerSuppressed by remember { mutableStateOf(false) }
-    LaunchedEffect(displayHeroItem?.id) {
-        trailerSuppressed = false
-        isTrailerPlaying = false
-    }
+    var isTrailerVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(displayHeroItem?.id) { trailerSuppressed = false }
     val heroRowIsContinueWatching = latestDisplayCategories
         .getOrNull(focusState.currentRowIndex)?.id == "continue_watching"
-    val trailerOverlayAlpha = remember { Animatable(1f) }
-    LaunchedEffect(isTrailerPlaying) {
-        if (isTrailerPlaying) {
-            trailerOverlayAlpha.animateTo(0f, tween(1500, easing = FastOutSlowInEasing))
-        } else {
-            trailerOverlayAlpha.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
-        }
-    }
-
     var heroPlaybackHandles by remember { mutableStateOf<HomeHeroPlaybackHandles?>(null) }
     var preparedHeroVideoUrl by remember { mutableStateOf<String?>(null) }
     val heroExoPlayer = heroPlaybackHandles?.player
@@ -1219,22 +1207,11 @@ fun HomeScreen(
                     )
                 }
 
-                // YouTube trailer auto-play on hero backdrop
-                if (heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null && !trailerSuppressed && !heroRowIsContinueWatching) {
-                    BackgroundTrailerPlayer(
-                        youtubeKey = uiState.heroTrailerKey!!,
-                        delayMs = uiState.trailerDelaySeconds * 1000L,
-                        soundEnabled = uiState.trailerSoundEnabled,
-                        onPlayingChanged = { playing -> isTrailerPlaying = playing },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
                 // === SCRIM SYSTEM ===
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = trailerOverlayAlpha.value }
+
                         .drawWithCache {
                             val width = size.width
                             val height = size.height
@@ -1293,7 +1270,7 @@ fun HomeScreen(
             }
         } // end if (!isMobile) backdrop
 
-        Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = trailerOverlayAlpha.value }) {
+        Box(modifier = Modifier.fillMaxSize()) {
         HomeInputLayer(
             categories = displayCategories,
             cardLogoUrls = cardLogoUrls,
@@ -1305,8 +1282,8 @@ fun HomeScreen(
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
-            isContextMenuOpen = showContextMenu,
-            trailerIsPlaying = isTrailerPlaying,
+            isContextMenuOpen = showContextMenu || isTrailerVisible,
+            trailerIsPlaying = false,
             onTrailerStop = { trailerSuppressed = true },
             isMobile = isMobile,
             heroItem = displayHeroItem,
@@ -1374,7 +1351,7 @@ fun HomeScreen(
         } // end trailer-dim wrapper
 
         if (showCinematicHomeLayer) {
-            Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = trailerOverlayAlpha.value }) {
+            Box(modifier = Modifier.fillMaxSize()) {
             HomeHeroLayer(
                 heroItem = displayHeroItem,
                 heroLogoUrl = displayHeroLogo,
@@ -1423,6 +1400,19 @@ fun HomeScreen(
             }
         }
 
+        // Present autoplay above the home UI. The YouTube surface must already
+        // be visible when playback starts, with no cards or scrims over it.
+        if (!isMobile && heroVideoUrl == null && uiState.trailerAutoPlay &&
+            uiState.heroTrailerKey != null && !trailerSuppressed && !heroRowIsContinueWatching &&
+            !showContextMenu && !uiState.showAppUpdateDialog) {
+            BackgroundTrailerPlayer(
+                youtubeKey = uiState.heroTrailerKey!!,
+                delayMs = uiState.trailerDelaySeconds * 1000L,
+                soundEnabled = uiState.trailerSoundEnabled,
+                onVisibilityChanged = { isTrailerVisible = it },
+                onClose = { trailerSuppressed = true }
+            )
+        }
         // Context menu
         contextMenuItem?.let { item ->
             Box(

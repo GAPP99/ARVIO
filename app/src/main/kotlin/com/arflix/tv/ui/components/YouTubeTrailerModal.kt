@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.SystemClock
 import android.view.ViewGroup
+import android.view.View
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -122,20 +123,15 @@ private data class TransientIndicator(
 /**
  * The embedded player itself. Nothing is ever drawn on top of this.
  *
- * @param youTubeControls true hands playback control to YouTube's own controls
- *   (mobile); false is the official controls=0 parameter and leaves the
- *   controls to the caller, drawn beside the player (TV).
- * @param blockInput true stops the WebView taking focus or touches, which TV
- *   needs so the D-pad cannot get trapped inside the web page. On mobile it
- *   must stay false, otherwise YouTube's own controls never see a tap.
+ * YouTube owns its controls on every device. TV shortcuts are handled by a
+ * separate focus target; entering the WebView leaves its key handling intact.
  */
 @Composable
 private fun TrailerPlayerSurface(
     youtubeKey: String,
-    youTubeControls: Boolean,
-    blockInput: Boolean,
     modifier: Modifier = Modifier,
-    onReady: (YouTubePlayer) -> Unit = {},
+    onViewReady: (YouTubePlayerView) -> Unit = {},
+    onReady: (YouTubePlayer) -> Boolean = { true },
     onStateChange: (PlayerConstants.PlayerState) -> Unit = {},
     onSecond: (Float) -> Unit = {},
     onDuration: (Float) -> Unit = {},
@@ -158,17 +154,12 @@ private fun TrailerPlayerSurface(
                 // would itself sit on top of the player.
                 setCustomPlayerUi(android.view.View(ctx).apply { visibility = android.view.View.GONE })
 
-                if (blockInput) {
-                    // CRITICAL FOR TV: Compose owns the D-pad, so the WebView
-                    // must never become focusable or swallow keys.
-                    isFocusable = false
-                    isFocusableInTouchMode = false
-                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                    setOnTouchListener { _, _ -> true }
-                }
+                // Leave the embedded controls, captions and links reachable on TV too.
+                descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+                onViewReady(this)
 
                 val iFrameOptions = IFramePlayerOptions.Builder(ctx)
-                    .controls(if (youTubeControls) 1 else 0)
+                    .controls(1)
                     .rel(0)
                     .ivLoadPolicy(3)
                     .ccLoadPolicy(0)
@@ -178,8 +169,11 @@ private fun TrailerPlayerSurface(
                 initialize(
                     object : AbstractYouTubePlayerListener() {
                         override fun onReady(youTubePlayer: YouTubePlayer) {
-                            onReadyCb(youTubePlayer)
-                            youTubePlayer.loadVideo(youtubeKey, 0f)
+                            if (onReadyCb(youTubePlayer)) {
+                                youTubePlayer.loadVideo(youtubeKey, 0f)
+                            } else {
+                                youTubePlayer.cueVideo(youtubeKey, 0f)
+                            }
                         }
 
                         override fun onStateChange(
@@ -269,20 +263,21 @@ private fun TrailerEmbedFallback(onOpenExternally: () -> Unit) {
  * attribution, so the only thing we add is a close button - below the video in
  * portrait, in the black letterbox strip beside it in landscape.
  *
- * TV: a D-pad cannot drive a web control bar, so TV keeps controls=0 and our
+ * TV: native YouTube controls remain available. Playback shortcuts use our
  * own bar, drawn in a permanently reserved strip *below* the video:
  *   - [DPAD_CENTER] / [ENTER]: Play / Pause toggle
  *   - [DPAD_LEFT] / [MediaRewind]: Seek backward 10s
  *   - [DPAD_RIGHT] / [MediaFastForward]: Seek forward 10s
  *   - [DPAD_DOWN]: reveal the bar and move focus into the strip
- *   - [DPAD_UP]: reveal the bar, or return to the video from the strip
+ *   - [DPAD_UP]: enter YouTube's controls (directions traverse, OK activates)
  *   - [BACK]: Dismiss modal cleanly and restore focus to Details
- * The strip always shows a focusable "YouTube" button: it is the attribution
- * that controls=0 takes away, and it doubles as the way out to the YouTube app.
+ * The strip also offers access to the embedded controls and the YouTube app.
  */
 @Composable
 fun YouTubeTrailerModal(
     youtubeKey: String,
+    soundEnabled: Boolean = true,
+    onPlaybackStateChanged: (PlayerConstants.PlayerState) -> Unit = {},
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -292,14 +287,20 @@ fun YouTubeTrailerModal(
         LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     val playerFocusRequester = remember { FocusRequester() }
+    val embeddedFocusRequester = remember { FocusRequester() }
     val youtubeFocusRequester = remember { FocusRequester() }
+    val settingsFocusRequester = remember { FocusRequester() }
+    var settingsFocused by remember { mutableStateOf(false) }
 
     var isYouTubeFocused by remember { mutableStateOf(false) }
 
     var activePlayer by remember(youtubeKey) { mutableStateOf<YouTubePlayer?>(null) }
+    var nativePlayerView by remember(youtubeKey) { mutableStateOf<YouTubePlayerView?>(null) }
+    val playbackLifecycle = remember(youtubeKey) { TrailerPlaybackLifecycle() }
     var playbackError by remember(youtubeKey) { mutableStateOf(false) }
 
     var isPlaying by remember { mutableStateOf(false) }
+    KeepScreenOn(active = isPlaying)
     var currentSecond by remember { mutableFloatStateOf(0f) }
     var duration by remember { mutableFloatStateOf(0f) }
 
@@ -358,6 +359,11 @@ fun YouTubeTrailerModal(
         lastInteractionTime = SystemClock.uptimeMillis()
     }
 
+    fun focusEmbeddedControls() {
+        runCatching { embeddedFocusRequester.requestFocus() }
+        nativePlayerView?.requestFocus(View.FOCUS_DOWN)
+    }
+
     fun openExternalYouTube() {
         try {
             val url = "https://www.youtube.com/watch?v=$youtubeKey"
@@ -378,31 +384,35 @@ fun YouTubeTrailerModal(
     val videoSurface: @Composable (Modifier) -> Unit = { modifier ->
         Box(
             modifier = modifier
-                .clip(RoundedCornerShape(12.dp))
                 .background(Color.Black)
         ) {
             if (!playbackError) {
                 TrailerPlayerSurface(
                     youtubeKey = youtubeKey,
-                    youTubeControls = isMobile,
-                    blockInput = !isMobile,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().focusRequester(embeddedFocusRequester),
+                    onViewReady = { nativePlayerView = it },
                     onReady = { player ->
                         activePlayer = player
-                        player.unMute()
+                        if (soundEnabled) player.unMute() else player.mute()
+                        playbackLifecycle.requestStart()
                     },
                     onStateChange = { state ->
+                        onPlaybackStateChanged(state)
                         when (state) {
-                            PlayerConstants.PlayerState.PLAYING -> isPlaying = true
+                            PlayerConstants.PlayerState.PLAYING -> {
+                                playbackLifecycle.onPlaying()
+                                isPlaying = true
+                            }
                             PlayerConstants.PlayerState.PAUSED -> {
+                                playbackLifecycle.onPaused()
                                 isPlaying = false
                                 if (!isMobile) showBar = true
                             }
                             PlayerConstants.PlayerState.ENDED -> {
-                                // Stop before YouTube's end-screen cards come
-                                // up. Stopping is not covering something up.
+                                // Keep the end screen and its links accessible until Back.
+                                playbackLifecycle.onEnded()
                                 isPlaying = false
-                                onClose()
+                                showBar = true
                             }
                             else -> {}
                         }
@@ -410,7 +420,7 @@ fun YouTubeTrailerModal(
                     onSecond = { currentSecond = it },
                     onDuration = { duration = it },
                     onError = { playbackError = true },
-                    onReleased = { activePlayer = null }
+                    onReleased = { activePlayer = null; nativePlayerView = null }
                 )
             } else {
                 TrailerEmbedFallback(onOpenExternally = { openExternalYouTube() })
@@ -502,6 +512,31 @@ fun YouTubeTrailerModal(
                         .focusRequester(playerFocusRequester)
                         .focusable()
                         .onPreviewKeyEvent { event ->
+                            // Once the user enters YouTube's controls, do not steal
+                            // navigation or OK from captions, settings and links.
+                            if (nativePlayerView?.hasFocus() == true) {
+                                // Mobile WebView controls use keyboard focus traversal.
+                                // Translate the remote into ordinary keyboard events,
+                                // without inspecting or modifying YouTube's document.
+                                val keyCode = when (event.key) {
+                                    Key.DirectionLeft, Key.DirectionRight,
+                                    Key.DirectionUp, Key.DirectionDown -> android.view.KeyEvent.KEYCODE_TAB
+                                    Key.DirectionCenter -> android.view.KeyEvent.KEYCODE_SPACE
+                                    Key.Enter, Key.NumPadEnter -> android.view.KeyEvent.KEYCODE_ENTER
+                                    else -> null
+                                }
+                                if (keyCode != null) {
+                                    val original = event.nativeKeyEvent
+                                    val reverse = event.key == Key.DirectionLeft || event.key == Key.DirectionUp
+                                    nativePlayerView?.dispatchKeyEvent(android.view.KeyEvent(
+                                        original.downTime, original.eventTime, original.action,
+                                        keyCode, original.repeatCount,
+                                        if (reverse) android.view.KeyEvent.META_SHIFT_ON else 0
+                                    ))
+                                    return@onPreviewKeyEvent true
+                                }
+                                return@onPreviewKeyEvent false
+                            }
                             if (event.type == KeyEventType.KeyDown) {
                                 when (event.key) {
                                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> {
@@ -548,7 +583,7 @@ fun YouTubeTrailerModal(
                                         true
                                     }
                                     Key.DirectionUp -> {
-                                        // Nothing lives above the video any more
+                                        focusEmbeddedControls()
                                         markInteraction()
                                         true
                                     }
@@ -661,6 +696,15 @@ fun YouTubeTrailerModal(
                         }
 
                         YouTubeStripButton(
+                            label = "YouTube · " + stringResource(R.string.settings),
+                            isFocused = settingsFocused,
+                            onFocusChanged = { settingsFocused = it },
+                            focusRequester = settingsFocusRequester,
+                            onActivate = { focusEmbeddedControls() },
+                            onUp = { focusEmbeddedControls() },
+                            onBack = onClose
+                        )
+                        YouTubeStripButton(
                             isFocused = isYouTubeFocused,
                             onFocusChanged = { isYouTubeFocused = it },
                             focusRequester = youtubeFocusRequester,
@@ -674,18 +718,22 @@ fun YouTubeTrailerModal(
         }
     }
 
-    DisposableEffect(lifecycleOwner, activePlayer) {
+    val latestActivePlayer by rememberUpdatedState(activePlayer)
+    DisposableEffect(lifecycleOwner, youtubeKey) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> activePlayer?.pause()
-                Lifecycle.Event.ON_RESUME -> activePlayer?.play()
+                Lifecycle.Event.ON_PAUSE -> {
+                    playbackLifecycle.onBackground()
+                    latestActivePlayer?.pause()
+                }
+                Lifecycle.Event.ON_RESUME -> if (playbackLifecycle.onForeground()) latestActivePlayer?.play()
                 else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            activePlayer?.pause()
+            latestActivePlayer?.pause()
         }
     }
 }
@@ -711,13 +759,11 @@ private fun TrailerCloseButton(onClose: () -> Unit) {
 }
 
 /**
- * Permanent item in the TV strip. It carries two jobs at once: it is the
- * attribution that controls=0 takes away from us, and it is the way out into
- * the YouTube app - a path that would otherwise disappear entirely, because
- * nothing calls OpenYouTubeTrailer any more.
+ * Focusable action beside the player, for its settings or the external app.
  */
 @Composable
 private fun YouTubeStripButton(
+    label: String = "YouTube",
     isFocused: Boolean,
     onFocusChanged: (Boolean) -> Unit,
     focusRequester: FocusRequester,
@@ -765,7 +811,7 @@ private fun YouTubeStripButton(
             modifier = Modifier.size(14.dp)
         )
         Text(
-            text = "YouTube",
+            text = label,
             style = ArvioSkin.typography.caption.copy(
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 12.sp,
