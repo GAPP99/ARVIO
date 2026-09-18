@@ -80,7 +80,7 @@ import com.arflix.tv.ui.theme.TextPrimary
  *    - Sports
  *    - Favourites
  *    - Recently watched
- * 3. Groups heading
+ * 3. Playlists heading
  * 4. Full-width group plank tiles
  *
  * No "See all" affordance is rendered; this screen serves as the complete group-navigation surface.
@@ -205,7 +205,7 @@ fun LiveTvGroupHome(
             }
         }
 
-        // 3. Groups heading
+        // 3. Playlists heading
         item(key = "home_groups_heading") {
             Row(
                 modifier = Modifier
@@ -391,7 +391,9 @@ private fun PlaylistSubwayTile(
 ) {
     if (providers.size <= 1) return
     var expanded by remember { mutableStateOf(false) }
-    val currentProvider = providers.firstOrNull { it.id == selectedProviderId } ?: providers.firstOrNull()
+    val currentProvider = providers.firstOrNull {
+        it.id == selectedProviderId || it.id == selectedProviderId.removePrefix("source:")
+    } ?: providers.firstOrNull()
     val allProvidersLabel = stringResource(R.string.live_home_all_providers)
     // Resolved here because semantics {} is not a composable scope.
     val playlistTileDescription =
@@ -481,7 +483,8 @@ private fun PlaylistSubwayTile(
                 .border(BorderStroke(1.dp, LiveColors.Divider), RoundedCornerShape(8.dp)),
         ) {
             providers.forEach { provider ->
-                val isSelected = provider.id == selectedProviderId
+                val isSelected = provider.id == selectedProviderId ||
+                    provider.id == selectedProviderId.removePrefix("source:")
                 DropdownMenuItem(
                     text = {
                         Row(

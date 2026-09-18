@@ -240,14 +240,25 @@ private fun resolvePagedGroup(
     groupCounts: List<Triple<String, String, Int>>,
     tree: LiveCategoryTree,
 ): Pair<String, String>? {
+    val targetCategoryId = if (categoryId.startsWith("grp:source:")) {
+        "grp:" + categoryId.removePrefix("grp:source:")
+    } else {
+        categoryId
+    }
     return groupCounts
         .firstOrNull { (playlistId, groupTitle, _) ->
-            playlistGroupCategoryId(playlistId, groupTitle) == categoryId
+            val cleanPlaylistId = playlistId.removePrefix("source:")
+            playlistGroupCategoryId(cleanPlaylistId, groupTitle) == targetCategoryId ||
+                playlistGroupCategoryId(playlistId, groupTitle) == categoryId ||
+                playlistGroupCategoryId(cleanPlaylistId, groupTitle) == categoryId
         }
-        ?.let { (playlistId, groupTitle, _) -> playlistId to groupTitle }
+        ?.let { (playlistId, groupTitle, _) -> playlistId.removePrefix("source:") to groupTitle }
         ?: tree.byId(categoryId)
             ?.takeIf { it.playlistId != null && it.playlistGroupName != null }
-            ?.let { it.playlistId!! to it.playlistGroupName!! }
+            ?.let { it.playlistId!!.removePrefix("source:") to it.playlistGroupName!! }
+        ?: tree.byId(targetCategoryId)
+            ?.takeIf { it.playlistId != null && it.playlistGroupName != null }
+            ?.let { it.playlistId!!.removePrefix("source:") to it.playlistGroupName!! }
 }
 
 /**
@@ -265,6 +276,7 @@ internal fun loadPagedChannelWindow(
     favorites: List<String>,
     recents: List<String>,
     excludedGroups: Set<String> = emptySet(),
+    providerId: String? = null,
 ): List<IptvChannel> {
     val favoriteChannels = if (categoryId == "fav") {
         val favoriteRank = favorites.withIndex().associate { (index, id) -> id to index }
@@ -284,7 +296,7 @@ internal fun loadPagedChannelWindow(
 
     fun scanCategoryWindow(targetGroupTitle: String?): List<IptvChannel> {
         if (!categoryId.startsWith("grp:")) return emptyList()
-        val targetPlaylistId = playlistIdFromGroupCategoryId(categoryId)
+        val targetPlaylistId = playlistIdFromGroupCategoryId(categoryId)?.removePrefix("source:")
         val targetGroupKey = looseIptvGroupKey(targetGroupTitle)
         val targetCompactGroupKey = compactIptvGroupKey(targetGroupTitle)
         val out = ArrayList<IptvChannel>(pageLimit)
@@ -294,8 +306,9 @@ internal fun loadPagedChannelWindow(
             val chunk = repository.pagedChannelWindow(null, null, offset, chunkSize)
             if (chunk.isEmpty()) break
             chunk.forEach { channel ->
-                val rawPlaylistId = channelPlaylistId(channel.id)
-                val categoryMatches = playlistGroupCategoryId(rawPlaylistId, channel.group) == categoryId
+                val rawPlaylistId = channelPlaylistId(channel.id).removePrefix("source:")
+                val categoryMatches = playlistGroupCategoryId(rawPlaylistId, channel.group) == categoryId ||
+                    playlistGroupCategoryId(rawPlaylistId, channel.group) == "grp:" + categoryId.removePrefix("grp:source:")
                 val samePlaylist = targetPlaylistId == null || rawPlaylistId == targetPlaylistId
                 val looseGroupMatches = samePlaylist && targetGroupKey.isNotBlank() &&
                     looseIptvGroupKey(channel.group) == targetGroupKey
@@ -314,7 +327,7 @@ internal fun loadPagedChannelWindow(
     val providerWindow = when (categoryId) {
         "fav", "recent" -> emptyList()
         "all" -> repository.pagedChannelWindow(
-            null,
+            providerId?.removePrefix("source:")?.takeIf { it != "all" },
             null,
             // Pagination grows a prefix. An anchored SQL offset permanently hides earlier rows.
             0,
@@ -324,7 +337,7 @@ internal fun loadPagedChannelWindow(
         else -> {
             val resolvedGroup = resolvePagedGroup(categoryId, groupCounts, tree)
                 ?: return emptyList()
-            val playlistId = resolvedGroup.first
+            val playlistId = resolvedGroup.first.removePrefix("source:")
             val groupTitle = resolvedGroup.second
             val exact = repository.pagedChannelWindow(
                 playlistId,
@@ -335,7 +348,7 @@ internal fun loadPagedChannelWindow(
             )
             val byGroup = if (exact.isEmpty()) {
                 repository.pagedChannelWindow(
-                    null,
+                    playlistId,
                     groupTitle,
                     0,
                     pageLimit,
@@ -897,8 +910,9 @@ fun LiveTvScreen(
     val playlistCategorySections = remember(state.config, enrichedState.value.tree.global.categories, hiddenGroupSet) {
         buildPlaylistCategorySections(state.config, enrichedState.value.tree.global.categories, hiddenGroupSet)
     }
-    LaunchedEffect(playlistCategorySections, selectedProviderId, currentMode) {
-        if (currentMode != LiveTvStartup.LiveTvMode.GroupHome &&
+    LaunchedEffect(playlistCategorySections, selectedProviderId, currentMode, isTouchDevice) {
+        if (!isTouchDevice &&
+            currentMode != LiveTvStartup.LiveTvMode.GroupHome &&
             playlistCategorySections.isNotEmpty() &&
             selectedProviderId != "all"
         ) {
@@ -906,7 +920,7 @@ fun LiveTvScreen(
         }
     }
     LaunchedEffect(providerFilters, selectedProviderId) {
-        if (providerFilters.isEmpty() || providerFilters.none { it.id == selectedProviderId }) {
+        if (providerFilters.isEmpty() || providerFilters.none { it.id == selectedProviderId || it.id == selectedProviderId.removePrefix("source:") }) {
             selectedProviderId = "all"
         }
     }
@@ -955,13 +969,42 @@ fun LiveTvScreen(
             buildCategoryIndex(visibleChannels, hiddenGroupSet, restrictedGroupSet)
         }
         val tree = withContext(Dispatchers.Default) {
-            buildCategoryTree(
-                channels = visibleChannels,
-                favoritesCount = favSet.count { index.isVisibleNonAdultChannel(it) },
-                recentCount = recents.value.count { index.isVisibleNonAdultChannel(it) },
-                hiddenGroups = hiddenGroupSet,
-                groupOrder = state.snapshot.groupOrder,
-            )
+            val targetId = selectedProviderId.removePrefix("source:")
+            val matchedGlobal = current.tree.global.categories.filter {
+                it.playlistId == selectedProviderId || it.playlistId == targetId ||
+                    it.id.startsWith("grp:$selectedProviderId:") || it.id.startsWith("grp:$targetId:")
+            }
+            if (matchedGlobal.isNotEmpty() || current.tree.hidden.categories.any {
+                it.playlistId == selectedProviderId || it.playlistId == targetId ||
+                    it.id.startsWith("grp:$selectedProviderId:") || it.id.startsWith("grp:$targetId:")
+            }) {
+                val matchedHidden = current.tree.hidden.categories.filter {
+                    it.playlistId == selectedProviderId || it.playlistId == targetId ||
+                        it.id.startsWith("grp:$selectedProviderId:") || it.id.startsWith("grp:$targetId:")
+                }
+                val totalCount = matchedGlobal.sumOf { it.count }
+                val updatedTop = current.tree.top.map { cat ->
+                    when (cat.id) {
+                        "all" -> cat.copy(count = totalCount)
+                        "fav" -> cat.copy(count = favSet.count { index.isVisibleNonAdultChannel(it) })
+                        "recent" -> cat.copy(count = recents.value.count { index.isVisibleNonAdultChannel(it) })
+                        else -> cat
+                    }
+                }
+                current.tree.copy(
+                    top = updatedTop,
+                    global = current.tree.global.copy(categories = matchedGlobal),
+                    hidden = current.tree.hidden.copy(categories = matchedHidden),
+                )
+            } else {
+                buildCategoryTree(
+                    channels = visibleChannels,
+                    favoritesCount = favSet.count { index.isVisibleNonAdultChannel(it) },
+                    recentCount = recents.value.count { index.isVisibleNonAdultChannel(it) },
+                    hiddenGroups = hiddenGroupSet,
+                    groupOrder = state.snapshot.groupOrder,
+                )
+            }
         }
         visibleEnrichedState.value = EnrichedChannels(all = visibleChannels, tree = tree, index = index)
     }
@@ -984,15 +1027,19 @@ fun LiveTvScreen(
     ) {
         val rawGroups = if (playlistCategorySections.isNotEmpty()) {
             if (selectedProviderId != "all") {
+                val targetId = selectedProviderId.removePrefix("source:")
                 playlistCategorySections
-                    .filter { it.id == selectedProviderId || it.id == "source:$selectedProviderId" }
+                    .filter { it.id == selectedProviderId || it.id == targetId || it.id == "source:$selectedProviderId" }
                     .flatMap { it.categories }
             } else {
                 playlistCategorySections.flatMap { it.categories }
             }
         } else {
             val base = if (selectedProviderId != "all") {
-                visibleEnrichedState.value.tree.global.categories.filter { it.playlistId == selectedProviderId }
+                val targetId = selectedProviderId.removePrefix("source:")
+                visibleEnrichedState.value.tree.global.categories.filter {
+                    it.playlistId == selectedProviderId || it.playlistId == targetId
+                }
             } else {
                 visibleEnrichedState.value.tree.global.categories.ifEmpty {
                     visibleEnrichedState.value.tree.countries.categories
@@ -1112,6 +1159,7 @@ fun LiveTvScreen(
                     favorites = favoriteOrderIds,
                     recents = recents.value.toList().asReversed(),
                     excludedGroups = hiddenGroupSet + restrictedGroupSet,
+                    providerId = selectedProviderId,
                 )
             }
             if (directChannels.isNotEmpty()) {
@@ -1234,22 +1282,6 @@ fun LiveTvScreen(
             )
         }
     }
-    fun onGuideVisibleRange(first: Int, last: Int) {
-        if (!shouldWindowGuide) {
-            if (last >= filteredChannels.size - 16 && filteredChannels.size < selectedCategoryTotalCount) {
-                requestGuideWindowAfter()
-            }
-            return
-        }
-        val start = (first - 36).coerceAtLeast(0)
-        val end = (last + 72).coerceAtMost(filteredChannels.size)
-        if (first < guideWindowStart + 12 || last + 16 >= guideWindowEnd) {
-            setGuideWindow(start to end)
-        }
-        if (last >= filteredChannels.size - 16 && filteredChannels.size < selectedCategoryTotalCount) {
-            requestGuideWindowAfter()
-        }
-    }
     val baseVisibleChannelsById = visibleEnrichedState.value.index.byId
     val visibleChannelsById = remember(baseVisibleChannelsById, filteredChannels) {
         if (filteredChannels.all { it.id in baseVisibleChannelsById }) {
@@ -1263,7 +1295,6 @@ fun LiveTvScreen(
     }
     // Playing channel — default to the one we were navigated to, else the first
     // channel of the first non-empty category.
-    val rememberedChannelByCategory = remember { mutableMapOf<String, String>() }
     var playingChannelId by rememberSaveable { mutableStateOf<String?>(initialChannelId) }
     // The channel we were on before the current one. Tracked in a single place
     // on purpose: five different paths change the channel (zapping, number
@@ -1302,7 +1333,9 @@ fun LiveTvScreen(
     var playingCatchupProgram by remember { mutableStateOf<IptvProgram?>(null) }
     var catchupPlaybackOffsetMs by remember { mutableLongStateOf(0L) }
     var catchupReloadSignal by remember { mutableIntStateOf(0) }
+    val rememberedChannelByCategory = remember { mutableMapOf<String, String>() }
     val focusCommitScope = rememberCoroutineScope()
+    val mobileScrollCommitJob = remember { arrayOf<Job?>(null) }
     val pendingFocusCommit = remember { arrayOf<Pair<String, String>?>(null) }
     val focusCommitJob = remember { arrayOf<Job?>(null) }
     fun commitFocusedChannel(channel: EnrichedChannel) {
@@ -1339,7 +1372,39 @@ fun LiveTvScreen(
         }
     }
     DisposableEffect(Unit) {
-        onDispose { focusCommitJob[0]?.cancel() }
+        onDispose {
+            focusCommitJob[0]?.cancel()
+            mobileScrollCommitJob[0]?.cancel()
+        }
+    }
+    fun onGuideVisibleRange(first: Int, last: Int) {
+        if (isTouchDevice && filteredChannels.isNotEmpty()) {
+            val targetChannel = filteredChannels.getOrNull(first)
+            if (targetChannel != null && targetChannel.id != epgPrefetchAnchorId) {
+                mobileScrollCommitJob[0]?.cancel()
+                mobileScrollCommitJob[0] = focusCommitScope.launch {
+                    delay(300L)
+                    if (epgPrefetchAnchorId != targetChannel.id) {
+                        epgPrefetchAnchorId = targetChannel.id
+                        rememberedChannelByCategory[categoryScope] = targetChannel.id
+                    }
+                }
+            }
+        }
+        if (!shouldWindowGuide) {
+            if (last >= filteredChannels.size - 16 && filteredChannels.size < selectedCategoryTotalCount) {
+                requestGuideWindowAfter()
+            }
+            return
+        }
+        val start = (first - 36).coerceAtLeast(0)
+        val end = (last + 72).coerceAtMost(filteredChannels.size)
+        if (first < guideWindowStart + 12 || last + 16 >= guideWindowEnd) {
+            setGuideWindow(start to end)
+        }
+        if (last >= filteredChannels.size - 16 && filteredChannels.size < selectedCategoryTotalCount) {
+            requestGuideWindowAfter()
+        }
     }
     val selectedDisplayChannelId = remember(focusedChannelId, playingChannelId, visibleChannelsById, variantGroups) {
         displayChannelIdFor(focusedChannelId ?: playingChannelId, visibleChannelsById, variantGroups)
@@ -1950,7 +2015,8 @@ fun LiveTvScreen(
                 val groupSports = hashMapOf<String, GuideSport?>()
                 val fallbacks = hashMapOf<String, GuideSport?>()
                 val excluded = hiddenGroupSet + restrictedGroupSet
-                viewModel.iptvRepository.visitStoredChannelLabels(selectedProviderId.takeUnless { it == "all" }) { id, name, group ->
+                val targetProviderId = selectedProviderId.removePrefix("source:").takeUnless { it == "all" }
+                viewModel.iptvRepository.visitStoredChannelLabels(targetProviderId) { id, name, group ->
                     context.ensureActive()
                     val key = PlaylistGroupKey.build(channelPlaylistId(id), group.trim())
                     if (key !in excluded && group !in excluded && (id in indexedIds || id in state.snapshot.nowNext)) {
@@ -2468,6 +2534,7 @@ fun LiveTvScreen(
     fun enterSelectedCategory(categoryId: String) {
         noteGuideUserNavigation()
         focusCommitJob[0]?.cancel()
+        mobileScrollCommitJob[0]?.cancel()
         focusedChannelObject[0] = null
         selectedCategoryId = categoryId
         if (isTouchDevice) currentMode = LiveTvStartup.LiveTvMode.Guide
@@ -3731,11 +3798,22 @@ fun LiveTvScreen(
                 val mobileAllChannelsCount = remember(
                     visibleEnrichedState.value.tree,
                     lastKnownPagedTotal,
-                    visibleEnrichedState.value.all.size
+                    visibleEnrichedState.value.all.size,
+                    selectedProviderId,
+                    providerFilters,
                 ) {
-                    visibleEnrichedState.value.tree.countForCategory("all")
-                        ?.takeIf { it > 0 }
-                        ?: if (lastKnownPagedTotal > 10_000) lastKnownPagedTotal else visibleEnrichedState.value.all.size
+                    if (selectedProviderId != "all") {
+                        val targetId = selectedProviderId.removePrefix("source:")
+                        providerFilters.firstOrNull { it.id == selectedProviderId || it.id == targetId }?.count
+                            ?: visibleEnrichedState.value.tree.countForCategory("all")?.takeIf { it > 0 }
+                            ?: visibleEnrichedState.value.all.count {
+                                providerMatches(it, selectedProviderId, state.config)
+                            }
+                    } else {
+                        visibleEnrichedState.value.tree.countForCategory("all")
+                            ?.takeIf { it > 0 }
+                            ?: if (lastKnownPagedTotal > 10_000) lastKnownPagedTotal else visibleEnrichedState.value.all.size
+                    }
                 }
                 val mobileSportsCount = remember(
                     visibleEnrichedState.value.tree,

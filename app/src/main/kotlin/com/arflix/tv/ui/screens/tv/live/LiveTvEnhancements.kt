@@ -59,6 +59,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.R
 import com.arflix.tv.data.repository.IptvConfig
+import com.arflix.tv.data.repository.StalkerPortalSupport
 import com.arflix.tv.ui.focus.mirrorHorizontalForRtl
 
 data class TvProviderFilter(
@@ -162,18 +163,24 @@ fun buildTvProviderFilters(
     val enabledPlaylists = config.playlists
         .filter { it.enabled && it.id.isNotBlank() }
         .distinctBy { it.id }
-    if (enabledPlaylists.size <= 1) return emptyList()
+    val enabledPortals = config.stalkerPortals
+        .filter { it.enabled && it.id.isNotBlank() }
+        .distinctBy { it.id }
+    val totalSources = enabledPlaylists.size + enabledPortals.size
+    if (totalSources <= 1) return emptyList()
 
-    val knownIds = enabledPlaylists.mapTo(HashSet()) { it.id }
+    val knownIds = (enabledPlaylists.map { it.id } + enabledPortals.map { it.id }).toHashSet()
     val pagedCounts = playlistGroupCounts
         .asSequence()
-        .filter { (playlistId, _, count) -> playlistId in knownIds && count > 0 }
-        .groupingBy { (playlistId, _, _) -> playlistId }
+        .filter { (playlistId, _, count) ->
+            (playlistId in knownIds || playlistId.removePrefix("source:") in knownIds) && count > 0
+        }
+        .groupingBy { (playlistId, _, _) -> playlistId.removePrefix("source:") }
         .fold(0) { total, (_, _, count) -> total + count }
     val counts = pagedCounts.ifEmpty {
         channels
             .mapNotNull { channelPlaylistId(it, knownIds) }
-            .groupingBy { it }
+            .groupingBy { it.removePrefix("source:") }
             .eachCount()
     }
     if (counts.size <= 1) return emptyList()
@@ -186,28 +193,42 @@ fun buildTvProviderFilters(
                 add(TvProviderFilter(playlist.id, playlist.name.ifBlank { playlist.id }, count))
             }
         }
+        enabledPortals.forEach { portal ->
+            val count = counts[portal.id] ?: counts["source:${portal.id}"] ?: 0
+            if (count > 0) {
+                add(TvProviderFilter(portal.id, portal.name.ifBlank { portal.id }, count))
+            }
+        }
     }
 }
 
 fun providerMatches(channel: EnrichedChannel, providerId: String, config: IptvConfig): Boolean {
     if (providerId == "all") return true
-    val knownIds = config.playlists
-        .filter { it.enabled && it.id.isNotBlank() }
-        .mapTo(HashSet()) { it.id }
-    return channelPlaylistId(channel, knownIds) == providerId
+    val targetId = providerId.removePrefix("source:")
+    val knownIds = (config.playlists.filter { it.enabled && it.id.isNotBlank() }.map { it.id } +
+        config.stalkerPortals.filter { it.enabled && it.id.isNotBlank() }.map { it.id }).toHashSet()
+    val chPlId = channelPlaylistId(channel, knownIds)
+    return chPlId == providerId || chPlId == targetId
 }
 
 fun providerMatcher(providerId: String, config: IptvConfig): (EnrichedChannel) -> Boolean {
     if (providerId == "all") return { true }
-    val knownIds = config.playlists
-        .filter { it.enabled && it.id.isNotBlank() }
-        .mapTo(HashSet()) { it.id }
-    return { channel -> channelPlaylistId(channel, knownIds) == providerId }
+    val targetId = providerId.removePrefix("source:")
+    val knownIds = (config.playlists.filter { it.enabled && it.id.isNotBlank() }.map { it.id } +
+        config.stalkerPortals.filter { it.enabled && it.id.isNotBlank() }.map { it.id }).toHashSet()
+    return { channel ->
+        val chPlId = channelPlaylistId(channel, knownIds)
+        chPlId == providerId || chPlId == targetId
+    }
 }
 
 private fun channelPlaylistId(channel: EnrichedChannel, knownIds: Set<String>): String? {
+    val stalkerId = StalkerPortalSupport.playlistIdFromChannelId(channel.id)
+    if (stalkerId in knownIds) return stalkerId
     val prefix = channel.id.substringBefore(':', missingDelimiterValue = "")
-    return prefix.takeIf { it in knownIds }
+    if (prefix in knownIds) return prefix
+    val rawPrefix = prefix.removePrefix("source:")
+    return rawPrefix.takeIf { it in knownIds }
 }
 
 fun variantGroupKey(channel: EnrichedChannel): String {
