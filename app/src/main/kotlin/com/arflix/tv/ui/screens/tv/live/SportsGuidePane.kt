@@ -304,7 +304,7 @@ internal fun SportsGuidePane(
                 Text(stringResource(R.string.live_groups_title), color = LiveColors.Fg, modifier = Modifier.focusRequester(firstFocus)
                     .clickable(onClick = onOpenCategories).padding(16.dp))
             }
-        } else LazyColumn(Modifier.fillMaxSize().testTag("sports-guide-list"), state = listState, contentPadding = PaddingValues(bottom = 24.dp),
+        } else LazyColumn(Modifier.fillMaxSize().testTag("sports-guide-list"), state = listState, contentPadding = PaddingValues(bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val rowKeys = disambiguatedLazyKeys(rows) { it.id }
             itemsIndexed(rows, key = { index, _ -> rowKeys[index] }) { rowIndex, row ->

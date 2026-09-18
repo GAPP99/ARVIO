@@ -1108,7 +1108,7 @@ private fun RowsLayer(
             state = listState,
             contentPadding = PaddingValues(
                 top = if (isTouchDevice) 4.dp else focusBleedPadding / 2,
-                bottom = if (isTouchDevice) 24.dp + LocalBottomBarInset.current else maxHeight * 0.6f
+                bottom = if (isTouchDevice) 16.dp + LocalBottomBarInset.current else maxHeight * 0.6f
             ),
             modifier = Modifier.fillMaxSize().arvioDpadFocusGroup(),
             verticalArrangement = Arrangement.spacedBy(if (isTouchDevice) 20.dp else 0.dp)

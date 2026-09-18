@@ -11,6 +11,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.os.Build
 import com.arflix.tv.util.findActivity
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
@@ -2314,6 +2315,11 @@ fun LiveTvScreen(
             if (window != null) {
                 @Suppress("DEPRECATION")
                 window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    window.isNavigationBarContrastEnforced = false
+                    window.isStatusBarContrastEnforced = false
+                }
+                window.navigationBarColor = android.graphics.Color.TRANSPARENT
                 val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
                 controller.systemBarsBehavior =
                     androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
@@ -3821,8 +3827,7 @@ fun LiveTvScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = contentTopPadding)
-                        .navigationBarsPadding(),
+                        .padding(top = contentTopPadding),
                 ) {
                     Row(
                         modifier = Modifier
@@ -3949,7 +3954,7 @@ fun LiveTvScreen(
                         onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
                         onRequestNextChannels = ::requestGuideWindowAfter,
                         onVisibleChannelRange = ::onGuideVisibleRange,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.weight(1f),
                     )
                 }
             } else LiveDrawerWorkspace(expanded = sidebarExpanded,

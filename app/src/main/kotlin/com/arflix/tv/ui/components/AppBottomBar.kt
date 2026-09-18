@@ -128,8 +128,8 @@ internal fun appBottomBarSpec(mode: AppBottomBarMode): AppBottomBarSpec = when (
     )
 }
 
-internal fun mobileContentInsets(systemBars: WindowInsets, showBottomBar: Boolean): WindowInsets =
-    if (showBottomBar) systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal) else systemBars
+internal fun mobileContentInsets(systemBars: WindowInsets, showBottomBar: Boolean = false): WindowInsets =
+    systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
 
 internal fun shouldShowBottomBar(
     isMobile: Boolean,

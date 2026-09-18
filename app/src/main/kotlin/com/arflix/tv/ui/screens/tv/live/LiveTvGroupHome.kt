@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.arflix.tv.ui.components.LocalBottomBarInset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -146,7 +147,7 @@ fun LiveTvGroupHome(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(bottom = 32.dp),
+            contentPadding = PaddingValues(bottom = 16.dp + LocalBottomBarInset.current),
         ) {
         // 1. Current live / Continue Watching mini-player card
         item(key = "home_mini_player") {
