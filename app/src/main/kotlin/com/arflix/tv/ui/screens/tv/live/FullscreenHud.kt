@@ -223,7 +223,7 @@ fun FullscreenHud(
             ) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(44.dp),
-                    color = LiveColors.Accent,
+                    color = liveAccent(),
                     strokeWidth = 4.dp,
                 )
             }
@@ -654,7 +654,7 @@ internal fun HudSeekBar(
             modifier = modifier.fillMaxWidth().height(48.dp),
             colors = androidx.compose.material3.SliderDefaults.colors(
                 thumbColor = Color.White,
-                activeTrackColor = LiveColors.Accent,
+                activeTrackColor = liveAccent(),
                 inactiveTrackColor = LiveColors.Panel,
             ),
         )
@@ -722,7 +722,7 @@ internal fun HudSeekBar(
                     .fillMaxWidth(clampedProgress)
                     .height(if (isFocused) 6.dp else 4.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(LiveColors.Accent),
+                    .background(liveAccent()),
             )
 
             // Circular white Scrubber Thumb Ball when focused
@@ -756,7 +756,7 @@ private fun HudIconButton(
 
     val bgColor = when {
         isFocused -> Color.White
-        emphasis -> LiveColors.Accent
+        emphasis -> liveAccent()
         else -> Color.Black.copy(alpha = 0.55f)
     }
 
@@ -820,7 +820,7 @@ private fun HudActionButton(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .onFocusChanged { isFocused = it.isFocused }
-            .background(if (isFocused) Color.White else LiveColors.Accent)
+            .background(if (isFocused) Color.White else liveAccent())
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
     ) {

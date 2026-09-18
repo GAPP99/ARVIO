@@ -306,7 +306,7 @@ internal fun SportsGuidePane(
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 if (isProcessing) {
-                    CircularProgressIndicator(color = LiveColors.Accent, modifier = Modifier.size(28.dp))
+                    CircularProgressIndicator(color = liveAccent(), modifier = Modifier.size(28.dp))
                     Text(
                         text = stringResource(R.string.live_sports_reading_schedule),
                         color = LiveColors.FgDim,
