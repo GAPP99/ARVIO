@@ -50,6 +50,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Precision
+import androidx.compose.ui.platform.LocalDensity
 import com.arflix.tv.R
 import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.ui.focus.mirrorHorizontalForRtl
@@ -64,6 +67,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.animation.core.tween
+
+/** Shared day label formatter for sports cards — was allocated per card per compose. */
+private val sportsDayFormat: java.time.format.DateTimeFormatter =
+    java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.getDefault())
 
 internal const val SPORTS_GUIDE_CATEGORY = "sports-hub"
 
@@ -201,7 +208,7 @@ internal fun SportsGuidePane(
         val day = when (date.toLocalDate()) {
             today -> labelToday
             today.plusDays(1) -> labelTomorrow
-            else -> date.format(DateTimeFormatter.ofPattern("EEE d MMM"))
+            else -> date.format(sportsDayFormat)
         }
         return "$day ${timeFormat.format(Date(event.programme.startUtcMillis))}"
     }
@@ -510,28 +517,89 @@ private fun EventArtwork(event: SportsGuideEvent, modifier: Modifier = Modifier,
     var loaded by remember(event.artwork) { mutableStateOf(false) }
     var bannerFailed by remember(event.artwork) { mutableStateOf(event.artwork.isNullOrBlank()) }
     val pair = event.teamArtwork
-    var pairFailed by remember(pair) { mutableStateOf(pair == null) }
+    // A null model previously errored immediately in Coil; with remembered
+    // requests a missing badge URL must still count as a failed pair so the
+    // onUnavailable fallback behaves exactly as before.
+    var pairFailed by remember(pair) { mutableStateOf(pair == null || (pair.homeBadge == null && pair.awayBadge == null)) }
     var homeLoaded by remember(pair?.homeBadge) { mutableStateOf(false) }
     var awayLoaded by remember(pair?.awayBadge) { mutableStateOf(false) }
     LaunchedEffect(bannerFailed, pairFailed) { if (bannerFailed && pairFailed) onUnavailable() }
-    Box(modifier.background(LiveColors.Panel).testTag(if (loaded) "sports-artwork-loaded" else "sports-artwork-pending")) {
-        event.artwork?.let { url ->
-            AsyncImage(url, null, contentScale = ContentScale.Fit,
-                onSuccess = { loaded = true }, onError = { loaded = false; bannerFailed = true },
-                modifier = Modifier.fillMaxSize())
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    // Decode once per URL at card size and keep the request anchored across
+    // recompositions (clock ticks, D-Pad focus) via remember + key(), mirroring
+    // ChannelLogo. The previous raw-String models re-decoded full-res art on
+    // every pass and retried failures on each recomposition.
+    BoxWithConstraints(modifier.background(LiveColors.Panel).testTag(if (loaded) "sports-artwork-loaded" else "sports-artwork-pending")) {
+        val artW = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
+        val artH = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1)
+        val bannerUrl = event.artwork
+        val bannerRequest = remember(bannerUrl, artW, artH) {
+            bannerUrl?.let { url ->
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .size(artW, artH)
+                    .precision(Precision.INEXACT)
+                    .allowHardware(true)
+                    .crossfade(false)
+                    .memoryCacheKey("sports-banner|$url|${artW}x$artH")
+                    .placeholderMemoryCacheKey("sports-banner|$url|${artW}x$artH")
+                    .build()
+            }
+        }
+        val homeRequest = remember(pair?.homeBadge, artW, artH) {
+            pair?.homeBadge?.let { url ->
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .size(artW, artH)
+                    .precision(Precision.INEXACT)
+                    .allowHardware(true)
+                    .crossfade(false)
+                    .memoryCacheKey("sports-badge|$url|${artW}x$artH")
+                    .placeholderMemoryCacheKey("sports-badge|$url|${artW}x$artH")
+                    .build()
+            }
+        }
+        val awayRequest = remember(pair?.awayBadge, artW, artH) {
+            pair?.awayBadge?.let { url ->
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .size(artW, artH)
+                    .precision(Precision.INEXACT)
+                    .allowHardware(true)
+                    .crossfade(false)
+                    .memoryCacheKey("sports-badge|$url|${artW}x$artH")
+                    .placeholderMemoryCacheKey("sports-badge|$url|${artW}x$artH")
+                    .build()
+            }
+        }
+        bannerRequest?.let { request ->
+            key(bannerUrl) {
+                AsyncImage(request, null, contentScale = ContentScale.Fit,
+                    onSuccess = { loaded = true }, onError = { loaded = false; bannerFailed = true },
+                    modifier = Modifier.fillMaxSize())
+            }
         }
         if (!loaded && pair != null) {
             Row(Modifier.fillMaxSize().background(if (homeLoaded && awayLoaded) Color(0xFF20262C) else Color.Transparent)
                 .padding(8.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                AsyncImage(pair.homeBadge, pair.homeTeam, contentScale = ContentScale.Fit,
-                    onSuccess = { homeLoaded = true }, onError = { homeLoaded = false; pairFailed = true },
-                    modifier = Modifier.weight(1f).fillMaxHeight().graphicsLayer { alpha = if (homeLoaded && awayLoaded) 1f else 0f })
+                homeRequest?.let { request ->
+                    key(pair.homeBadge) {
+                        AsyncImage(request, pair.homeTeam, contentScale = ContentScale.Fit,
+                            onSuccess = { homeLoaded = true }, onError = { homeLoaded = false; pairFailed = true },
+                            modifier = Modifier.weight(1f).fillMaxHeight().graphicsLayer { alpha = if (homeLoaded && awayLoaded) 1f else 0f })
+                    }
+                }
                 Text("VS", color = if (homeLoaded && awayLoaded) LiveColors.Fg else Color.Transparent,
                     fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                AsyncImage(pair.awayBadge, pair.awayTeam, contentScale = ContentScale.Fit,
-                    onSuccess = { awayLoaded = true }, onError = { awayLoaded = false; pairFailed = true },
-                    modifier = Modifier.weight(1f).fillMaxHeight().graphicsLayer { alpha = if (homeLoaded && awayLoaded) 1f else 0f })
+                awayRequest?.let { request ->
+                    key(pair.awayBadge) {
+                        AsyncImage(request, pair.awayTeam, contentScale = ContentScale.Fit,
+                            onSuccess = { awayLoaded = true }, onError = { awayLoaded = false; pairFailed = true },
+                            modifier = Modifier.weight(1f).fillMaxHeight().graphicsLayer { alpha = if (homeLoaded && awayLoaded) 1f else 0f })
+                    }
+                }
             }
         }
     }

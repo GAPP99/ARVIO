@@ -1,6 +1,7 @@
 package com.arflix.tv.ui.screens.tv.live
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
@@ -22,7 +23,12 @@ enum class Quality(val label: String) {
  * M3U metadata so the spec-level sidebar / EPG / badges can render.
  *
  * We never mutate [IptvChannel]; all core IPTV code keeps working.
+ *
+ * Marked [Immutable] so row/card composables can skip recomposition when the
+ * instance is unchanged — without it every guide clock tick re-compares and
+ * re-composes all visible rows.
  */
+@Immutable
 data class EnrichedChannel(
     val source: IptvChannel,
     val number: Int,
