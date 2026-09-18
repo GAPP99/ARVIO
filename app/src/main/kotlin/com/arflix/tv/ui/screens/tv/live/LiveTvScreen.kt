@@ -2857,11 +2857,35 @@ fun LiveTvScreen(
     }
 
     var playbackQuality by remember(exoPlayer) { mutableStateOf<LivePlaybackQuality?>(null) }
+
+    var streamStats by remember(exoPlayer) { mutableStateOf(LiveStreamTechInfo()) }
     DisposableEffect(exoPlayer) {
         val listener = LivePlaybackQualityListener(exoPlayer) { playbackQuality = it }
+        val resetListener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                streamStats = LiveStreamTechInfo()
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_IDLE) streamStats = LiveStreamTechInfo()
+            }
+        }
         exoPlayer.addListener(listener)
-        onDispose { exoPlayer.removeListener(listener) }
+        exoPlayer.addListener(resetListener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.removeListener(resetListener)
+        }
     }
+    // Read current input formats on the player's application thread, including adaptive switches.
+    LaunchedEffect(exoPlayer) {
+        while (true) {
+            streamStats = if (exoPlayer.playbackState == Player.STATE_READY) {
+                liveStreamTechInfo(exoPlayer.videoFormat, exoPlayer.audioFormat)
+            } else LiveStreamTechInfo()
+            delay(1_000L)
+        }
+    }
+
     val playingDisplayChannel = remember(playingChannel, playbackQuality) {
         playingChannel?.let { it.copy(quality = it.displayQuality(playbackQuality)) }
     }
@@ -4248,6 +4272,11 @@ fun LiveTvScreen(
                         channel = playingDisplayChannel,
                         nowNext = currentNowNext,
                         pokeSignal = hudPokeSignal,
+                        streamResolution = streamStats.resolution,
+                        streamFps = streamStats.fps,
+                        streamVideoCodec = streamStats.videoCodec,
+                        streamAudioInfo = streamStats.audioInfo,
+                        streamBitrate = streamStats.bitrate,
                         categoryName = categoryTitle,
                         isCatchupMode = playingCatchupProgram != null,
                         isPlaying = if (playingCatchupProgram != null) playerPlayWhenReady else playerIsPlaying,
