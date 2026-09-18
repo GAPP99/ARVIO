@@ -1538,7 +1538,8 @@ fun PlayerScreen(
                                     // release groups often ship promo/"songs & signs" tracks without
                                     // setting the flag, so the name is a second signal.
                                     val trackTexts = listOfNotNull(format.label, format.language, format.id)
-                                    val isForced = (format.selectionFlags and C.SELECTION_FLAG_FORCED != 0) ||
+                                    val hasForcedFlag = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0
+                                    val isForced = hasForcedFlag ||
                                         trackTexts.any { it.contains("forced", ignoreCase = true) } ||
                                         trackTexts.any { it.contains("songs", ignoreCase = true) && it.contains("sign", ignoreCase = true) }
                                     // Image-based subtitle tracks (PGS/VOBSUB/DVB) carry no text — they
@@ -1582,11 +1583,18 @@ fun PlayerScreen(
                                         groupIndex = groupIndex,
                                         trackIndex = i,
                                         isForced = isForced,
+                                        hasForcedFlag = hasForcedFlag,
                                         isBitmap = isBitmap,
                                     ))
                                 }
                             }
                         }
+                        // The forced-subtitles rule needs to know what language is being SPOKEN,
+                        // and this is the only place that knows it. onTracksChanged also fires when
+                        // the viewer switches audio track, so the rule re-runs on its own.
+                        viewModel.updatePlayerAudioLanguage(
+                            extractedAudioTracks.getOrNull(selectedAudioIndex)?.language
+                        )
                         viewModel.updatePlayerTextTracks(textTracks)
                     }
                 })
