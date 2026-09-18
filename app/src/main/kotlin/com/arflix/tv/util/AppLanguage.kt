@@ -89,6 +89,7 @@ fun localizedAppContext(context: Context, languageTag: String): Context {
 fun tr(text: String): String {
     if (text.isBlank()) return text
     @StringRes val resId: Int? = when (text.trim()) {
+        "Homeserver" -> R.string.library_homeserver_tab
         // Navigation
         "Home" -> R.string.home
         "Search",

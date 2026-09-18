@@ -315,6 +315,7 @@
 
     <!-- Extracted from code: Settings screen -->
     <string name="settings_home_server">Servidor local</string>
+    <string name="library_homeserver_tab">Servidor local</string>
     <string name="settings_app_version_label">ARVIO V%1$s</string>
     <string name="settings_label_url">URL</string>
     <string name="settings_home_server_https_note">Usa HTTPS donde sea posible. Las URLs de servidores HTTP se permiten en redes locales pero no están cifradas.</string>

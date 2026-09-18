@@ -4049,7 +4049,9 @@ class SettingsViewModel @Inject constructor(
 
                 System.err.println("SettingsVM: failed to start Trakt auth: ${e.message}")
                 val message: SettingsMessage = when (e) {
-                    is retrofit2.HttpException -> SettingsMessage.Res(
+                    is retrofit2.HttpException -> if (e.code() == 429) {
+                        SettingsMessage.Res(R.string.settings_trakt_rate_limited)
+                    } else SettingsMessage.Res(
                         R.string.settings_trakt_activation_failed_code,
                         listOf(e.code())
                     )
@@ -4090,7 +4092,8 @@ class SettingsViewModel @Inject constructor(
             var pollDelayMs = deviceCode.interval.coerceAtLeast(1) * 1000L
 
             while (System.currentTimeMillis() < expiresAt) {
-                delay(pollDelayMs)
+                delay(minOf(pollDelayMs, (expiresAt - System.currentTimeMillis()).coerceAtLeast(0L)))
+                if (System.currentTimeMillis() >= expiresAt) break
 
                 try {
                     traktRepository.pollForToken(deviceCode.deviceCode)
@@ -4151,15 +4154,10 @@ class SettingsViewModel @Inject constructor(
                     // Trakt uses 429 to ask device clients to slow down. Keep the
                     // activation alive and honor Retry-After instead of aborting it.
                     if (httpError?.code() == 429) {
-                        val retryAfterMs = httpError.response()
-                            ?.headers()
-                            ?.get("Retry-After")
-                            ?.toLongOrNull()
-                            ?.times(1000L)
-                        pollDelayMs = maxOf(
-                            pollDelayMs + 1_000L,
-                            retryAfterMs ?: 0L
-                        ).coerceAtMost(30_000L)
+                        pollDelayMs = com.arflix.tv.data.repository.traktRetryDelayMs(
+                            httpError.response()?.headers()?.get("Retry-After"),
+                            pollDelayMs + 1_000L
+                        )
                         continue
                     }
 

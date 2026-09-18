@@ -191,8 +191,10 @@ class TraktRepository @Inject constructor(
         return formatter.format(expirationDate)
     }
 
-    suspend fun getDeviceCode(): TraktDeviceCode {
-        return traktApi.getDeviceCode(DeviceCodeRequest(clientId))
+    private val deviceActivation = TraktDeviceActivation()
+
+    suspend fun getDeviceCode(): TraktDeviceCode = deviceActivation.request {
+        traktApi.getDeviceCode(DeviceCodeRequest(clientId))
     }
 
     suspend fun pollForToken(deviceCode: String): TraktToken {

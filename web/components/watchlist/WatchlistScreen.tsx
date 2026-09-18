@@ -247,7 +247,7 @@ export function WatchlistScreen() {
   return (
     <div className={`screen oled-library ${posterMode ? "poster-results" : ""}`}>
       <header className="oled-library-toolbar">
-        <nav aria-label={translateUi("Library sections")}>{([ ["watchlists", "Watchlists"], ["lists", "My lists"], ["libraries", "Libraries"] ] as const).map(([value, label]) =>
+        <nav aria-label={translateUi("Library sections")}>{([ ["watchlists", "Watchlists"], ["lists", "My lists"], ["libraries", "Homeserver"] ] as const).map(([value, label]) =>
           <button key={value} aria-current={section === value ? "page" : undefined} onClick={() => changeSection(value)}>{translateUi(label)}</button>)}</nav>
         <div className="oled-library-actions"><span>{collections ? translateUi("{value0} lists", {value0: personalLists.length}) : translateUi("{value0} titles", {value0: tab !== "watchlist" ? libraryPage.total : items.length})}</span>
           {collections && <button onClick={() => navigate("settings")}>{translateUi("+ New list")}</button>}
