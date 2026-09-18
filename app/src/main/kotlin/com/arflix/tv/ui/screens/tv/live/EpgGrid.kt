@@ -670,7 +670,7 @@ fun EpgGrid(
                                 }
                             }
                             .clip(RoundedCornerShape(4.dp))
-                            .background(LiveColors.Accent)
+                            .background(liveAccent())
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                     ) {
                         Text(
@@ -957,13 +957,14 @@ fun EpgGrid(
                 }
 
                 // Read scrolling in the drawing phase, not the whole guide composition.
+                val nowLineColor = liveAccent()
                 Canvas(Modifier.fillMaxSize()) {
                     if (clockTickMillis in windowStartMillis until windowEndMillis) {
                         val nowMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
                         val inside = (nowMin * pxPerMin).dp.toPx() - hScroll.value
                         val x = (channelColumnWidth + 1.dp).toPx() + inside
                         if (inside >= 0f && x < size.width) {
-                            drawRect(LiveColors.Accent, Offset(x, 0f), Size(1.dp.toPx(), size.height))
+                            drawRect(nowLineColor, Offset(x, 0f), Size(1.dp.toPx(), size.height))
                         }
                     }
                 }
@@ -1156,7 +1157,7 @@ private fun NowLine(
             .offset(x = xDp)
             .fillMaxHeight()
             .width(2.dp)
-            .background(LiveColors.Accent),
+            .background(liveAccent()),
     )
     // Glow behind the 2dp line
     Box(
@@ -1164,7 +1165,7 @@ private fun NowLine(
             .offset(x = xDp - 3.dp)
             .fillMaxHeight()
             .width(8.dp)
-            .background(LiveColors.Accent.copy(alpha = 0.22f)),
+            .background(liveAccent().copy(alpha = 0.22f)),
     )
 }
 

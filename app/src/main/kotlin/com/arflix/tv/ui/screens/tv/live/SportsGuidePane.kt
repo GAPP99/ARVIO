@@ -293,7 +293,7 @@ internal fun SportsGuidePane(
         if (rows.isEmpty()) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                if (loading) CircularProgressIndicator(color = LiveColors.Accent, modifier = Modifier.size(24.dp))
+                if (loading) CircularProgressIndicator(color = liveAccent(), modifier = Modifier.size(24.dp))
                 else Icon(Icons.Default.SportsSoccer, null, tint = LiveColors.FgDim, modifier = Modifier.size(32.dp))
                 Text(if (loading) stringResource(R.string.live_sports_reading_schedule) else if (failed) stringResource(R.string.live_sports_schedule_unavailable)
                     else if (events.any { it.hasChannels(now) && (it.isOnAir(now) || it.programme.startUtcMillis > now) }) stringResource(R.string.live_sports_artwork_unavailable)
