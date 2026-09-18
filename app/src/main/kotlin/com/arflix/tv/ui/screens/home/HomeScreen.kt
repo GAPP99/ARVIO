@@ -139,7 +139,6 @@ import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.isPortrait
 import com.arflix.tv.network.OkHttpProvider
-import com.arflix.tv.ui.components.BackgroundTrailerPlayer
 import com.arflix.tv.ui.components.FeaturedMediaCard
 import com.arflix.tv.ui.components.movieGenreNameRes
 import com.arflix.tv.ui.components.tvGenreNameRes
@@ -1037,11 +1036,6 @@ fun HomeScreen(
         else -> null
     }
 
-    var trailerSuppressed by remember { mutableStateOf(false) }
-    var isTrailerVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(displayHeroItem?.id) { trailerSuppressed = false }
-    val heroRowIsContinueWatching = latestDisplayCategories
-        .getOrNull(focusState.currentRowIndex)?.id == "continue_watching"
     var heroPlaybackHandles by remember { mutableStateOf<HomeHeroPlaybackHandles?>(null) }
     var preparedHeroVideoUrl by remember { mutableStateOf<String?>(null) }
     val heroExoPlayer = heroPlaybackHandles?.player
@@ -1282,9 +1276,7 @@ fun HomeScreen(
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
-            isContextMenuOpen = showContextMenu || isTrailerVisible,
-            trailerIsPlaying = false,
-            onTrailerStop = { trailerSuppressed = true },
+            isContextMenuOpen = showContextMenu,
             isMobile = isMobile,
             heroItem = displayHeroItem,
             heroOverviewOverride = displayHeroOverview,
@@ -1400,19 +1392,6 @@ fun HomeScreen(
             }
         }
 
-        // Present autoplay above the home UI. The YouTube surface must already
-        // be visible when playback starts, with no cards or scrims over it.
-        if (!isMobile && heroVideoUrl == null && uiState.trailerAutoPlay &&
-            uiState.heroTrailerKey != null && !trailerSuppressed && !heroRowIsContinueWatching &&
-            !showContextMenu && !uiState.showAppUpdateDialog) {
-            BackgroundTrailerPlayer(
-                youtubeKey = uiState.heroTrailerKey!!,
-                delayMs = uiState.trailerDelaySeconds * 1000L,
-                soundEnabled = uiState.trailerSoundEnabled,
-                onVisibilityChanged = { isTrailerVisible = it },
-                onClose = { trailerSuppressed = true }
-            )
-        }
         // Context menu
         contextMenuItem?.let { item ->
             Box(
@@ -2426,8 +2405,6 @@ internal fun HomeInputLayer(
     fastScrollThresholdMs: Long,
     usePosterCards: Boolean,
     isContextMenuOpen: Boolean,
-    trailerIsPlaying: Boolean = false,
-    onTrailerStop: () -> Unit = {},
     isMobile: Boolean = false,
     heroItem: MediaItem? = null,
     heroOverviewOverride: String? = null,
@@ -2528,12 +2505,6 @@ internal fun HomeInputLayer(
         Modifier.onPreviewKeyEvent { event ->
             if (isContextMenuOpen) {
                 return@onPreviewKeyEvent false
-            }
-            if (trailerIsPlaying && event.type == KeyEventType.KeyDown &&
-                (isArvioDpadNavigationKey(event.key) || event.key == Key.Enter || event.key == Key.DirectionCenter || event.key == Key.Back)
-            ) {
-                onTrailerStop()
-                return@onPreviewKeyEvent true
             }
             if (event.type == KeyEventType.KeyUp && isArvioDpadNavigationKey(event.key)) {
                 dpadRepeatGate.reset()
