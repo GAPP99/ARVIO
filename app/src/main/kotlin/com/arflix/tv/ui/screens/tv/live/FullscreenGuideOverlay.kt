@@ -354,11 +354,15 @@ private fun FullscreenGuideContent(
 
         val listState = rememberLazyListState()
         val anchorFocusRequester = remember { FocusRequester() }
-        LaunchedEffect(channel.id, items.size, anchorIndex) {
-            if (items.isNotEmpty()) {
+        var initialAnchorApplied by remember(channel.id) { mutableStateOf(false) }
+        LaunchedEffect(channel.id, items.isNotEmpty()) {
+            if (items.isNotEmpty() && !initialAnchorApplied) {
                 listState.scrollToItem((anchorIndex - 1).coerceAtLeast(0))
-                delay(90)
-                runCatching { anchorFocusRequester.requestFocus() }
+                initialAnchorApplied = true
+                if (!isTouchDevice) {
+                    delay(90)
+                    runCatching { anchorFocusRequester.requestFocus() }
+                }
             }
         }
 
@@ -378,7 +382,7 @@ private fun FullscreenGuideContent(
             } else {
                 itemsIndexed(
                     items = items,
-                    key = { index, item -> "${item.state}:${item.program.startUtcMillis}:${item.program.title}:$index" },
+                    key = { _, item -> "${item.program.startUtcMillis}:${item.program.endUtcMillis}:${item.program.title}" },
                 ) { index, item ->
                     GuideProgramRow(
                         item = item,

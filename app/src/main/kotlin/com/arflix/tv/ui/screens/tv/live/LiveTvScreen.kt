@@ -1265,6 +1265,7 @@ fun LiveTvScreen(
     var startupChannelApplied by rememberSaveable(selectedProviderId) { mutableStateOf(false) }
     var playingCatchupProgram by remember { mutableStateOf<IptvProgram?>(null) }
     var catchupPlaybackOffsetMs by remember { mutableLongStateOf(0L) }
+    var catchupReloadSignal by remember { mutableIntStateOf(0) }
     val focusCommitScope = rememberCoroutineScope()
     val pendingFocusCommit = remember { arrayOf<Pair<String, String>?>(null) }
     val focusCommitJob = remember { arrayOf<Job?>(null) }
@@ -2671,15 +2672,11 @@ fun LiveTvScreen(
             EpgInteractionAction.PlayLiveFullscreen -> {
                 // Expand the existing session, including a selected quality variant
                 // or buffering stream, without another guide lookup or retune.
-                if (playingCatchupProgram == null) {
-                    invalidateProgramActionLookup()
-                    noteGuideUserNavigation()
-                    fullscreenGuideOpen = false
-                    isFullScreen = true
-                    hudPokeSignal++
-                } else {
-                    playLiveFullscreen(channel)
-                }
+                invalidateProgramActionLookup()
+                noteGuideUserNavigation()
+                fullscreenGuideOpen = false
+                isFullScreen = true
+                hudPokeSignal++
             }
             else -> Unit
         }
@@ -2701,7 +2698,10 @@ fun LiveTvScreen(
             )
         ) {
             EpgInteractionAction.PlayLiveMini -> playProgramInMini(channel, null)
-            EpgInteractionAction.PlayCatchup -> playProgramInMini(channel, program)
+            EpgInteractionAction.PlayCatchup -> {
+                playProgramInMini(channel, program)
+                if (isTouchDevice) isFullScreen = true
+            }
             EpgInteractionAction.ResolveVodOrPlayFullscreen -> resolveVodOrPlayFullscreen(channel, program)
             EpgInteractionAction.PlayLiveFullscreen -> playLiveFullscreen(channel)
             EpgInteractionAction.NoOp,
@@ -3082,9 +3082,7 @@ fun LiveTvScreen(
 
     fun seekCatchupBy(deltaMs: Long) {
         val program = playingCatchupProgram ?: return
-        val duration = (program.endUtcMillis - program.startUtcMillis).coerceAtLeast(0L)
-            .takeIf { it > 0L }
-            ?: playerDurationMs
+        val duration = catchupAvailableDuration(program, System.currentTimeMillis())
         val wasPlayRequested = exoPlayer.playWhenReady
         val maxPosition = if (duration > 1_000L) duration - 1_000L else duration
         val current = (catchupUrlAnchorOffsetMs + exoPlayer.currentPosition.coerceAtLeast(0L))
@@ -3101,12 +3099,15 @@ fun LiveTvScreen(
         }
         val targetAnchor = source?.catchupUrlAnchorOffset(target) ?: 0L
         val targetInSegment = source?.catchupInSegmentSeekOffset(target) ?: target
-        val sameAnchor = targetAnchor == catchupUrlAnchorOffsetMs
-        catchupPlaybackOffsetMs = target
+        val seekInStream = canSeekWithinCatchupStream(seekable, target, catchupUrlAnchorOffsetMs)
         playerPositionMs = target
         exoPlayer.playWhenReady = true
-        if (sameAnchor) {
-            exoPlayer.seekTo(targetInSegment)
+        if (seekInStream) {
+            exoPlayer.seekTo(target - catchupUrlAnchorOffsetMs)
+        } else {
+            catchupPlaybackOffsetMs = target
+            lastPreparedStreamUrl = null
+            catchupReloadSignal++
         }
         exoPlayer.play()
         playerPlayWhenReady = true
@@ -3114,14 +3115,14 @@ fun LiveTvScreen(
             "[IPTV-Catchup] seek delta=$deltaMs current=$current target=$target duration=$duration " +
                 "wasPlayRequested=$wasPlayRequested state=${exoPlayer.playbackState} " +
                 "anchor=$catchupUrlAnchorOffsetMs targetAnchor=$targetAnchor " +
-                "inSegment=$targetInSegment sameAnchor=$sameAnchor exo=${exoPlayer.currentPosition}"
+                "inSegment=$targetInSegment seekInStream=$seekInStream exo=${exoPlayer.currentPosition}"
         )
         hudPokeSignal++
     }
 
     fun seekToPosition(targetMs: Long) {
         if (playingCatchupProgram != null) {
-            val delta = targetMs - playerPositionMs
+            val delta = targetMs - (catchupUrlAnchorOffsetMs + exoPlayer.currentPosition.coerceAtLeast(0L))
             seekCatchupBy(delta)
         } else {
             val currentNow = currentNowNext?.now
@@ -3185,7 +3186,7 @@ fun LiveTvScreen(
             }
         }
     }
-    LaunchedEffect(currentStreamUrl, playingCatchupProgram, catchupUrlAnchorOffsetMs, playingChannel?.id, playbackForeground, sportsHiddenPlayback) {
+    LaunchedEffect(currentStreamUrl, playingCatchupProgram, catchupUrlAnchorOffsetMs, catchupReloadSignal, playingChannel?.id, playbackForeground, sportsHiddenPlayback) {
         if (!playbackForeground || sportsHiddenPlayback) return@LaunchedEffect
         val rawStream = currentStreamUrl ?: return@LaunchedEffect
         // A foreground resume re-prepares the retained source; do not probe/open it twice.
@@ -3287,7 +3288,7 @@ fun LiveTvScreen(
                     retryJob?.cancel()
                     viewModel.rememberPlaybackHls(currentStreamUrl ?: prepared, lastPreparedHeaders, prepared)
                     prepareStream(prepared, isHls = true, headers = lastPreparedHeaders, resetRetry = false,
-                        initialPositionMs = playingChannel?.source?.catchupInSegmentSeekOffset(catchupPlaybackOffsetMs) ?: 0L,
+                        initialPositionMs = if (playingCatchupProgram != null) (playerPositionMs - catchupUrlAnchorOffsetMs).coerceAtLeast(0L) else 0L,
                         drmInfo = playingChannel?.source?.drmInfo, forcePrepare = true)
                     return
                 }
@@ -3394,7 +3395,7 @@ fun LiveTvScreen(
                         isHls = retryTarget.isHls,
                         headers = retryHeaders,
                         resetRetry = false,
-                        initialPositionMs = retryChannel?.catchupInSegmentSeekOffset(catchupPlaybackOffsetMs) ?: 0L,
+                        initialPositionMs = if (retryProgram != null) (playerPositionMs - catchupUrlAnchorOffsetMs).coerceAtLeast(0L) else 0L,
                         drmInfo = retryChannel?.drmInfo,
                         forcePrepare = true,
                         resolvedMimeType = retryTarget.mimeType,
@@ -4319,21 +4320,13 @@ fun LiveTvScreen(
                             }
                         },
                         onRewindClick = {
-                            val currentNow = currentNowNext?.now
-                            val currentElapsed = if (currentNow != null && currentNow.startUtcMillis > 0L) {
-                                (System.currentTimeMillis() - currentNow.startUtcMillis).coerceAtLeast(0L)
-                            } else {
-                                playerPositionMs
-                            }
+                            val currentElapsed = programmePlaybackPosition(playingCatchupProgram != null,
+                                playerPositionMs, currentNowNext?.now, System.currentTimeMillis())
                             seekToPosition((currentElapsed - 10_000L).coerceAtLeast(0L))
                         },
                         onFastForwardClick = {
-                            val currentNow = currentNowNext?.now
-                            val currentElapsed = if (currentNow != null && currentNow.startUtcMillis > 0L) {
-                                (System.currentTimeMillis() - currentNow.startUtcMillis).coerceAtLeast(0L)
-                            } else {
-                                playerPositionMs
-                            }
+                            val currentElapsed = programmePlaybackPosition(playingCatchupProgram != null,
+                                playerPositionMs, currentNowNext?.now, System.currentTimeMillis())
                             seekToPosition(currentElapsed + 10_000L)
                         },
                         onPreviousCatchupClick = {
@@ -4349,8 +4342,10 @@ fun LiveTvScreen(
                             }
                         },
                         onReplayClick = {
-                            if (playingCatchupProgram != null) {
-                                seekCatchupBy(-playerPositionMs)
+                            val nowProgram = currentNowNext?.now
+                            if (playingCatchupProgram != null || (nowProgram != null &&
+                                    IptvGuideHistory.canReplay(playingChannel?.source, nowProgram, System.currentTimeMillis()))) {
+                                seekToPosition(0L)
                             } else {
                                 val preparedStream = lastPreparedStreamUrl
                                 if (preparedStream != null) {

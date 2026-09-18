@@ -67,6 +67,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.R
 import com.arflix.tv.data.model.IptvNowNext
+import com.arflix.tv.util.LocalDeviceType
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDateTime
@@ -117,6 +118,8 @@ fun FullscreenHud(
 ) {
     var visible by remember { mutableStateOf(true) }
     var lastPoke by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val touchControls = LocalDeviceType.current.isTouchDevice()
+    var scrubbing by remember { mutableStateOf(false) }
 
     // Keyed on Unit, never on the callback: a caller that hands in a fresh
     // lambda per recomposition would otherwise have this effect torn down and
@@ -130,10 +133,11 @@ fun FullscreenHud(
         }
     }
 
-    LaunchedEffect(pokeSignal) {
+    LaunchedEffect(pokeSignal, scrubbing) {
         visible = true
         onVisibilityChanged?.invoke(true)
         lastPoke = System.currentTimeMillis()
+        if (scrubbing) return@LaunchedEffect
         delay(5_000)
         if (System.currentTimeMillis() - lastPoke >= 5_000) {
             visible = false
@@ -182,6 +186,7 @@ fun FullscreenHud(
     // Retrying costs nothing once focus has landed, and covers the row simply
     // not being attached yet on the frame the HUD fades in.
     LaunchedEffect(visible, showControls) {
+        if (touchControls) return@LaunchedEffect
         if (!visible || !showControls) {
             initialFocusApplied = false
         } else {
@@ -244,7 +249,7 @@ fun FullscreenHud(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .fillMaxWidth()
-                    .padding(horizontal = 48.dp, vertical = 24.dp),
+                    .padding(horizontal = if (touchControls) 16.dp else 48.dp, vertical = 24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -474,17 +479,18 @@ fun FullscreenHud(
                         durationMs = totalShowMs,
                         onSeekToPosition = onSeekToPosition,
                         onOpenQuickZap = onOpenQuickZap,
+                        onScrubbingChanged = { scrubbing = it },
                     )
 
                     // --- Row 3: Bottom Control Bar (Exact Centering & Time on Left) ---
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp),
+                            .height(if (touchControls) 112.dp else 56.dp),
                     ) {
                         // Left Side: Time Text below Seek Bar
                         Box(
-                            modifier = Modifier.align(Alignment.CenterStart),
+                            modifier = Modifier.align(if (touchControls) Alignment.BottomStart else Alignment.CenterStart),
                         ) {
                             Text(
                                 text = positionText,
@@ -498,7 +504,7 @@ fun FullscreenHud(
 
                         // EXACT CENTER: Playback Controls Bar
                         Row(
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier.align(if (touchControls) Alignment.TopCenter else Alignment.Center),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -545,7 +551,7 @@ fun FullscreenHud(
 
                         // Right Side: Replay, LIVE, GUIDE
                         Row(
-                            modifier = Modifier.align(Alignment.CenterEnd),
+                            modifier = Modifier.align(if (touchControls) Alignment.BottomEnd else Alignment.CenterEnd),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -586,14 +592,38 @@ fun FullscreenHud(
 }
 
 @Composable
-private fun HudSeekBar(
+internal fun HudSeekBar(
     progress: Float,
     positionMs: Long,
     durationMs: Long,
     onSeekToPosition: ((Long) -> Unit)?,
     onOpenQuickZap: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    onScrubbingChanged: (Boolean) -> Unit = {},
 ) {
+    if (LocalDeviceType.current.isTouchDevice()) {
+        var scrubProgress by remember { mutableStateOf<Float?>(null) }
+        androidx.compose.material3.Slider(
+            value = scrubProgress ?: progress.coerceIn(0f, 1f),
+            onValueChange = {
+                scrubProgress = it
+                onScrubbingChanged(true)
+            },
+            onValueChangeFinished = {
+                scrubProgress?.let { onSeekToPosition?.invoke((it * durationMs).toLong()) }
+                scrubProgress = null
+                onScrubbingChanged(false)
+            },
+            enabled = onSeekToPosition != null && durationMs > 0L,
+            modifier = modifier.fillMaxWidth().height(48.dp),
+            colors = androidx.compose.material3.SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = LiveColors.Accent,
+                inactiveTrackColor = LiveColors.Panel,
+            ),
+        )
+        return
+    }
     var isFocused by remember { mutableStateOf(false) }
 
     Column(

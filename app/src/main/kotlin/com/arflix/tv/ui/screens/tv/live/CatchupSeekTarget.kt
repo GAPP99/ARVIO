@@ -1,5 +1,21 @@
 package com.arflix.tv.ui.screens.tv.live
 
+import com.arflix.tv.data.model.IptvProgram
+
+internal fun catchupAvailableDuration(program: IptvProgram, nowMs: Long): Long =
+    (minOf(program.endUtcMillis, nowMs) - program.startUtcMillis).coerceAtLeast(0L)
+
+internal fun programmePlaybackPosition(
+    catchup: Boolean,
+    playbackPositionMs: Long,
+    program: IptvProgram?,
+    nowMs: Long,
+): Long = if (catchup || program == null) playbackPositionMs.coerceAtLeast(0L)
+else catchupAvailableDuration(program, nowMs)
+
+internal fun canSeekWithinCatchupStream(seekable: Boolean, targetMs: Long, anchorMs: Long): Boolean =
+    seekable && targetMs >= anchorMs
+
 internal fun catchupSeekTarget(
     currentMs: Long,
     deltaMs: Long,
