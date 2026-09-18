@@ -87,6 +87,11 @@ fun FullscreenHud(
     channel: EnrichedChannel?,
     nowNext: IptvNowNext?,
     pokeSignal: Int,
+    streamResolution: String = "",
+    streamFps: String = "",
+    streamVideoCodec: String = "",
+    streamAudioInfo: String = "",
+    streamBitrate: String = "",
     categoryName: String? = null,
     isCatchupMode: Boolean = false,
     isPlaying: Boolean = true,
@@ -416,9 +421,19 @@ fun FullscreenHud(
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
+
                             }
                         }
+
+                        StreamTechBadge(
+                            resolution = streamResolution,
+                            fps = streamFps,
+                            videoCodec = streamVideoCodec,
+                            audioInfo = streamAudioInfo,
+                            bitrate = streamBitrate
+                        )
 
                         // Next Program Preview
                         if (next != null) {
@@ -755,6 +770,44 @@ private fun HudActionButton(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun StreamTechBadge(
+    resolution: String = "",
+    fps: String = "",
+    videoCodec: String = "",
+    audioInfo: String = "",
+    bitrate: String = ""
+) {
+    val elements = listOf(fps, resolution, videoCodec, audioInfo, bitrate).filter { it.isNotBlank() }
+    if (elements.isEmpty()) return
+
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.Black.copy(alpha = 0.45f))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        elements.forEachIndexed { index, text ->
+            Text(
+                text = text,
+                color = Color.White.copy(alpha = 0.75f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (index < elements.size - 1) {
+                Box(
+                    modifier = Modifier
+                        .size(3.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.4f))
+                )
+            }
+        }
+    }
+}
 // The control row is asked for focus until it answers: on the frame the HUD
 // fades in from nothing the row may not be attached yet. Ten tries 50 ms apart
 // is half a second at the outside, and it stops at the first one that lands.
