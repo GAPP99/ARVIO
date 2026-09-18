@@ -2611,15 +2611,17 @@ fun LiveTvScreen(
         focusEpgSignal += 1
     }
 
-    fun enterSelectedCategory(categoryId: String) {
+    fun enterSelectedCategory(categoryId: String, closeDrawer: Boolean = true) {
         noteGuideUserNavigation()
         focusCommitJob[0]?.cancel()
         mobileScrollCommitJob[0]?.cancel()
         focusedChannelObject[0] = null
         selectedCategoryId = categoryId
         if (isTouchDevice) currentMode = LiveTvStartup.LiveTvMode.Guide
-        categoryDrawerOpen = false
-        focusGuideAfterDrawerClose = true
+        if (closeDrawer) {
+            categoryDrawerOpen = false
+            focusGuideAfterDrawerClose = true
+        }
         viewModel.rememberTvSession(
             lastGroupName = categoryId,
             lastFocusedZone = "CATEGORY",
@@ -2636,7 +2638,7 @@ fun LiveTvScreen(
         }
     }
 
-    fun requestCategorySelection(categoryId: String) {
+    fun requestCategorySelection(categoryId: String, closeDrawer: Boolean = true) {
         if (categoryId == SPORTS_GUIDE_CATEGORY) {
             sportsSelected = true
             // Selection opens the destination; moving right into its cards closes the drawer.
@@ -2656,7 +2658,7 @@ fun LiveTvScreen(
             }
             return
         }
-        enterSelectedCategory(categoryId)
+        enterSelectedCategory(categoryId, closeDrawer)
     }
 
     fun requestCategoryLockToggle(playlistId: String?, groupName: String, wasLocked: Boolean) {
@@ -4176,6 +4178,7 @@ fun LiveTvScreen(
                     onSelect = { id ->
                         requestCategorySelection(id)
                     },
+                    onSelectKeepOpen = { id -> requestCategorySelection(id, closeDrawer = false) },
                     onOpenSearch = { searchOpen = true },
                     onHideCategory = { playlistId, groupName ->
                         noteGuideUserNavigation()
