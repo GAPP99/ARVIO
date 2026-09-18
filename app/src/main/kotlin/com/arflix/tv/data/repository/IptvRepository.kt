@@ -3025,6 +3025,19 @@ class IptvRepository @Inject constructor(
             val hiddenGroups = observeHiddenGroups().first()
             val groupOrder = observeGroupOrder().first()
 
+            // Totals over the FULL catalog, before the large-list memory cap
+            // trims channels/guide above. Settings + status reports must use
+            // these — snapshot.channels/nowNext may be a 240-item window.
+            // Coverage for large lists comes from the SQLite index: the
+            // in-memory map intentionally holds only a sample window, so
+            // counting it would report ~0% on a healthy 17k-channel guide.
+            val fullChannelCount = channels.size
+            val memoryCoveredCount = channels.count { hasProgramData(finalNowNext[it.id]) }
+            val fullEpgCoveredCount = if (isLargePagedSnapshot) {
+                maxOf(memoryCoveredCount, countIndexedGuideChannels()).coerceAtMost(fullChannelCount)
+            } else {
+                memoryCoveredCount
+            }
             IptvSnapshot(
                 channels = retainedChannels,
                 grouped = grouped,
@@ -3034,6 +3047,8 @@ class IptvRepository @Inject constructor(
                 hiddenGroups = hiddenGroups,
                 groupOrder = groupOrder,
                 epgWarning = epgWarning,
+                totalChannelCount = fullChannelCount,
+                epgCoveredCount = fullEpgCoveredCount,
                 loadedAt = loadedAtInstant
             ).also {
                 if (playlistChanged || forceEpgReload || epgUpdated) {
@@ -9938,12 +9953,12 @@ class IptvRepository @Inject constructor(
         return "${program.startUtcMillis}|${program.endUtcMillis}|${program.title}"
     }
 
-    private fun hasAnyProgramData(nowNext: Map<String, IptvNowNext>): Boolean {
+    internal fun hasAnyProgramData(nowNext: Map<String, IptvNowNext>): Boolean {
         if (nowNext.isEmpty()) return false
         return nowNext.values.any { item -> hasProgramData(item) }
     }
 
-    private fun hasProgramData(item: IptvNowNext?): Boolean {
+    internal fun hasProgramData(item: IptvNowNext?): Boolean {
         return item != null && (
             item.now != null ||
                 item.next != null ||

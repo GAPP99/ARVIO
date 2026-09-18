@@ -91,6 +91,17 @@ data class IptvSnapshot(
     val groupOrder: List<String> = emptyList(),
     val sortOrder: String = "provider",
     val epgWarning: String? = null,
+    /**
+     * Full catalog size before the large-list memory cap trims [channels].
+     * 0 means unknown — readers must fall back to `channels.size`.
+     */
+    val totalChannelCount: Int = 0,
+    /**
+     * Channels with program data counted over the full catalog, matching
+     * [totalChannelCount]. -1 means unknown — readers must count over the
+     * (possibly capped) window instead.
+     */
+    val epgCoveredCount: Int = -1,
     val loadedAt: Instant = Instant.now()
 )
 

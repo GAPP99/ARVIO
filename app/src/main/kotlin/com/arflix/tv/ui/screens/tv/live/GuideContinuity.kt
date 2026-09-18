@@ -48,7 +48,7 @@ internal fun retainGuideWindows(
     previous: Map<String, IptvNowNext>,
     fresh: Map<String, IptvNowNext>,
     requested: Set<String>,
-    limit: Int = 160,
+    limit: Int = 1000,
 ): Map<String, IptvNowNext> = LinkedHashMap(previous).apply {
     requested.forEach { id ->
         val old = remove(id)

@@ -80,6 +80,8 @@ private const val LargeListCompleteEpgBackfillStartupDelayMs = 180_000L
 data class TvUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
+    /** Non-fatal guide notice from the last load (e.g. EPG unavailable). */
+    val epgWarning: String? = null,
     val loadingMessage: String? = null,
     val loadingPercent: Int = 0,
     val config: IptvConfig = IptvConfig(),
@@ -440,6 +442,7 @@ class TvViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     isLoading = true,
                     error = null,
+                    epgWarning = null,
                     loadingMessage = "Starting IPTV load...",
                     loadingPercent = 2
                 )
@@ -540,6 +543,7 @@ class TvViewModel @Inject constructor(
                     currentState.copy(
                         isLoading = false,
                         error = null,
+                        epgWarning = snapshot.epgWarning,
                         snapshot = cappedSnapshot,
                         loadingMessage = null,
                         loadingPercent = 0

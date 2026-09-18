@@ -125,6 +125,8 @@ fun EpgGrid(
     epgAttemptedChannelIds: Set<String> = emptySet(),
     isGuideBackfillLoading: Boolean = false,
     hasGuideSource: Boolean = true,
+    indexedGuideNowNext: Map<String, IptvNowNext> = emptyMap(),
+    indexedGuideLoadedIds: Set<String> = emptySet(),
     selectedChannelId: String?,
     playingChannelId: String? = null,
     focusSelectedChannelSignal: Int,
@@ -764,13 +766,21 @@ fun EpgGrid(
                                 }
                             }
                         }
-                        val rowPrograms = remember(
+                        val rowGuide = remember(
                             ch.id,
                             nowNext[ch.id],
+                            indexedGuideNowNext[ch.id],
+                            clockTickMillis,
+                        ) {
+                            mergeGuideSlices(nowNext[ch.id], indexedGuideNowNext[ch.id], clockTickMillis)
+                        }
+                        val rowPrograms = remember(
+                            rowGuide,
                             windowStartMillis,
                             windowEndMillis,
                         ) {
-                            programsInWindow(nowNext[ch.id], windowStartMillis, windowEndMillis)
+                            rowGuide?.let { programsInWindow(it, windowStartMillis, windowEndMillis) }
+                                ?: emptyList()
                         }
                         val hasFocusable = remember(ch, rowPrograms, clockTickMillis) {
                             hasFocusablePrograms(ch, rowPrograms, clockTickMillis)
@@ -797,7 +807,7 @@ fun EpgGrid(
                                 displayQuality = ch.displayQuality(playbackQuality),
                                 isActive = isChannelActive,
                                 clockTickMillis = clockTickMillis,
-                                nowNext = nowNext[ch.id],
+                                nowNext = rowGuide,
                                 isFavorite = ch.id in favorites,
                                 stripe = idx % 2 == 1,
                                 showChannelNumber = !compact,
@@ -858,19 +868,33 @@ fun EpgGrid(
                                     .fillMaxHeight()
                                     .horizontalScroll(hScroll)
                             ) {
+                                val isIndexPending = hasGuideSource && ch.id !in indexedGuideLoadedIds
                                 val isGuideLoading = hasGuideSource &&
                                     rowPrograms.isEmpty() &&
                                     (
                                         ch.id in epgLoadingChannelIds ||
                                             isGuideBackfillLoading
                                         )
+                                // Index-first: if the SQLite index has guide data for this
+                                // channel, we treat it as loaded — even if the in-memory
+                                // map was capped out. This eliminates "Guide pending" for
+                                // channels that already have indexed programmes.
+                                val indexGuide = rowGuide
+                                val indexHasGuide = indexGuide != null && (
+                                    indexGuide.now != null || indexGuide.next != null || indexGuide.later != null ||
+                                    indexGuide.upcoming.isNotEmpty() || indexGuide.recent.isNotEmpty()
+                                )
                                 val guideAttempted = ch.id in epgAttemptedChannelIds
                                 val rowHasGuideIdentity = !ch.source.epgId.isNullOrBlank() ||
                                     !ch.source.tvgName.isNullOrBlank()
                                 val placeholderTitle = when {
                                     isGuideLoading -> stringResource(R.string.live_placeholder_loading_guide)
                                     !rowHasGuideIdentity -> stringResource(R.string.live_empty_no_programme)
-                                    hasGuideSource && guideAttempted -> stringResource(R.string.live_placeholder_no_guide_matched)
+                                    // If index has data, never show "pending" or "no match" —
+                                    // the index is the source of truth for catalog presence.
+                                    indexHasGuide -> ""
+                                    isIndexPending -> stringResource(R.string.live_placeholder_guide_pending)
+                                    hasGuideSource && (guideAttempted || !isIndexPending) -> stringResource(R.string.live_placeholder_no_guide_matched)
                                     hasGuideSource -> stringResource(R.string.live_placeholder_guide_pending)
                                     else -> stringResource(R.string.live_placeholder_no_guide_source)
                                 }
@@ -904,7 +928,8 @@ fun EpgGrid(
                                     onMoveVertically = { targetRowIdx, anchorStartMin ->
                                         val targetChannel = channels.getOrNull(targetRowIdx)
                                         val targetPrograms = targetChannel?.let { targetCh ->
-                                            programsInWindow(nowNext[targetCh.id], windowStartMillis, windowEndMillis)
+                                            val merged = mergeGuideSlices(nowNext[targetCh.id], indexedGuideNowNext[targetCh.id], clockTickMillis)
+                                            programsInWindow(merged, windowStartMillis, windowEndMillis)
                                         }.orEmpty()
                                         val targetHasFocusable = targetChannel != null &&
                                             hasFocusablePrograms(targetChannel, targetPrograms, clockTickMillis)
