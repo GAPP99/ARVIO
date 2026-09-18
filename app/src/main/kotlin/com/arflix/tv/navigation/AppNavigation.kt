@@ -150,6 +150,7 @@ fun AppNavigation(
     isCloudConnected: Boolean = false,
     onSwitchProfile: () -> Unit = {},
     onTvFullscreenChanged: (Boolean) -> Unit = {},
+    onOverlayFullscreenChanged: (Boolean) -> Unit = {},
     onSettingsSubPageChanged: (Boolean) -> Unit = {},
     onTvSubScreenChanged: (Boolean) -> Unit = {},
     onExitApp: () -> Unit = {}
@@ -477,6 +478,7 @@ fun AppNavigation(
             val mediaType = if (mediaTypeStr == "tv") MediaType.TV else MediaType.MOVIE
 
             DetailsScreen(
+                onFullscreenChanged = onOverlayFullscreenChanged,
                 mediaType = mediaType,
                 mediaId = mediaId,
                 initialSeason = initialSeason,

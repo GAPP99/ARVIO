@@ -660,6 +660,10 @@ fun ArflixApp(
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     var iptvFullscreen by remember { mutableStateOf(false) }
+    // A fullscreen overlay inside a screen (the trailer modal) is not a route,
+    // so it cannot be read off the back stack. Without this the bottom bar keeps
+    // its height reserved and the video is drawn smaller than the screen.
+    var overlayFullscreen by remember { mutableStateOf(false) }
     var isSettingsSubPage by remember { mutableStateOf(false) }
     var isTvSubScreen by remember { mutableStateOf(false) }
     LaunchedEffect(currentRoute) {
@@ -674,7 +678,7 @@ fun ArflixApp(
     // Hide bottom bar on player, profile selection, login, and all subscreens.
     // Bottom bar is only shown on main screens: Home, Search, Watchlist, TV guide, and main Settings.
     val isPlayerScreen = currentRoute?.startsWith("player") == true
-    val isFullscreenRoute = isPlayerScreen || iptvFullscreen
+    val isFullscreenRoute = isPlayerScreen || iptvFullscreen || overlayFullscreen
     val showBottomBar = shouldShowBottomBar(
         isMobile = isMobile,
         currentRoute = currentRoute,
@@ -684,7 +688,7 @@ fun ArflixApp(
     )
     val applySystemBarsPadding = isMobile && !isFullscreenRoute
 
-    val isPlayerRoute = iptvFullscreen || currentRoute?.contains("player") == true
+    val isPlayerRoute = iptvFullscreen || overlayFullscreen || currentRoute?.contains("player") == true
 
     val hostActivity = remember(context) { context.findActivity() }
     LaunchedEffect(isPlayerRoute, isMobile) {
@@ -836,6 +840,9 @@ fun ArflixApp(
                     },
                     onTvFullscreenChanged = { fullscreen ->
                         iptvFullscreen = fullscreen
+                    },
+                    onOverlayFullscreenChanged = { fullscreen ->
+                        overlayFullscreen = fullscreen
                     },
                     onTvSubScreenChanged = { isSubScreen ->
                         isTvSubScreen = isSubScreen
