@@ -511,6 +511,52 @@ fun PlaybackDiagnosticBanner(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
+fun EpgWarningBanner(
+    warning: String?,
+    modifier: Modifier = Modifier,
+) {
+    var visible by remember(warning) { mutableStateOf(warning != null) }
+    LaunchedEffect(warning) {
+        if (warning != null) {
+            kotlinx.coroutines.delay(12_000)
+            visible = false
+        }
+    }
+    AnimatedVisibility(
+        visible = visible && warning != null,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier,
+    ) {
+        val text = warning ?: return@AnimatedVisibility
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(alpha = 0.78f))
+                .border(1.dp, Color(0xFFFFC04A).copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+                .clickable { visible = false }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.ErrorOutline,
+                contentDescription = null,
+                tint = Color(0xFFFFC04A),
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                text,
+                style = LiveType.SectionTag.copy(color = LiveColors.FgDim),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
 fun VariantPickerOverlay(
     channel: EnrichedChannel?,
     variants: List<EnrichedChannel>,

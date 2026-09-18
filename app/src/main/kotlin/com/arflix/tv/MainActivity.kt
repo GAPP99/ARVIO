@@ -101,7 +101,6 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.delay
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
@@ -279,14 +278,9 @@ class MainActivity : ComponentActivity() {
             window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         }
 
-        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                iptvRepository.get().warmupFromCacheOnly()
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                AppLogger.recordException(e)
-            }
-        }
+        // Cache warmup runs once in runAfterFirstDraw below (warmup + 60s
+        // delayed fresh prefetch). Starting it here as well would serialize a
+        // second disk read behind the same loadMutex for no benefit.
 
         setContent {
             // Observe device mode override changes live from DataStore
@@ -619,17 +613,15 @@ fun ArflixApp(
             ActiveProfileLoadState.Loaded(profile) as ActiveProfileLoadState
         }
     }.collectAsStateWithLifecycle(initialValue = ActiveProfileLoadState.Loading)
-    var startupIntroComplete by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        delay(1350)
-        startupIntroComplete = true
-    }
     val activeProfile = (activeProfileState as? ActiveProfileLoadState.Loaded)?.profile
     val startupReady = skipProfileSelection != null &&
         activeProfileState is ActiveProfileLoadState.Loaded &&
         authState !is AuthState.Loading
 
-    if (!startupReady || !startupIntroComplete) {
+    // Render content as soon as auth/profile/selection state resolves. The
+    // previous fixed 1350ms minimum splash delay added over a second to every
+    // fast cold start; the loading screen still shows while data is loading.
+    if (!startupReady) {
         ArvioLoadingScreen()
         return
     }

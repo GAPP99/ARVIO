@@ -2,6 +2,7 @@ package com.arflix.tv.ui.screens.watchlist
 
 import android.content.Context
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogSourceType
@@ -78,8 +79,14 @@ class WatchlistHomeLibraryTest {
     }
 
     @After fun tearDown() {
-        store.clear()
-        Dispatchers.resetMain()
+        val job = model.viewModelScope.coroutineContext[kotlinx.coroutines.Job]
+        try {
+            store.clear()
+            // IO children must finish cancellation before Main is removed.
+            runBlocking { withTimeout(5_000) { job?.join() } }
+        } finally {
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun allTabsPublishFromSnapshotWhileNetworkAndCloudAreStalled() {

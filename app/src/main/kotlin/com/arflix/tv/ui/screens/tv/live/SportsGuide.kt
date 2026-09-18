@@ -1,5 +1,6 @@
 package com.arflix.tv.ui.screens.tv.live
 
+import androidx.compose.runtime.Immutable
 import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.data.model.IptvNowNext
 import com.arflix.tv.data.model.IptvProgram
@@ -29,6 +30,7 @@ internal fun shouldWaitForSportsGuide(
 ): Boolean = largePlaylist && indexedGuideChannelCount == 0 && inMemoryGuideChannelCount == 0
 
 /** Schedule facts, not stream probes. Channel identities remain provider-specific. */
+@Immutable
 internal data class SportsGuideEvent(
     val id: String,
     val title: String,
@@ -268,6 +270,7 @@ internal fun accumulateSportsGuideEvents(
     }
 }
 
+@Immutable
 internal data class SportsGuideRow(val id: String, val title: String, val events: List<SportsGuideEvent>)
 
 /**

@@ -169,3 +169,5 @@ _tmp_tv_perf/
 !app/src/androidTest/assets/library/*.png
 !app/src/androidTest/assets/library/*.jpg
 /.playback-fixtures/
+graphify-out/
+skills-lock.json

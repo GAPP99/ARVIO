@@ -2875,17 +2875,26 @@ class SettingsViewModel @Inject constructor(
                         )
                     }
                 )
-                val epgCovered = snapshot.channels.count { channel ->
-                    val item = snapshot.nowNext[channel.id]
-                    item != null && (
-                        item.now != null ||
-                            item.next != null ||
-                            item.later != null ||
-                            item.upcoming.isNotEmpty() ||
-                            item.recent.isNotEmpty()
-                        )
+                // Totals come from the snapshot's full-catalog counters: on large
+                // lists snapshot.channels/nowNext are memory-capped windows, so
+                // counting them would report e.g. "240 channels" for a 50k list.
+                val totalChannels = snapshot.totalChannelCount
+                    .takeIf { it > 0 } ?: snapshot.channels.size
+                val epgCovered = if (snapshot.epgCoveredCount >= 0) {
+                    snapshot.epgCoveredCount
+                } else {
+                    snapshot.channels.count { channel ->
+                        val item = snapshot.nowNext[channel.id]
+                        item != null && (
+                            item.now != null ||
+                                item.next != null ||
+                                item.later != null ||
+                                item.upcoming.isNotEmpty() ||
+                                item.recent.isNotEmpty()
+                            )
+                    }
                 }
-                val epgMissing = (snapshot.channels.size - epgCovered).coerceAtLeast(0)
+                val epgMissing = (totalChannels - epgCovered).coerceAtLeast(0)
                 val epgStatus: SettingsMessage? = when {
                     snapshot.channels.isEmpty() -> null
                     epgCovered > 0 -> SettingsMessage.Res(
@@ -2894,7 +2903,7 @@ class SettingsViewModel @Inject constructor(
                     )
                     else -> SettingsMessage.Res(R.string.settings_iptv_epg_none)
                 }
-                val channelCount = snapshot.channels.size
+                val channelCount = totalChannels
                 val loadedMsg = when {
                     configured && epgStatus != null -> SettingsMessage.Res(
                         R.string.settings_iptv_connected_channels_epg,
@@ -2916,7 +2925,7 @@ class SettingsViewModel @Inject constructor(
                 val doneMsg = snapshot.epgWarning?.let { SettingsMessage.Raw(it) } ?: loadedMsg
                 _uiState.value = _uiState.value.copy(
                     isIptvLoading = false,
-                    iptvChannelCount = snapshot.channels.size,
+                    iptvChannelCount = totalChannels,
                     iptvError = null,
                     iptvStatusMessage = doneMsg,
                     iptvStatusType = if (snapshot.epgWarning != null) ToastType.INFO else ToastType.SUCCESS,

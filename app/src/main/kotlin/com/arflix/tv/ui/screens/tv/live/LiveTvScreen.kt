@@ -179,8 +179,9 @@ private sealed interface LockedGroupPinAction {
     ) : LockedGroupPinAction
 }
 
-private const val GuideInitialWindowRows = 18
-private const val GuideMaxWindowRows = 42
+private const val GuideInitialWindowRows = 128
+private const val GuideMaxWindowRows = 160
+private const val CategoryFullGuideThreshold = 350
 private const val ChannelInitialLoadedRows = 144
 private const val GuidePagedLoadStepRows = 192
 private const val GuideVisibleFirstRows = 28
@@ -361,7 +362,7 @@ internal fun loadPagedChannelWindow(
 private fun guideWindowAround(index: Int, total: Int): Pair<Int, Int> {
     if (total <= 0) return 0 to 0
     val safeIndex = index.coerceIn(0, total - 1)
-    val before = 0
+    val before = 36
     val start = (safeIndex - before).coerceAtLeast(0)
     val end = (start + GuideInitialWindowRows).coerceAtMost(total)
     val balancedStart = (end - GuideInitialWindowRows).coerceAtLeast(0)
@@ -1214,6 +1215,40 @@ fun LiveTvScreen(
             ?.takeIf { it > 0 }
             ?: filteredChannels.size
     }
+    val shouldWindowGuide = selectedCategoryTotalCount > CategoryFullGuideThreshold &&
+        filteredChannels.size > CategoryFullGuideThreshold
+    var guideWindowStart by rememberSaveable { mutableIntStateOf(0) }
+    var guideWindowEnd by rememberSaveable { mutableIntStateOf(GuideInitialWindowRows) }
+    fun setGuideWindow(window: Pair<Int, Int>) {
+        val total = filteredChannels.size
+        val start = window.first.coerceIn(0, total.coerceAtLeast(0))
+        val end = window.second.coerceIn(start, total)
+        guideWindowStart = start
+        guideWindowEnd = end
+    }
+    fun requestGuideWindowAfter() {
+        if (filteredChannels.size < selectedCategoryTotalCount) {
+            pagedLoadedLimit = nextGuidePageLimit(
+                filteredChannels.size, pagedLoadedLimit, selectedCategoryTotalCount
+            )
+        }
+    }
+    fun onGuideVisibleRange(first: Int, last: Int) {
+        if (!shouldWindowGuide) {
+            if (last >= filteredChannels.size - 16 && filteredChannels.size < selectedCategoryTotalCount) {
+                requestGuideWindowAfter()
+            }
+            return
+        }
+        val start = (first - 36).coerceAtLeast(0)
+        val end = (last + 72).coerceAtMost(filteredChannels.size)
+        if (first < guideWindowStart + 12 || last + 16 >= guideWindowEnd) {
+            setGuideWindow(start to end)
+        }
+        if (last >= filteredChannels.size - 16 && filteredChannels.size < selectedCategoryTotalCount) {
+            requestGuideWindowAfter()
+        }
+    }
     val baseVisibleChannelsById = visibleEnrichedState.value.index.byId
     val visibleChannelsById = remember(baseVisibleChannelsById, filteredChannels) {
         if (filteredChannels.all { it.id in baseVisibleChannelsById }) {
@@ -1277,6 +1312,12 @@ fun LiveTvScreen(
         // path — which gets the object straight from the row — still worked.
         focusedChannelObject[0] = channel
         pendingFocusCommit[0] = channel.id to categoryScope
+        if (shouldWindowGuide) {
+            val index = filteredChannelIndexById[channel.id]
+            if (index != null && (index < guideWindowStart + 12 || index + 16 >= guideWindowEnd)) {
+                setGuideWindow(guideWindowAround(index, filteredChannels.size))
+            }
+        }
         focusCommitJob[0]?.cancel()
         focusCommitJob[0] = focusCommitScope.launch {
             // Settle window before committing focus. Each commit fans out into the
@@ -1344,35 +1385,6 @@ fun LiveTvScreen(
     val catchupInSegmentSeekMs = remember(playingChannel?.source, catchupPlaybackOffsetMs) {
         playingChannel?.source?.catchupInSegmentSeekOffset(catchupPlaybackOffsetMs) ?: 0L
     }
-    var guideWindowStart by rememberSaveable { mutableIntStateOf(0) }
-    var guideWindowEnd by rememberSaveable { mutableIntStateOf(GuideInitialWindowRows) }
-    fun setGuideWindow(window: Pair<Int, Int>) {
-        val total = filteredChannels.size
-        val start = window.first.coerceIn(0, total.coerceAtLeast(0))
-        val end = window.second.coerceIn(start, total)
-        guideWindowStart = start
-        guideWindowEnd = end
-    }
-    fun requestGuideWindowAfter() {
-        if (filteredChannels.size < selectedCategoryTotalCount) {
-            // Repeated keys share the pending page instead of canceling it and
-            // growing the request by another page on every key repeat.
-            pagedLoadedLimit = nextGuidePageLimit(
-                filteredChannels.size, pagedLoadedLimit, selectedCategoryTotalCount
-            )
-        }
-    }
-    fun onGuideVisibleRange(first: Int, last: Int) {
-        // Rendering owns a continuous list; this small window only owns EPG work.
-        val start = (first - 4).coerceAtLeast(0)
-        val end = (last + 13).coerceAtMost(filteredChannels.size)
-        if (first < guideWindowStart + 2 || last + 4 >= guideWindowEnd) {
-            setGuideWindow(start to end)
-        }
-        if (last >= filteredChannels.size - 16 && filteredChannels.size < selectedCategoryTotalCount) {
-            requestGuideWindowAfter()
-        }
-    }
     val filteredChannelsWindowKey = remember(filteredChannels) {
         listOf(
             filteredChannels.size.toString(),
@@ -1390,47 +1402,70 @@ fun LiveTvScreen(
         if (filteredChannels.isEmpty()) return@LaunchedEffect
         val nextScopeKey = "$selectedProviderId|$selectedCategoryId"
         if (guideScopeKey != nextScopeKey) {
+            guideScopeKey = nextScopeKey
             val anchorId = rememberedChannelByCategory[categoryScope]
+                ?: selectedDisplayChannelId
                 ?: focusedChannelId
                 ?: playingChannelId
                 ?: initialChannelId
             val anchorIndex = anchorId?.let(filteredChannelIndexById::get) ?: 0
-            setGuideWindow(guideWindowAround(anchorIndex, filteredChannels.size))
-            guideScopeKey = nextScopeKey
-        } else if (guideWindowStart >= filteredChannels.size) {
-            setGuideWindow(guideWindowAround(filteredChannels.lastIndex, filteredChannels.size))
-        } else if (guideWindowEnd <= guideWindowStart) {
-            val anchorIndex = focusedChannelId?.let(filteredChannelIndexById::get)
-                ?: playingChannelId?.let(filteredChannelIndexById::get)
-                ?: 0
-            setGuideWindow(guideWindowAround(anchorIndex, filteredChannels.size))
+            if (shouldWindowGuide) {
+                setGuideWindow(guideWindowAround(anchorIndex, filteredChannels.size))
+            } else {
+                setGuideWindow(0 to filteredChannels.size)
+            }
+        } else {
+            // Same category — filteredChannels updated due to paging or background update.
+            // Never reset guide window backwards to anchorIndex or row 0!
+            if (!shouldWindowGuide) {
+                setGuideWindow(0 to filteredChannels.size)
+            } else {
+                if (guideWindowStart >= filteredChannels.size) {
+                    setGuideWindow(guideWindowAround(filteredChannels.lastIndex, filteredChannels.size))
+                } else if (guideWindowEnd <= guideWindowStart) {
+                    val focusedIndex = (focusedChannelId ?: selectedDisplayChannelId)?.let(filteredChannelIndexById::get)
+                        ?: guideWindowStart
+                    setGuideWindow(guideWindowAround(focusedIndex, filteredChannels.size))
+                }
+            }
         }
     }
     LaunchedEffect(playingChannelId, selectedCategoryId, selectedProviderId) {
-        if (isGuideUserNavigating() && (focusZone == LiveTvFocusZone.CHANNEL_LIST || focusZone == LiveTvFocusZone.EPG)) {
+        if (focusZone == LiveTvFocusZone.CHANNEL_LIST || focusZone == LiveTvFocusZone.EPG) {
             return@LaunchedEffect
         }
+        if (!shouldWindowGuide) return@LaunchedEffect
         val index = playingChannelId?.let(filteredChannelIndexById::get) ?: return@LaunchedEffect
         if (index !in guideWindowStart until guideWindowEnd) {
             setGuideWindow(guideWindowAround(index, filteredChannels.size))
         }
     }
-    val normalizedGuideStart = if (filteredChannels.isNotEmpty() && guideWindowStart >= filteredChannels.size) {
+    val normalizedGuideStart = if (!shouldWindowGuide) {
+        0
+    } else if (filteredChannels.isNotEmpty() && guideWindowStart >= filteredChannels.size) {
         0
     } else {
         guideWindowStart.coerceIn(0, filteredChannels.size)
     }
-    val normalizedGuideEnd = guideWindowEnd
-        .coerceAtLeast((normalizedGuideStart + GuideInitialWindowRows).coerceAtMost(filteredChannels.size))
-        .coerceIn(normalizedGuideStart, filteredChannels.size)
-    val guideChannels = remember(filteredChannels, normalizedGuideStart, normalizedGuideEnd) {
-        val total = filteredChannels.size
-        val start = normalizedGuideStart.coerceIn(0, total)
-        val end = normalizedGuideEnd.coerceIn(start, total)
-        if (start >= end) {
-            emptyList()
+    val normalizedGuideEnd = if (!shouldWindowGuide) {
+        filteredChannels.size
+    } else {
+        guideWindowEnd
+            .coerceAtLeast((normalizedGuideStart + GuideInitialWindowRows).coerceAtMost(filteredChannels.size))
+            .coerceIn(normalizedGuideStart, filteredChannels.size)
+    }
+    val guideChannels = remember(filteredChannels, shouldWindowGuide, normalizedGuideStart, normalizedGuideEnd) {
+        if (!shouldWindowGuide) {
+            filteredChannels
         } else {
-            filteredChannels.subList(start, end).toList()
+            val total = filteredChannels.size
+            val start = normalizedGuideStart.coerceIn(0, total)
+            val end = normalizedGuideEnd.coerceIn(start, total)
+            if (start >= end) {
+                emptyList()
+            } else {
+                filteredChannels.subList(start, end).toList()
+            }
         }
     }
     val guideChannelIds = remember(guideChannels) {
@@ -1474,7 +1509,10 @@ fun LiveTvScreen(
         val indexed = withContext(Dispatchers.IO) {
             viewModel.iptvRepository.indexedGuideWindow(ids, start, end)
         }
-        indexedGuideState.value = ids to retainGuideWindows(indexedGuideState.value.second, indexed, ids)
+        val nextLoadedIds = (indexedGuideState.value.first + ids).let {
+            if (it.size > 2048) it.toList().takeLast(2048).toSet() else it
+        }
+        indexedGuideState.value = nextLoadedIds to retainGuideWindows(indexedGuideState.value.second, indexed, ids)
         System.err.println(
             "[TV-Metrics] indexed guide visible=${indexed.size}/${ids.size} " +
                 "rows=${guideChannels.size} in ${System.currentTimeMillis() - startedAt}ms"
@@ -1544,9 +1582,13 @@ fun LiveTvScreen(
         val selectedSeedChannelId = epgAnchorChannelId ?: selectedDisplayChannelId ?: focusedChannelId ?: playingChannelId
         val anchorAbsoluteIndex = selectedSeedChannelId?.let(filteredChannelIndexById::get)
             ?: normalizedGuideStart
-        val anchorWindowIndex = (anchorAbsoluteIndex - normalizedGuideStart)
-            .takeIf { it in guideChannels.indices }
-            ?: 0
+        val anchorWindowIndex = if (!shouldWindowGuide) {
+            anchorAbsoluteIndex.takeIf { it in guideChannels.indices } ?: 0
+        } else {
+            (anchorAbsoluteIndex - normalizedGuideStart)
+                .takeIf { it in guideChannels.indices }
+                ?: 0
+        }
         buildList<String> {
             fun addChannel(channel: EnrichedChannel?) {
                 val id = channel?.id ?: return
@@ -1719,8 +1761,12 @@ fun LiveTvScreen(
                 focusedChannelId = displayId
                 epgPrefetchAnchorId = displayId
                 rememberedChannelByCategory[categoryScope] = displayId
-                filteredChannelIndexById[displayId]
-                    ?.let { setGuideWindow(guideWindowAround(it, filteredChannels.size)) }
+                if (shouldWindowGuide) {
+                    filteredChannelIndexById[displayId]
+                        ?.let { setGuideWindow(guideWindowAround(it, filteredChannels.size)) }
+                } else {
+                    setGuideWindow(0 to filteredChannels.size)
+                }
                 startupChannelApplied = true
                 System.err.println("[EPG-Startup] channel=$startupChannelId focus=$displayId")
             }
@@ -2389,7 +2435,7 @@ fun LiveTvScreen(
             epgPrefetchAnchorId = it
             rememberedChannelByCategory[categoryScope] = it
             val index = filteredChannelIndexById[it]
-            if (index != null && index !in guideWindowStart until guideWindowEnd) {
+            if (shouldWindowGuide && index != null && index !in guideWindowStart until guideWindowEnd) {
                 setGuideWindow(guideWindowAround(index, filteredChannels.size))
             }
         }
@@ -2406,7 +2452,7 @@ fun LiveTvScreen(
         epgPrefetchAnchorId = channelId
         rememberedChannelByCategory[categoryScope] = channelId
         val index = filteredChannelIndexById[channelId]
-        if (index != null && index !in guideWindowStart until guideWindowEnd) {
+        if (shouldWindowGuide && index != null && index !in guideWindowStart until guideWindowEnd) {
             setGuideWindow(guideWindowAround(index, filteredChannels.size))
         }
         focusZone = LiveTvFocusZone.EPG
@@ -3866,6 +3912,8 @@ fun LiveTvScreen(
                         categoryTitle = sportsSidebarTree.byId(selectedCategoryId)?.label ?: "All Channels",
                         clockTickMillis = guideClockMillis,
                         nowNext = effectiveGuideNowNext,
+                        indexedGuideNowNext = indexedGuideNowNext,
+                        indexedGuideLoadedIds = indexedGuideLoadedIds,
                         epgLoadingChannelIds = state.epgLoadingChannelIds,
                         epgAttemptedChannelIds = state.epgAttemptedChannelIds,
                         isGuideBackfillLoading = false,
@@ -4022,6 +4070,8 @@ fun LiveTvScreen(
                         totalChannelCount = selectedCategoryTotalCount,
                         clockTickMillis = guideClockMillis,
                         nowNext = effectiveGuideNowNext,
+                        indexedGuideNowNext = indexedGuideNowNext,
+                        indexedGuideLoadedIds = indexedGuideLoadedIds,
                         epgLoadingChannelIds = state.epgLoadingChannelIds,
                         epgAttemptedChannelIds = state.epgAttemptedChannelIds,
                         isGuideBackfillLoading = false,
@@ -4587,6 +4637,13 @@ fun LiveTvScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = if (isFullScreen) 72.dp else 24.dp),
+        )
+
+        EpgWarningBanner(
+            warning = currentUiState.epgWarning,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = contentTopPadding + 12.dp),
         )
 
         if (programActionLookupInProgress) {
