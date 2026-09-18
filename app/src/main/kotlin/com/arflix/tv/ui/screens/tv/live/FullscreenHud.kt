@@ -22,8 +22,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FastForward
@@ -249,7 +255,15 @@ fun FullscreenHud(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .fillMaxWidth()
-                    .padding(horizontal = if (touchControls) 16.dp else 48.dp, vertical = 24.dp),
+                    .then(
+                        if (touchControls) {
+                            Modifier
+                                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                                .padding(horizontal = 20.dp, vertical = 12.dp)
+                        } else {
+                            Modifier.padding(horizontal = 48.dp, vertical = 24.dp)
+                        }
+                    ),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -350,22 +364,33 @@ fun FullscreenHud(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 48.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .then(
+                        if (touchControls) {
+                            Modifier
+                                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                                .padding(horizontal = 24.dp, vertical = 12.dp)
+                        } else {
+                            Modifier.padding(horizontal = 48.dp, vertical = 24.dp)
+                        }
+                    ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // --- Row 1: Channel Logo & Program Metadata ---
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (touchControls) 14.dp else 20.dp),
                 ) {
                     if (channel != null) {
-                        ChannelLogo(channel = channel, size = 68.dp)
+                        ChannelLogo(
+                            channel = channel,
+                            size = if (touchControls) 56.dp else 68.dp,
+                        )
                     }
 
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (touchControls) 2.dp else 4.dp),
                     ) {
                         // Program Title
                         Text(
@@ -374,7 +399,7 @@ fun FullscreenHud(
                                 ?: stringResource(R.string.live_empty_no_programme),
                             style = LiveType.ProgramTitle.copy(
                                 color = Color.White,
-                                fontSize = 24.sp,
+                                fontSize = if (touchControls) 20.sp else 24.sp,
                                 fontWeight = FontWeight.Bold,
                             ),
                             maxLines = 1,
@@ -384,7 +409,7 @@ fun FullscreenHud(
                         // Time window + remaining duration + channel number & name
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             val timeWin = formatTimeWindow(now)
                             if (timeWin.isNotBlank()) {
@@ -392,14 +417,14 @@ fun FullscreenHud(
                                     text = timeWin,
                                     style = LiveType.TimeMono.copy(
                                         color = Color.White.copy(alpha = 0.9f),
-                                        fontSize = 14.sp,
+                                        fontSize = if (touchControls) 12.sp else 14.sp,
                                     ),
                                 )
                                 Text(
                                     text = "—",
                                     style = LiveType.TimeMono.copy(
                                         color = Color.White.copy(alpha = 0.5f),
-                                        fontSize = 14.sp,
+                                        fontSize = if (touchControls) 12.sp else 14.sp,
                                     ),
                                 )
                             }
@@ -410,7 +435,14 @@ fun FullscreenHud(
                                     text = remaining,
                                     style = LiveType.TimeMono.copy(
                                         color = Color.White.copy(alpha = 0.75f),
-                                        fontSize = 14.sp,
+                                        fontSize = if (touchControls) 12.sp else 14.sp,
+                                    ),
+                                )
+                                Text(
+                                    text = "•",
+                                    style = LiveType.TimeMono.copy(
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = if (touchControls) 12.sp else 14.sp,
                                     ),
                                 )
                             }
@@ -421,14 +453,13 @@ fun FullscreenHud(
                                     text = if (isMobile) channel.name else "${channel.number}  ${channel.name}",
                                     style = LiveType.ChannelName.copy(
                                         color = Color.White,
-                                        fontSize = 15.sp,
+                                        fontSize = if (touchControls) 13.sp else 15.sp,
                                         fontWeight = FontWeight.SemiBold,
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f, fill = false)
                                 )
-
                             }
                         }
 
@@ -444,20 +475,20 @@ fun FullscreenHud(
                         if (next != null) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Text(
                                     text = "${formatClock(next.startUtcMillis)} — ${formatClock(next.endUtcMillis)}",
                                     style = LiveType.TimeMono.copy(
                                         color = Color.White.copy(alpha = 0.5f),
-                                        fontSize = 13.sp,
+                                        fontSize = if (touchControls) 11.sp else 13.sp,
                                     ),
                                 )
                                 Text(
                                     text = next.title,
                                     style = LiveType.CellTitle.copy(
                                         color = Color.White.copy(alpha = 0.6f),
-                                        fontSize = 13.sp,
+                                        fontSize = if (touchControls) 11.sp else 13.sp,
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -468,9 +499,6 @@ fun FullscreenHud(
                 }
 
                 // Seek bar and control buttons together are "the controls".
-                // On a remote they appear only once the user asks for them with
-                // OK, so that what surfaces on its own carries no focusable
-                // element at all and cannot look operable while it is not.
                 if (showControls) {
                     // --- Row 2: Full-Width Seek Bar with Scrubber Ball ---
                     HudSeekBar(
@@ -486,17 +514,17 @@ fun FullscreenHud(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(if (touchControls) 112.dp else 56.dp),
+                            .height(56.dp),
                     ) {
                         // Left Side: Time Text below Seek Bar
                         Box(
-                            modifier = Modifier.align(if (touchControls) Alignment.BottomStart else Alignment.CenterStart),
+                            modifier = Modifier.align(Alignment.CenterStart),
                         ) {
                             Text(
                                 text = positionText,
                                 style = LiveType.TimeMono.copy(
                                     color = Color.White.copy(alpha = 0.85f),
-                                    fontSize = 14.sp,
+                                    fontSize = if (touchControls) 13.sp else 14.sp,
                                     fontWeight = FontWeight.Medium,
                                 ),
                             )
@@ -504,8 +532,8 @@ fun FullscreenHud(
 
                         // EXACT CENTER: Playback Controls Bar
                         Row(
-                            modifier = Modifier.align(if (touchControls) Alignment.TopCenter else Alignment.Center),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalArrangement = Arrangement.spacedBy(if (touchControls) 12.dp else 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // Previous channel (|<)
@@ -522,7 +550,7 @@ fun FullscreenHud(
                                 onClick = { onRewindClick?.invoke() },
                             )
 
-                            // Central Play/Pause button (Instant local state toggle!)
+                            // Central Play/Pause button
                             HudIconButton(
                                 icon = if (localIsPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = stringResource(if (localIsPlaying) R.string.live_cd_pause else R.string.play),
@@ -551,8 +579,8 @@ fun FullscreenHud(
 
                         // Right Side: Replay, LIVE, GUIDE
                         Row(
-                            modifier = Modifier.align(if (touchControls) Alignment.BottomEnd else Alignment.CenterEnd),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                            horizontalArrangement = Arrangement.spacedBy(if (touchControls) 8.dp else 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // Replay / Restart
@@ -711,13 +739,12 @@ private fun HudIconButton(
     contentDescription: String,
     modifier: Modifier = Modifier,
     emphasis: Boolean = false,
+    size: Dp = if (emphasis) 54.dp else 42.dp,
+    iconSize: Dp = if (emphasis) 28.dp else 22.dp,
     focusRequester: FocusRequester? = null,
     onClick: () -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
-
-    val size = if (emphasis) 54.dp else 42.dp
-    val iconSize = if (emphasis) 28.dp else 22.dp
 
     val bgColor = when {
         isFocused -> Color.White
