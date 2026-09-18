@@ -3888,7 +3888,7 @@ fun LiveTvScreen(
                         onFullscreenClick = openFullScreenPlayer,
                         variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
                         onOpenVariants = playingChannel?.let { channel -> { openVariantPicker(channel) } },
-                        compact = true,
+                        compact = miniPlayerLayout != LiveTvMiniPlayerLayout.STANDARD,
                         landscapeCompact = landscapeCompactMiniPlayer,
                         playerActive = miniPlayerActive,
                         modifier = Modifier.fillMaxWidth(),
