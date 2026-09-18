@@ -356,6 +356,8 @@
 
     <!-- Extracted from code: Settings screen -->
     <string name="settings_home_server">Home Server</string>
+    <string name="library_homeserver_tab">Homeserver</string>
+    <string name="settings_trakt_rate_limited">Trakt is temporarily limiting activation requests. Please wait a few minutes and try again.</string>
     <string name="settings_app_version_label">ARVIO V%1$s</string>
     <string name="settings_label_url">URL</string>
     <string name="settings_home_server_https_note">Use HTTPS where possible. HTTP server URLs are allowed for local networks but are not encrypted.</string>

@@ -46,6 +46,8 @@ for (const [locale, own] of dictionaries) {
   if (fs.existsSync(seed)) for (const [key, value] of Object.entries(JSON.parse(fs.readFileSync(seed,'utf8')))) {
     if (!index.has(normalize(key))) { dictionary[key]=value; index.set(normalize(key),key); }
   }
+  // The Library tab uses the compact spelling of the existing Home Server label.
+  dictionary.Homeserver ??= dictionary['Home Server'];
   const data = JSON.stringify(dictionary);
   fs.writeFileSync(path.join(output, `${locale}.json`), data + '\n');
   manifest[locale] = crypto.createHash('sha256').update(data).digest('hex').slice(0, 12);

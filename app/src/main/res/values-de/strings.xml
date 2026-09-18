@@ -244,6 +244,7 @@
     <string name="player_error_imdb_resolve">IMDB-ID konnte nicht aufgelöst werden. Erneut versuchen.</string>
     <!-- Settings (de) -->
     <string name="settings_home_server">Home Server</string>
+    <string name="library_homeserver_tab">Home Server</string>
     <string name="settings_app_version_label">ARVIO V%1$s</string>
     <string name="settings_label_url">URL</string>
     <string name="settings_home_server_https_note">Verwende nach Möglichkeit HTTPS. HTTP-Server-URLs sind für lokale Netzwerke erlaubt, aber nicht verschlüsselt.</string>

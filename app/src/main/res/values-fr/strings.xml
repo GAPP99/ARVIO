@@ -293,6 +293,7 @@
 
     <!-- Extracted from code: Settings screen -->
     <string name="settings_home_server">Serveur personnel</string>
+    <string name="library_homeserver_tab">Serveur personnel</string>
     <string name="settings_app_version_label">ARVIO V%1$s</string>
     <string name="settings_label_url">URL</string>
     <string name="settings_home_server_https_note">Utilisez HTTPS quand c’est possible. Les URL de serveur HTTP sont autorisées pour les réseaux locaux mais ne sont pas chiffrées.</string>
