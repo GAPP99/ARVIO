@@ -597,6 +597,20 @@
   transition: transform .18s ease;
 }
 .nav-donate:hover::before { transform: translateY(-50%) scale(1.15); }
+
+/* ARVIO 2.0 captures: device-specific framing, full images, native keyboard controls. */
+.capture-intro{color:var(--ink-2);font-size:17px;line-height:1.6;margin:0 0 28px;max-width:780px}
+.capture-group{border-top:1px solid var(--line-soft);padding:0 0 12px}
+.capture-group summary{cursor:pointer;font-size:22px;font-weight:600;padding:22px 4px;display:list-item;list-style-position:inside}
+.capture-count{float:right;font:13px var(--mono);color:var(--ink-3);padding:7px 0}
+.capture-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px;margin:4px 0 26px}
+.capture{margin:0;min-width:0}.capture a{display:block;border-radius:12px;overflow:hidden;border:1px solid var(--line-soft);background:#000}
+.capture img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:contain}
+.capture figcaption{font-size:15px;color:var(--ink-2);padding:12px 2px}
+.capture-phones{grid-template-columns:repeat(3,minmax(0,1fr));max-width:960px;margin-inline:auto}
+.capture-phones img{aspect-ratio:9/20}.capture-note{font-size:13px;line-height:1.6;color:var(--ink-3);margin:4px 0 22px}
+.capture a:focus-visible,.capture-group summary:focus-visible{outline:3px solid var(--accent);outline-offset:5px}
+@media(max-width:680px){.capture-grid{grid-template-columns:1fr;gap:16px}.capture-phones{grid-template-columns:repeat(2,minmax(0,1fr))}.capture-group summary{font-size:20px}}
 </style>
 <style>
   :root, [data-theme="dark"] {
@@ -2532,16 +2546,16 @@
         <div class="cinematic-showcase">
           <div class="carousel-track">
             <div class="card-wrapper" style="--a: 0deg;">
-              <div class="movie-card"><img src="/assets/a8d8836c-0b29-4232-a545-5c112c26ebbb.webp" alt="Tela inicial do ARVIO na Android TV" loading="eager" decoding="async"><span class="card-cap">Início</span></div>
+              <div class="movie-card"><img src="/assets/screenshots-v2/tv/01-home.webp" alt="Tela inicial do ARVIO na Android TV" loading="eager" decoding="async"><span class="card-cap">Início</span></div>
             </div>
             <div class="card-wrapper" style="--a: 72deg;">
-              <div class="movie-card"><img src="/assets/cb602938-0a58-4480-8f8a-f21fac260e1d.webp" alt="TV ao vivo do ARVIO" loading="lazy" decoding="async"><span class="card-cap">TV ao vivo</span></div>
+              <div class="movie-card"><img src="/assets/screenshots-v2/tv/05-tv.webp" alt="TV ao vivo do ARVIO" loading="lazy" decoding="async"><span class="card-cap">TV ao vivo</span></div>
             </div>
             <div class="card-wrapper" style="--a: 144deg;">
-              <div class="movie-card"><img src="/assets/58a51fcb-b75b-4891-82f3-f797e12afdc1.webp" alt="Detalhes de título no ARVIO" loading="lazy" decoding="async"><span class="card-cap">Detalhes</span></div>
+              <div class="movie-card"><img src="/assets/screenshots-v2/tv/02-details.webp" alt="Detalhes de título no ARVIO" loading="lazy" decoding="async"><span class="card-cap">Detalhes</span></div>
             </div>
             <div class="card-wrapper" style="--a: 216deg;">
-              <div class="movie-card"><img src="/assets/a1703ba5-e81a-44fc-a257-52f24cc895f4.webp" alt="Coleções do ARVIO" loading="lazy" decoding="async"><span class="card-cap">Coleções</span></div>
+              <div class="movie-card"><img src="/assets/screenshots-v2/tablet/07-services.webp" alt="Coleções do ARVIO" loading="lazy" decoding="async"><span class="card-cap">Coleções</span></div>
             </div>
             <div class="card-wrapper" style="--a: 288deg;">
               <div class="movie-card"><img src="/assets/a9f9dd6c-4a0c-4ff5-b6d8-4cb8890875f6.webp" alt="Player 4K HDR do ARVIO" loading="lazy" decoding="async"><span class="card-cap">Player · 4K</span></div>
@@ -2610,8 +2624,8 @@
         <span>Mais de 10.000 usuários</span><span>Mais de 10 colaboradores</span><span>Código aberto</span>
       </div>
     </div>
-    <a class="premium-preview reveal" data-delay="1" href="/go/premium/preview" aria-label="Testar ARVIO Premium no Windows, Mac, iPhone ou iPad">
-      <img src="/assets/web-home.webp" alt="Interface ARVIO Premium disponível no Windows, Mac, iPhone e iPad" loading="eager" decoding="async">
+    <a class="premium-preview reveal" data-delay="1" href="/premium/" aria-label="Explore as capturas e os recursos do ARVIO Premium">
+      <img src="/assets/screenshots-v2/web/01-home.webp" alt="Interface ARVIO Premium disponível no Windows, Mac, iPhone e iPad" loading="eager" decoding="async">
       <span class="premium-preview-label">Interface real do ARVIO Web</span>
     </a>
   </div>
@@ -2621,7 +2635,7 @@
 <section class="showcase">
   <div class="wrap">
     <div class="tv-frame reveal">
-      <img src="/assets/a8d8836c-0b29-4232-a545-5c112c26ebbb.webp" alt="Tela inicial do ARVIO na Android TV" style="width:100%;height:100%;object-fit:cover;display:block" loading="eager" fetchpriority="high" decoding="async">
+      <img src="/assets/screenshots-v2/tv/01-home.webp" alt="Tela inicial do ARVIO na Android TV" style="width:100%;height:100%;object-fit:cover;display:block" loading="eager" fetchpriority="high" decoding="async">
       <span class="placeholder-label">// TV · Home</span>
     </div>
 
@@ -2652,7 +2666,7 @@
           <h3 class="feature-title">Seu serviço de TV ao vivo, organizado.</h3>
           <p class="feature-desc">Conecte um provedor M3U ou Xtream autorizado, preserve a ordem do provedor, gerencie grupos e favoritos, consulte os dados do EPG e use catch-up quando houver suporte.</p>
         </div>
-        <div class="feature-visual vis-shot zoom-live" style="background-image:url(&quot;/assets/cb602938-0a58-4480-8f8a-f21fac260e1d.webp&quot;)">
+        <div class="feature-visual vis-shot zoom-live" style="background-image:url(&quot;/assets/screenshots-v2/tv/05-tv.webp&quot;)">
           <span class="tag">EPG / Favoritos / Miniplayer</span>
         </div>
       </article>
@@ -2731,7 +2745,7 @@
           <h3 class="feature-title">Trakt e Simkl que acompanham você.</h3>
           <p class="feature-desc">Escolha qualquer rastreador para listas, histórico, progresso, Continuar assistindo e scrobbling, ou mantenha os dois serviços alinhados entre dispositivos.</p>
         </div>
-        <div class="feature-visual vis-shot zoom-details" style="background-image:url(&quot;/assets/58a51fcb-b75b-4891-82f3-f797e12afdc1.webp&quot;)">
+        <div class="feature-visual vis-shot zoom-details" style="background-image:url(&quot;/assets/screenshots-v2/tv/02-details.webp&quot;)">
           <span class="tag">Trakt / Simkl / Scrobble</span>
         </div>
       </article>
@@ -2745,7 +2759,7 @@
           <h3 class="feature-title">Fileiras de descoberta, prontas para organizar.</h3>
           <p class="feature-desc">Explore coleções de metadados de serviços e gêneros populares e conecte separadamente seu serviço ou servidor autorizado para reprodução.</p>
         </div>
-        <div class="feature-visual vis-shot zoom-live" style="background-image:url(&quot;/assets/a1703ba5-e81a-44fc-a257-52f24cc895f4.webp&quot;);background-position:center">
+        <div class="feature-visual vis-shot zoom-live" style="background-image:url(&quot;/assets/screenshots-v2/tablet/07-services.webp&quot;);background-position:center">
           <span class="tag">Mais de 10 serviços / Gêneros / Foco rápido</span>
         </div>
       </article>
@@ -2953,34 +2967,11 @@
 </section>
 
 <!-- SCREENSHOTS -->
-<section class="section" id="screens">
-  <div class="wrap">
-    <div class="section-head reveal">
-      <div class="section-num">04 / Telas</div>
-      <h2 class="section-title">Criado para <span class="accent">3 metros</span> — e para 6 polegadas.</h2>
-    </div>
-
-    <div class="shots-rail">
-      <div class="shot reveal"><img src="/assets/a8d8836c-0b29-4232-a545-5c112c26ebbb.webp" alt="TV Home" loading="lazy" decoding="async"><span class="shot-num">01</span><span class="shot-label">TV · Home</span></div>
-      <div class="shot reveal" data-delay="1"><img src="/assets/58a51fcb-b75b-4891-82f3-f797e12afdc1.webp" alt="TV Details" loading="lazy" decoding="async"><span class="shot-num">02</span><span class="shot-label">TV · Detalhes</span></div>
-      <div class="shot reveal" data-delay="2"><img src="/assets/cb602938-0a58-4480-8f8a-f21fac260e1d.webp" alt="TV Live" loading="lazy" decoding="async"><span class="shot-num">03</span><span class="shot-label">TV · TV ao vivo</span></div>
-      <div class="shot reveal" data-delay="3"><img src="/assets/0db5f9ea-38ef-43d3-b57c-99c6ff9e7436.webp" alt="TV Catalogs" loading="lazy" decoding="async"><span class="shot-num">04</span><span class="shot-label">TV · Catálogos</span></div>
-    </div>
-
-    <div class="shots-rail" style="margin-top:18px">
-      <div class="shot reveal" style="grid-column: span 2"><img src="/assets/a1703ba5-e81a-44fc-a257-52f24cc895f4.webp" alt="Collections" loading="lazy" decoding="async"><span class="shot-num">05</span><span class="shot-label">Coleções integradas</span></div>
-      <div class="shot reveal" data-delay="1" style="grid-column: span 2"><img src="/assets/a9f9dd6c-4a0c-4ff5-b6d8-4cb8890875f6.webp" alt="Player" loading="lazy" decoding="async"><span class="shot-num">06</span><span class="shot-label">Player · 4K HDR</span></div>
-    </div>
-
-    <div class="shots-mobile" style="grid-template-columns: repeat(3, 1fr); max-width: 720px; margin-left: auto; margin-right: auto">
-      <div class="shot-mobile reveal"><img src="/assets/283eb09c-734a-497d-82db-c6a56ba3b332.webp" alt="Mobile Home" loading="lazy" decoding="async"><span class="shot-num">07</span><span class="shot-label">Celular · Início</span></div>
-      <div class="shot-mobile reveal" data-delay="1"><img src="/assets/65a39902-0c4f-4b55-b53e-f0d414404dca.webp" alt="Profiles" loading="lazy" decoding="async"><span class="shot-num">08</span><span class="shot-label">Profiles</span></div>
-      <div class="shot-mobile reveal" data-delay="2"><div class="img-slot" style="background:linear-gradient(135deg, var(--accent-soft), transparent), var(--bg-2); display:grid; place-items:center; text-align:center; padding:20px"><div><div style="font-size:10px;color:var(--ink-3);letter-spacing:.08em;margin-bottom:8px">MORE</div><div style="font-size:13px;color:var(--ink);line-height:1.3">Também no seu celular</div></div></div></div>
-    </div>
-
-    <p class="reveal" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.1em;margin-top:32px;text-transform:uppercase;font-weight:500">// Capturado na Android TV e Pixel — interface real do ARVIO</p>
-  </div>
-</section>
+<section class="section" id="screens"><div class="wrap">
+<div class="section-head reveal"><div class="section-num">04 / Telas</div><h2 class="section-title">ARVIO 2.0. <span class="accent">Na sua tela.</span></h2></div>
+<p class="capture-intro">Explore o aplicativo real na TV, no celular, no tablet e na web. Abra uma captura para vê-la por inteiro.</p>
+<details class="capture-group" open><summary>TV<span class="capture-count">6</span></summary><div class="capture-grid "><figure class="capture"><a href="/assets/screenshots-v2/tv/01-home.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tv/01-home.webp" alt="ARVIO 2.0 · TV · Início" loading="lazy" decoding="async"></a><figcaption>Início</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tv/02-details.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tv/02-details.webp" alt="ARVIO 2.0 · TV · Detalhes" loading="lazy" decoding="async"></a><figcaption>Detalhes</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tv/03-library.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tv/03-library.webp" alt="ARVIO 2.0 · TV · Biblioteca" loading="lazy" decoding="async"></a><figcaption>Biblioteca</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tv/04-homeserver.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tv/04-homeserver.webp" alt="ARVIO 2.0 · TV · Servidor doméstico" loading="lazy" decoding="async"></a><figcaption>Servidor doméstico</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tv/05-tv.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tv/05-tv.webp" alt="ARVIO 2.0 · TV · TV ao vivo" loading="lazy" decoding="async"></a><figcaption>TV ao vivo</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tv/06-sports.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tv/06-sports.webp" alt="ARVIO 2.0 · TV · Esportes" loading="lazy" decoding="async"></a><figcaption>Esportes</figcaption></figure></div></details><details class="capture-group" ><summary>Celular<span class="capture-count">6</span></summary><p class="capture-note">Configuração de demonstração · Celular e tablet usam bibliotecas e canais de demonstração; conteúdo e assinaturas não estão incluídos.</p><div class="capture-grid capture-phones"><figure class="capture"><a href="/assets/screenshots-v2/phone/01-home.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/phone/01-home.webp" alt="ARVIO 2.0 · Celular · Início" loading="lazy" decoding="async"></a><figcaption>Início</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/phone/02-details.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/phone/02-details.webp" alt="ARVIO 2.0 · Celular · Detalhes" loading="lazy" decoding="async"></a><figcaption>Detalhes</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/phone/03-library.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/phone/03-library.webp" alt="ARVIO 2.0 · Celular · Biblioteca" loading="lazy" decoding="async"></a><figcaption>Biblioteca</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/phone/04-homeserver.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/phone/04-homeserver.webp" alt="ARVIO 2.0 · Celular · Servidor doméstico" loading="lazy" decoding="async"></a><figcaption>Servidor doméstico</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/phone/05-tv.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/phone/05-tv.webp" alt="ARVIO 2.0 · Celular · TV ao vivo" loading="lazy" decoding="async"></a><figcaption>TV ao vivo</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/phone/06-sports.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/phone/06-sports.webp" alt="ARVIO 2.0 · Celular · Esportes" loading="lazy" decoding="async"></a><figcaption>Esportes</figcaption></figure></div></details><details class="capture-group" ><summary>Tablet<span class="capture-count">7</span></summary><p class="capture-note">Configuração de demonstração · Celular e tablet usam bibliotecas e canais de demonstração; conteúdo e assinaturas não estão incluídos.</p><div class="capture-grid "><figure class="capture"><a href="/assets/screenshots-v2/tablet/01-home.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tablet/01-home.webp" alt="ARVIO 2.0 · Tablet · Início" loading="lazy" decoding="async"></a><figcaption>Início</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tablet/02-details.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tablet/02-details.webp" alt="ARVIO 2.0 · Tablet · Detalhes" loading="lazy" decoding="async"></a><figcaption>Detalhes</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tablet/03-library.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tablet/03-library.webp" alt="ARVIO 2.0 · Tablet · Biblioteca" loading="lazy" decoding="async"></a><figcaption>Biblioteca</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tablet/04-homeserver.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tablet/04-homeserver.webp" alt="ARVIO 2.0 · Tablet · Servidor doméstico" loading="lazy" decoding="async"></a><figcaption>Servidor doméstico</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tablet/05-tv.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tablet/05-tv.webp" alt="ARVIO 2.0 · Tablet · TV ao vivo" loading="lazy" decoding="async"></a><figcaption>TV ao vivo</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tablet/06-sports.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tablet/06-sports.webp" alt="ARVIO 2.0 · Tablet · Esportes" loading="lazy" decoding="async"></a><figcaption>Esportes</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/tablet/07-services.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/tablet/07-services.webp" alt="ARVIO 2.0 · Tablet · Coleções" loading="lazy" decoding="async"></a><figcaption>Coleções</figcaption></figure></div></details><details class="capture-group" ><summary>Web<span class="capture-count">13</span></summary><div class="capture-grid "><figure class="capture"><a href="/assets/screenshots-v2/web/01-home.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/01-home.webp" alt="ARVIO 2.0 · Web · Início" loading="lazy" decoding="async"></a><figcaption>Início</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/02-details.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/02-details.webp" alt="ARVIO 2.0 · Web · Detalhes" loading="lazy" decoding="async"></a><figcaption>Detalhes</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/03-library.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/03-library.webp" alt="ARVIO 2.0 · Web · Biblioteca" loading="lazy" decoding="async"></a><figcaption>Biblioteca</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/04-homeserver.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/04-homeserver.webp" alt="ARVIO 2.0 · Web · Servidor doméstico" loading="lazy" decoding="async"></a><figcaption>Servidor doméstico</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/05-tv.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/05-tv.webp" alt="ARVIO 2.0 · Web · TV ao vivo" loading="lazy" decoding="async"></a><figcaption>TV ao vivo</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/06-sports.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/06-sports.webp" alt="ARVIO 2.0 · Web · Esportes" loading="lazy" decoding="async"></a><figcaption>Esportes</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/07-services.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/07-services.webp" alt="ARVIO 2.0 · Web · Coleções" loading="lazy" decoding="async"></a><figcaption>Coleções</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/08-apple-prime.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/08-apple-prime.webp" alt="ARVIO 2.0 · Web · Apple TV+ · Prime Video" loading="lazy" decoding="async"></a><figcaption>Apple TV+ · Prime Video</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/09-hbo-hulu.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/09-hbo-hulu.webp" alt="ARVIO 2.0 · Web · HBO Max · Hulu" loading="lazy" decoding="async"></a><figcaption>HBO Max · Hulu</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/10-paramount-peacock.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/10-paramount-peacock.webp" alt="ARVIO 2.0 · Web · Paramount+ · Peacock" loading="lazy" decoding="async"></a><figcaption>Paramount+ · Peacock</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/11-starz-shudder.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/11-starz-shudder.webp" alt="ARVIO 2.0 · Web · Starz · Shudder" loading="lazy" decoding="async"></a><figcaption>Starz · Shudder</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/12-mgm-discovery.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/12-mgm-discovery.webp" alt="ARVIO 2.0 · Web · MGM+ · Discovery+" loading="lazy" decoding="async"></a><figcaption>MGM+ · Discovery+</figcaption></figure><figure class="capture"><a href="/assets/screenshots-v2/web/13-crunchyroll.webp" target="_blank" rel="noopener"><img src="/assets/screenshots-v2/web/13-crunchyroll.webp" alt="ARVIO 2.0 · Web · Crunchyroll" loading="lazy" decoding="async"></a><figcaption>Crunchyroll</figcaption></figure></div></details><p class="capture-note">As capturas mostram fontes conectadas e exemplos de configuração. O ARVIO não inclui conteúdo nem assinaturas.</p>
+</div></section>
 
 <!-- DEVICES -->
 <section class="section" id="devices">
@@ -3059,10 +3050,10 @@
     </div>
 
     <div class="shots-rail" style="margin-top:32px">
-      <div class="shot reveal"><img src="/assets/web-home.webp" alt="ARVIO Web home on iPad" loading="lazy" decoding="async"><span class="shot-num">01</span><span class="shot-label">Web · Home</span></div>
-      <div class="shot reveal" data-delay="1"><img src="/assets/web-livetv.webp" alt="ARVIO Web live TV guide on iPad" loading="lazy" decoding="async"><span class="shot-num">02</span><span class="shot-label">Web · TV ao vivo</span></div>
-      <div class="shot reveal" data-delay="2"><img src="/assets/web-catalogs.webp" alt="ARVIO Web media catalogs on iPad" loading="lazy" decoding="async"><span class="shot-num">03</span><span class="shot-label">Web · Catálogos</span></div>
-      <div class="shot reveal" data-delay="3"><img src="/assets/web-details.webp" alt="ARVIO Web series details on iPad" loading="lazy" decoding="async"><span class="shot-num">04</span><span class="shot-label">Web · Detalhes</span></div>
+      <div class="shot reveal"><img src="/assets/screenshots-v2/web/01-home.webp" alt="Início do ARVIO Web em um navegador de computador" loading="lazy" decoding="async"><span class="shot-num">01</span><span class="shot-label">Web · Home</span></div>
+      <div class="shot reveal" data-delay="1"><img src="/assets/screenshots-v2/web/05-tv.webp" alt="Guia de TV ao vivo do ARVIO Web em um navegador de computador" loading="lazy" decoding="async"><span class="shot-num">02</span><span class="shot-label">Web · TV ao vivo</span></div>
+      <div class="shot reveal" data-delay="2"><img src="/assets/screenshots-v2/web/07-services.webp" alt="Coleções do ARVIO Web em um navegador de computador" loading="lazy" decoding="async"><span class="shot-num">03</span><span class="shot-label">Web · Catálogos</span></div>
+      <div class="shot reveal" data-delay="3"><img src="/assets/screenshots-v2/web/02-details.webp" alt="Detalhes de títulos no ARVIO Web em um navegador de computador" loading="lazy" decoding="async"><span class="shot-num">04</span><span class="shot-label">Web · Detalhes</span></div>
     </div>
     <p class="reveal" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.1em;margin-top:18px;text-transform:uppercase;font-weight:500">// Capturado no iPad — interface real do ARVIO Web</p>
 
@@ -3387,6 +3378,7 @@
         <h4>Jurídico</h4>
         <a href="https://github.com/ProdigyV21/ARVIO/blob/main/LICENSE">Licença</a>
         <a href="/privacy">Privacidade</a>
+        <a href="/credits/">Credits &amp; copyright</a>
         <a href="#content-policy">Política de conteúdo</a>
         <a href="https://github.com/ProdigyV21/ARVIO/tree/main/LICENSES">Terceiros</a>
       </div>

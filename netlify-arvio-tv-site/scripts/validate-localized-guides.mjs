@@ -49,7 +49,8 @@ for (const file of pages) {
   for (const href of links) {
     if (href.startsWith("/assets/") || href.endsWith(".css") || href.startsWith("/go/") || href === "/privacy") continue;
     const cleanRoute = href.split(/[?#]/u)[0];
-    if (!knownRoutes.has(cleanRoute)) errors.push(`${route}: internal link does not resolve locally (${href})`);
+    const localIndex = path.join(siteRoot, cleanRoute.replace(/^\//u, ""), "index.html");
+    if (!knownRoutes.has(cleanRoute) && !fs.existsSync(localIndex)) errors.push(`${route}: internal link does not resolve locally (${href})`);
   }
 }
 
