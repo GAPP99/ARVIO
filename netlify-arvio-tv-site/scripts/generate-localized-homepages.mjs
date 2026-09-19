@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const siteRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = fs.readFileSync(path.join(siteRoot, "index.html"), "utf8");
+const newCopy = JSON.parse(fs.readFileSync(path.join(siteRoot, "scripts/homepage-copy-v2.json"), "utf8"));
 
 const locales = {
   pt: {
@@ -377,7 +378,7 @@ function replaceTextNodes(html, translations) {
   });
 
   html = html.replace(/>([^<>]+)</gu, (match, text) => {
-    const value = text.replace(/\s+/gu, " ").trim();
+    const value = text.replace(/\s+/gu, " ").trim().replaceAll("&amp;", "&");
     const translated = translations.get(value);
     if (!translated) return match;
     const start = text.match(/^\s*/u)?.[0] ?? "";
@@ -391,8 +392,8 @@ function replaceTextNodes(html, translations) {
 function render(localeKey) {
   const locale = locales[localeKey];
   const valueIndex = localeKey === "pt" ? 1 : 2;
-  const translations = new Map(copy.map((entry) => [entry[0], entry[valueIndex]]));
-  const attributeTranslations = new Map(attributes.map((entry) => [entry[0], entry[valueIndex]]));
+  const translations = new Map([...copy, ...newCopy].map((entry) => [entry[0], entry[valueIndex]]));
+  const attributeTranslations = new Map([...attributes, ...newCopy].map((entry) => [entry[0], entry[valueIndex]]));
   let html = replaceTextNodes(source, translations);
 
   html = html.replace('<html lang="en">', `<html lang="${locale.lang}">`);
@@ -420,6 +421,9 @@ function render(localeKey) {
   html = html.replace(/alt="ARVIO 2\.0 · ([^"]+)"/gu, (_, label) =>
     `alt="ARVIO 2.0 · ${label.split(' · ').map(part => translations.get(part) ?? part).join(' · ')}"`);
 
+  const clientCopy = JSON.stringify(Object.fromEntries(translations)).replaceAll("<", "\\u003c");
+  html = html.replace(/(<script type="application\/json" id="home-copy">)[\s\S]*?(<\/script>)/u, (_, start, end) => start + clientCopy + end);
+  html = html.replaceAll('href="/premium/"', `href="/premium/?lang=${locale.lang === "es" ? "es-ES" : locale.lang}"`);
   return html.replace(/[ \t]+$/gmu, "");
 }
 
