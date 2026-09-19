@@ -29,6 +29,13 @@ internal fun shouldWaitForSportsGuide(
     largePlaylist: Boolean,
 ): Boolean = largePlaylist && indexedGuideChannelCount == 0 && inMemoryGuideChannelCount == 0
 
+internal fun shouldShowSportsLoading(
+    hasVisibleEvents: Boolean,
+    workLoading: Boolean,
+    hasCompletedScan: Boolean,
+    scanFailed: Boolean,
+): Boolean = !hasVisibleEvents && (workLoading || (!hasCompletedScan && !scanFailed))
+
 /** Schedule facts, not stream probes. Channel identities remain provider-specific. */
 @Immutable
 internal data class SportsGuideEvent(

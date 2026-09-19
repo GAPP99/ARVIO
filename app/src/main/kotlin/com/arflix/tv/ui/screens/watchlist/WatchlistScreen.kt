@@ -220,7 +220,7 @@ fun WatchlistScreen(
                         if(lists.isEmpty()) OledMessage(tr("No lists yet"), tr("Your custom catalogs and personal lists appear here."))
                         LazyVerticalGrid(GridCells.Fixed(columns), state = grid, modifier = Modifier.fillMaxSize(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp + LocalBottomBarInset.current)) {
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp + LocalBottomBarInset.current)) {
                             items(lists, key = { it.id }) { source ->
                                 var cover by remember(source) { mutableStateOf<String?>((source as? WatchlistSourceItem.Catalog)?.config?.collectionCoverImageUrl) }
                                 LaunchedEffect(source) { cover = viewModel.collectionCover(source) }
@@ -236,7 +236,7 @@ fun WatchlistScreen(
                         }
                     } else LazyVerticalGrid(GridCells.Fixed(columns), state = grid, modifier = Modifier.fillMaxSize().testTag("library-grid"),
                         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp + LocalBottomBarInset.current)) {
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp + LocalBottomBarInset.current)) {
                         itemsIndexed(items, key = { index, item -> watchlistItemKey(item, index) }) { index, item ->
                             val reveal = remember { BringIntoViewRequester() }
                             LaunchedEffect(watchlistLogoKey(item), poster) { if(!poster) viewModel.ensureLogo(item) }

@@ -107,10 +107,16 @@ internal fun SportsGuidePane(
     var artworkRetry by remember { mutableIntStateOf(0) }
     var failedArtwork by remember(artworkRetry) { mutableStateOf(emptySet<String>()) }
     var presentationRows by remember { mutableStateOf(emptyList<SportsGuideRow>()) }
+    var presentationLoading by remember { mutableStateOf(true) }
     LaunchedEffect(events, now) {
-        presentationRows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            // An image failure must not remove/reparent the focused lazy item.
-            sportsPresentationRows(events, now, emptySet())
+        presentationLoading = true
+        try {
+            presentationRows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                // An image failure must not remove/reparent the focused lazy item.
+                sportsPresentationRows(events, now, emptySet())
+            }
+        } finally {
+            presentationLoading = false
         }
     }
     val rows = remember(presentationRows) {
@@ -290,21 +296,40 @@ internal fun SportsGuidePane(
                 }
             }
         }
+        val isProcessing = loading || presentationLoading
         if (rows.isEmpty()) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                if (loading) CircularProgressIndicator(color = LiveColors.Accent, modifier = Modifier.size(24.dp))
-                else Icon(Icons.Default.SportsSoccer, null, tint = LiveColors.FgDim, modifier = Modifier.size(32.dp))
-                Text(if (loading) stringResource(R.string.live_sports_reading_schedule) else if (failed) stringResource(R.string.live_sports_schedule_unavailable)
-                    else if (events.any { it.hasChannels(now) && (it.isOnAir(now) || it.programme.startUtcMillis > now) }) stringResource(R.string.live_sports_artwork_unavailable)
-                    else stringResource(R.string.live_sports_no_events_matched),
-                    color = LiveColors.FgDim, modifier = Modifier.padding(14.dp))
-                if (!loading) Text(stringResource(R.string.retry), color = LiveColors.Fg,
-                    modifier = Modifier.clickable { artworkRetry++; onRetry() }.padding(16.dp))
-                Text(stringResource(R.string.live_groups_title), color = LiveColors.Fg, modifier = Modifier.focusRequester(firstFocus)
-                    .clickable(onClick = onOpenCategories).padding(16.dp))
+                if (isProcessing) {
+                    CircularProgressIndicator(color = LiveColors.Accent, modifier = Modifier.size(28.dp))
+                    Text(
+                        text = stringResource(R.string.live_sports_reading_schedule),
+                        color = LiveColors.FgDim,
+                        modifier = Modifier.padding(14.dp),
+                    )
+                } else {
+                    Icon(Icons.Default.SportsSoccer, null, tint = LiveColors.FgDim, modifier = Modifier.size(36.dp))
+                    Text(
+                        text = if (failed) stringResource(R.string.live_sports_schedule_unavailable)
+                        else if (events.any { it.hasChannels(now) && (it.isOnAir(now) || it.programme.startUtcMillis > now) }) stringResource(R.string.live_sports_artwork_unavailable)
+                        else stringResource(R.string.live_sports_no_events_matched),
+                        color = LiveColors.FgDim,
+                        modifier = Modifier.padding(14.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.retry),
+                        color = LiveColors.Fg,
+                        modifier = Modifier.clickable { artworkRetry++; onRetry() }.padding(16.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.live_groups_title),
+                        color = LiveColors.Fg,
+                        modifier = Modifier.focusRequester(firstFocus)
+                            .clickable(onClick = onOpenCategories).padding(16.dp),
+                    )
+                }
             }
-        } else LazyColumn(Modifier.fillMaxSize().testTag("sports-guide-list"), state = listState, contentPadding = PaddingValues(bottom = 24.dp),
+        } else LazyColumn(Modifier.fillMaxSize().testTag("sports-guide-list"), state = listState, contentPadding = PaddingValues(bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val rowKeys = disambiguatedLazyKeys(rows) { it.id }
             itemsIndexed(rows, key = { index, _ -> rowKeys[index] }) { rowIndex, row ->

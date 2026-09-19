@@ -775,8 +775,8 @@
     <string name="live_label_search_channels">Kanäle suchen</string>
     <string name="live_cat_favorites">Favoriten</string>
     <string name="live_cat_recently_watched">Zuletzt angesehen</string>
-    <string name="live_groups_title">Gruppen</string>
-    <string name="live_group_back">Gruppen</string>
+    <string name="live_groups_title">Playlists</string>
+    <string name="live_group_back">Playlists</string>
     <string name="live_quick_all_channels">Alle Kanäle</string>
     <string name="live_quick_favourites">Favoriten</string>
     <string name="live_quick_recent">Zuletzt angesehen</string>
@@ -1538,6 +1538,7 @@
     <string name="profile_updated">Profil aktualisiert</string>
     <string name="profile_deleted">Profil gelöscht</string>
     <string name="profile_pin_set_success">Profil-PIN erfolgreich festgelegt</string>
+    <string name="profile_pin_removed_success">Profil-PIN entfernt</string>
     <string name="tv_failed_load_iptv">IPTV konnte nicht geladen werden</string>
     <string name="tv_link_failed_start">TV-Authentifizierung konnte nicht gestartet werden</string>
     <string name="tv_link_failed_poll">Status der TV-Authentifizierung konnte nicht abgefragt werden</string>

@@ -1448,6 +1448,7 @@
     <string name="profile_updated">Perfil actualizado</string>
     <string name="profile_deleted">Perfil eliminado</string>
     <string name="profile_pin_set_success">PIN de perfil establecido con éxito</string>
+    <string name="profile_pin_removed_success">PIN de perfil eliminado</string>
     <string name="tv_failed_load_iptv">Error al cargar IPTV</string>
     <string name="tv_link_failed_start">Error al iniciar la autorización de TV</string>
     <string name="tv_link_failed_poll">Error al consultar el estado de la autorización de TV</string>
