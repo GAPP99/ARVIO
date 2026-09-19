@@ -35,7 +35,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
@@ -140,6 +142,7 @@ import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.components.topBarSelectedIndex
 import com.arflix.tv.ui.focus.mirrorHorizontalForRtl
+import com.arflix.tv.util.DeviceType
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.PinUtil
 import kotlinx.coroutines.CoroutineScope
@@ -184,7 +187,7 @@ private const val GuideInitialWindowRows = 128
 private const val GuideMaxWindowRows = 160
 private const val CategoryFullGuideThreshold = 350
 private const val ChannelInitialLoadedRows = 144
-private const val GuidePagedLoadStepRows = 192
+private const val GuidePagedLoadStepRows = 300
 private const val GuideVisibleFirstRows = 28
 private const val GuideVisibleFirstRowsAllChannels = 18
 private const val CatchupSeekStepMs = 30_000L
@@ -1121,7 +1124,17 @@ fun LiveTvScreen(
         lastKnownPlaylistGroupCounts,
     ) {
         val tree = visibleEnrichedState.value.tree
-        val categoryCount = tree.countForCategory(selectedCategoryId) ?: 0
+        val categoryCount = when (selectedCategoryId) {
+            "all" -> {
+                val provCount = if (selectedProviderId != "all") {
+                    providerFilters.firstOrNull { it.id == selectedProviderId || it.id == selectedProviderId.removePrefix("source:") }?.count
+                } else null
+                provCount ?: lastKnownPagedTotal.takeIf { it > 0 }
+                    ?: tree.countForCategory("all")
+                    ?: 0
+            }
+            else -> tree.countForCategory(selectedCategoryId) ?: 0
+        }
         if (selectedCategoryId == "fav" || selectedCategoryId == "recent") {
             filteredChannelsCategoryKey = selectedCategoryId
             filteredChannelsScopeKey = categoryScope
@@ -1135,10 +1148,24 @@ fun LiveTvScreen(
                 recents = recents.value,
             )
         }
-        val expectedWindowSize = minOf(categoryCount, pagedLoadedLimit).coerceAtLeast(0)
-        val needsPagedWindow = lastKnownPagedTotal > 10_000 &&
+        val targetPageLimit = if (categoryCount > ChannelInitialLoadedRows && isTouchDevice) {
+            maxOf(pagedLoadedLimit, 300)
+        } else {
+            pagedLoadedLimit
+        }
+        val expectedWindowSize = if (selectedCategoryId == "all" && (categoryCount <= 10_000 && lastKnownPagedTotal <= 10_000)) {
+            categoryCount
+        } else {
+            minOf(categoryCount, targetPageLimit).coerceAtLeast(0)
+        }
+        val effectivePageLimit = if (selectedCategoryId == "all" && (categoryCount <= 10_000 && lastKnownPagedTotal <= 10_000)) {
+            categoryCount
+        } else {
+            targetPageLimit
+        }
+        val needsPagedWindow = (lastKnownPagedTotal > 0 || state.snapshot.channels.isNotEmpty()) &&
             categoryCount > 0 &&
-            result.size < expectedWindowSize &&
+            (result.size < expectedWindowSize || (result.size <= ChannelInitialLoadedRows && categoryCount > ChannelInitialLoadedRows)) &&
             (selectedCategoryId == "all" ||
                 selectedCategoryId == "fav" ||
                 selectedCategoryId == "recent" ||
@@ -1152,7 +1179,7 @@ fun LiveTvScreen(
                 loadPagedChannelWindow(
                     repository = viewModel.iptvRepository,
                     categoryId = selectedCategoryId,
-                    pageLimit = pagedLoadedLimit,
+                    pageLimit = effectivePageLimit,
                     pagedTotal = lastKnownPagedTotal,
                     groupCounts = lastKnownPlaylistGroupCounts,
                     tree = tree,
@@ -1258,11 +1285,28 @@ fun LiveTvScreen(
     }
     val filteredChannels = if (displayedChannelsScopeKey == categoryScope && displayedChannelsCategoryKey == selectedCategoryId) filteredChannelsCollapsedState.value else emptyList()
     val filteredChannelIndexById = if (displayedChannelsScopeKey == categoryScope && displayedChannelsCategoryKey == selectedCategoryId) filteredChannelIndexState.value else emptyMap()
-    val selectedCategoryTotalCount = remember(visibleEnrichedState.value.tree, selectedCategoryId, filteredChannels.size) {
-        if (selectedCategoryId == "fav" || selectedCategoryId == "recent") filteredChannels.size
-        else visibleEnrichedState.value.tree.countForCategory(selectedCategoryId)
-            ?.takeIf { it > 0 }
-            ?: filteredChannels.size
+    val selectedCategoryTotalCount = remember(
+        visibleEnrichedState.value.tree,
+        selectedCategoryId,
+        filteredChannels.size,
+        lastKnownPagedTotal,
+        selectedProviderId,
+        providerFilters,
+    ) {
+        when {
+            selectedCategoryId == "fav" || selectedCategoryId == "recent" -> filteredChannels.size
+            selectedCategoryId == "all" -> {
+                val provCount = if (selectedProviderId != "all") {
+                    providerFilters.firstOrNull { it.id == selectedProviderId || it.id == selectedProviderId.removePrefix("source:") }?.count
+                } else null
+                provCount ?: lastKnownPagedTotal.takeIf { it > 0 }
+                    ?: visibleEnrichedState.value.tree.countForCategory("all")
+                    ?: filteredChannels.size
+            }
+            else -> visibleEnrichedState.value.tree.countForCategory(selectedCategoryId)
+                ?.takeIf { it > 0 }
+                ?: filteredChannels.size
+        }
     }
     val shouldWindowGuide = selectedCategoryTotalCount > CategoryFullGuideThreshold &&
         filteredChannels.size > CategoryFullGuideThreshold
@@ -1823,6 +1867,9 @@ fun LiveTvScreen(
             if (startupChannelId != null) {
                 val displayId = displayChannelIdFor(startupChannelId, visibleEnrichedState.value.index.byId, variantGroups)
                     ?: startupChannelId
+                if (savedChannel != null && startupChannelId == savedChannel.id) {
+                    retainedPlayingChannel = savedChannel
+                }
                 playingChannelId = startupChannelId
                 focusedChannelId = displayId
                 epgPrefetchAnchorId = displayId
@@ -1903,7 +1950,7 @@ fun LiveTvScreen(
                 launch { addonArtwork = viewModel.loadSportsAddonArtwork(); sportsArtwork = metadata + addonArtwork }
             }
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (_: Exception) { sportsError = true }
+            catch (_: Exception) { }
             finally { sportsMetadataLoading = false }
         }
     }
@@ -1930,7 +1977,7 @@ fun LiveTvScreen(
                     .filter { !it.enrichForFastStartup(0).isAdult }
             }
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (_: Exception) { sportsError = true }
+        catch (_: Exception) { }
         finally {
             sportsBroadcastLoading = false
             System.err.println("[Sports-Broadcasters] channels=${broadcastCandidates.size} elapsed=${android.os.SystemClock.elapsedRealtime() - matchingStarted}ms")
@@ -1952,7 +1999,7 @@ fun LiveTvScreen(
         }
         System.err.println("[Sports-Catalogue] guide=${sportsEvents.size} metadata=${sportsArtwork.size} broadcasters=${broadcastCandidates.size} available=${illustratedSportsEvents.count { it.hasChannels(guideClockMillis) }} illustrated=${illustratedSportsEvents.count { it.hasChannels(guideClockMillis) && it.hasEventArtwork }}")
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (_: Exception) { sportsError = true }
+        catch (_: Exception) { }
         finally { sportsCatalogueLoading = false }
     }
     val sportsProviderNames = remember(state.config.playlists, state.config.stalkerPortals) {
@@ -1967,11 +2014,11 @@ fun LiveTvScreen(
     val sportsGuideCoverageBucket = state.snapshot.nowNext.size / 64
     LaunchedEffect(currentProfile?.id, selectedProviderId, hiddenGroupSet,
         restrictedGroupSet, state.snapshot.loadedAt, state.epgBackfillInProgress, sportsRefresh,
-        sportsGuideCoverageBucket, guideClockMillis / 600_000L) {
+        sportsGuideCoverageBucket, guideClockMillis / 600_000L, sportsSelected) {
         if (state.snapshot.loadedAt.toEpochMilli() <= 0L) return@LaunchedEffect
         val scanVersion = listOf(state.snapshot.loadedAt, state.epgBackfillInProgress, sportsRefresh,
             sportsGuideCoverageBucket, guideClockMillis / 600_000L)
-        if (completedSportsScan == scanVersion) return@LaunchedEffect
+        if (completedSportsScan == scanVersion && (!sportsSelected || sportsEvents.isNotEmpty())) return@LaunchedEffect
         viewModel.cachedSportsSchedule?.takeIf { it.key == sportsScheduleKey && sportsRefresh == 0 }?.let {
             sportsEvents = it.events
             completedSportsScan = scanVersion
@@ -2106,7 +2153,8 @@ fun LiveTvScreen(
             (it.isOnAir(guideClockMillis) || it.isScheduledNow(guideClockMillis) || it.programme.startUtcMillis > guideClockMillis) }
     }
     val sportsDisplayLoading = !sportsHasVisibleEvents &&
-        (sportsLoading || sportsMetadataLoading || sportsBroadcastLoading || sportsCatalogueLoading)
+        (completedSportsScan == null || sportsLoading || sportsMetadataLoading || sportsBroadcastLoading || sportsCatalogueLoading)
+    val sportsDisplayFailed = !sportsDisplayLoading && completedSportsScan != null && sportsError && sportsDisplayEvents.isEmpty()
     var sportsOpenedAt by remember { mutableLongStateOf(0L) }
     LaunchedEffect(sportsSelected, sportsDisplayLoading, sportsHasVisibleEvents) {
         if (!sportsSelected) sportsOpenedAt = 0L
@@ -2376,7 +2424,11 @@ fun LiveTvScreen(
 
         onDispose {
             if (previousOrientation != null) {
-                activity?.requestedOrientation = previousOrientation
+                if (deviceType == DeviceType.PHONE) {
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+                } else {
+                    activity?.requestedOrientation = previousOrientation
+                }
             }
             if (window != null) {
                 @Suppress("DEPRECATION")
@@ -3794,7 +3846,9 @@ fun LiveTvScreen(
                 }
             )
         } else {
-            if (isTouchDevice && currentMode == LiveTvStartup.LiveTvMode.GroupHome) {
+            if (isTouchDevice) {
+                val groupHomeListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                if (currentMode == LiveTvStartup.LiveTvMode.GroupHome) {
                 val mobileAllChannelsCount = remember(
                     visibleEnrichedState.value.tree,
                     lastKnownPagedTotal,
@@ -3812,7 +3866,7 @@ fun LiveTvScreen(
                     } else {
                         visibleEnrichedState.value.tree.countForCategory("all")
                             ?.takeIf { it > 0 }
-                            ?: if (lastKnownPagedTotal > 10_000) lastKnownPagedTotal else visibleEnrichedState.value.all.size
+                            ?: if (lastKnownPagedTotal > 0) lastKnownPagedTotal else visibleEnrichedState.value.all.size
                     }
                 }
                 val mobileSportsCount = remember(
@@ -3846,8 +3900,8 @@ fun LiveTvScreen(
                     clockTickMillis = guideClockMillis,
                     allChannelsCount = mobileAllChannelsCount,
                     sportsCount = mobileSportsCount,
-                    favoritesCount = state.snapshot.favoriteChannels.size,
-                    recentsCount = recents.value.size,
+                    favoritesCount = quickGuideRows["fav"]?.size ?: 0,
+                    recentsCount = quickGuideRows["recent"]?.size ?: 0,
                     favoriteSet = favSet,
                     onToggleFavorite = { viewModel.toggleFavoriteChannel(it) },
                     onOpenFullscreen = openFullScreenPlayer,
@@ -3864,7 +3918,7 @@ fun LiveTvScreen(
                         currentMode = LiveTvStartup.LiveTvMode.Guide
                     },
                     onOpenFavorites = {
-                        if (state.snapshot.favoriteChannels.isNotEmpty()) {
+                        if ((quickGuideRows["fav"]?.size ?: 0) > 0) {
                             noteGuideUserNavigation()
                             selectedCategoryId = "fav"
                             sportsSelected = false
@@ -3872,7 +3926,7 @@ fun LiveTvScreen(
                         }
                     },
                     onOpenRecents = {
-                        if (recents.value.isNotEmpty()) {
+                        if ((quickGuideRows["recent"]?.size ?: 0) > 0) {
                             noteGuideUserNavigation()
                             selectedCategoryId = "recent"
                             sportsSelected = false
@@ -3897,11 +3951,12 @@ fun LiveTvScreen(
                     playerActive = miniPlayerActive,
                     variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
                     onOpenVariants = playingChannel?.let { channel -> { openVariantPicker(channel) } },
+                    listState = groupHomeListState,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = contentTopPadding),
                 )
-            } else if (isTouchDevice) {
+            } else {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -3958,25 +4013,36 @@ fun LiveTvScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    if (!sportsSelected) MiniPlayerRow(
-                        focusedProgrammeProvider = { focusedProgramme.takeIf { focusZone == LiveTvFocusZone.EPG } },
-                        exoPlayer = exoPlayer,
-                        channel = playingDisplayChannel,
-                        clockTickMillis = guideClockMillis,
-                        nowNext = currentNowNext,
-                        onFavoriteToggle = { viewModel.toggleFavoriteChannel(it) },
-                        favoriteSet = favSet,
-                        onFullscreenClick = openFullScreenPlayer,
-                        variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
-                        onOpenVariants = playingChannel?.let { channel -> { openVariantPicker(channel) } },
-                        compact = true,
-                        landscapeCompact = landscapeCompactMiniPlayer,
-                        playerActive = miniPlayerActive,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    if (!sportsSelected) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .clip(RoundedCornerShape(LiveDims.CardRadius))
+                                .background(LiveColors.Panel)
+                                .border(BorderStroke(1.dp, LiveColors.Divider), RoundedCornerShape(LiveDims.CardRadius)),
+                        ) {
+                            MiniPlayerRow(
+                                focusedProgrammeProvider = { focusedProgramme.takeIf { focusZone == LiveTvFocusZone.EPG } },
+                                exoPlayer = exoPlayer,
+                                channel = playingDisplayChannel ?: playingChannel,
+                                clockTickMillis = guideClockMillis,
+                                nowNext = currentNowNext,
+                                onFavoriteToggle = { viewModel.toggleFavoriteChannel(it) },
+                                favoriteSet = favSet,
+                                onFullscreenClick = openFullScreenPlayer,
+                                variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
+                                onOpenVariants = playingChannel?.let { channel -> { openVariantPicker(channel) } },
+                                compact = true,
+                                landscapeCompact = landscapeCompactMiniPlayer,
+                                playerActive = miniPlayerActive,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
                     if (sportsSelected) SportsGuidePane(
                         events = sportsDisplayEvents, now = guideClockMillis, loading = sportsDisplayLoading, clockFormat = sportsClockFormat,
-                        failed = sportsError, onRetry = { sportsRefresh++ }, providerNames = sportsProviderNames,
+                        failed = sportsDisplayFailed, onRetry = { sportsRefresh++ }, providerNames = sportsProviderNames,
                         focusSignal = sportsFocusSignal,
                         onContentFocused = { focusZone = LiveTvFocusZone.SPORTS },
                         onOpenCategories = {
@@ -4035,6 +4101,7 @@ fun LiveTvScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
+            }
             } else LiveDrawerWorkspace(expanded = sidebarExpanded,
                 sidebarWidth = LiveDims.SidebarExpanded,
                 contentKey = "${currentProfile?.id}:${if (sportsSelected) "sports" else "guide"}", sidebar = {
@@ -4138,7 +4205,7 @@ fun LiveTvScreen(
                     )
                     if (sportsSelected) SportsGuidePane(
                         events = sportsDisplayEvents, now = guideClockMillis, loading = sportsDisplayLoading, clockFormat = sportsClockFormat,
-                        failed = sportsError, onRetry = { sportsRefresh++ }, providerNames = sportsProviderNames,
+                        failed = sportsDisplayFailed, onRetry = { sportsRefresh++ }, providerNames = sportsProviderNames,
                         focusSignal = sportsFocusSignal,
                         onContentFocused = { focusZone = LiveTvFocusZone.SPORTS; categoryDrawerOpen = false },
                         onOpenCategories = { openCategoryDrawer() },
@@ -4364,7 +4431,11 @@ fun LiveTvScreen(
                                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                 indication = null,
                             ) {
-                                hudPokeSignal++
+                                if (isHudVisible) {
+                                    hudHideSignal++
+                                } else {
+                                    hudPokeSignal++
+                                }
                             }
                         } else if (isFullScreen && !fullscreenGuideOpen && !quickZapOpen) {
                             Modifier.onPreviewKeyEvent { ev ->

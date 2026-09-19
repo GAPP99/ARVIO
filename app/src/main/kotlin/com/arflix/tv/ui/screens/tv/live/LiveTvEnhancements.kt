@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -303,88 +305,106 @@ fun ProviderSelector(
     if (providers.size <= 1) return
     var focusedId by remember { mutableStateOf<String?>(null) }
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(start = 10.dp, end = 14.dp, top = 6.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
     ) {
-        providers.forEachIndexed { index, provider ->
-            val selected = provider.id == selectedId
-            val focused = focusedId == provider.id
-            val selectedIndex = providers.indexOfFirst { it.id == selectedId }.takeIf { it >= 0 } ?: index
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (selected || focused) LiveColors.PanelRaised else LiveColors.PanelDeep)
-                    .border(
-                        width = if (focused) 2.dp else 1.dp,
-                        color = when {
-                            focused -> LiveColors.FocusRing
-                            selected -> LiveColors.Accent
-                            else -> LiveColors.Divider
-                        },
-                        shape = RoundedCornerShape(999.dp),
-                    )
-                    .then(if (selected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                    .onFocusChanged { if (it.hasFocus) focusedId = provider.id }
-                    .focusable()
-                    .onKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                        when (event.key.mirrorHorizontalForRtl(isRtl)) {
-                            Key.DirectionLeft -> {
-                                val next = providers.getOrNull((selectedIndex - 1).coerceAtLeast(0)) ?: provider
-                                focusedId = next.id
-                                onSelect(next.id)
-                                true
+        Row(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            providers.forEachIndexed { index, provider ->
+                val selected = provider.id == selectedId
+                val focused = focusedId == provider.id
+                val selectedIndex = providers.indexOfFirst { it.id == selectedId }.takeIf { it >= 0 } ?: index
+                Box(
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 110.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            when {
+                                selected -> LiveColors.Accent.copy(alpha = 0.18f)
+                                focused -> LiveColors.PanelRaised
+                                else -> LiveColors.PanelDeep
                             }
-                            Key.DirectionRight -> {
-                                val next = providers.getOrNull((selectedIndex + 1).coerceAtMost(providers.lastIndex)) ?: provider
-                                focusedId = next.id
-                                onSelect(next.id)
-                                true
+                        )
+                        .border(
+                            width = if (focused) 2.dp else 1.dp,
+                            color = when {
+                                focused -> LiveColors.FocusRing
+                                selected -> LiveColors.Accent
+                                else -> LiveColors.Divider
+                            },
+                            shape = RoundedCornerShape(999.dp),
+                        )
+                        .then(if (selected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                        .onFocusChanged { if (it.hasFocus) focusedId = provider.id }
+                        .focusable()
+                        .onKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                            when (event.key.mirrorHorizontalForRtl(isRtl)) {
+                                Key.DirectionLeft -> {
+                                    val next = providers.getOrNull((selectedIndex - 1).coerceAtLeast(0)) ?: provider
+                                    focusedId = next.id
+                                    onSelect(next.id)
+                                    true
+                                }
+                                Key.DirectionRight -> {
+                                    val next = providers.getOrNull((selectedIndex + 1).coerceAtMost(providers.lastIndex)) ?: provider
+                                    focusedId = next.id
+                                    onSelect(next.id)
+                                    true
+                                }
+                                Key.DirectionUp -> {
+                                    onMoveUp()
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    onMoveDown()
+                                    true
+                                }
+                                Key.DirectionCenter, Key.Enter -> {
+                                    onSelect(provider.id)
+                                    true
+                                }
+                                else -> false
                             }
-                            Key.DirectionUp -> {
-                                onMoveUp()
-                                true
-                            }
-                            Key.DirectionDown -> {
-                                onMoveDown()
-                                true
-                            }
-                            Key.DirectionCenter, Key.Enter -> {
-                                onSelect(provider.id)
-                                true
-                            }
-                            else -> false
                         }
-                    }
-                    .clickable { onSelect(provider.id) }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        .clickable { onSelect(provider.id) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.SettingsInputAntenna,
-                        contentDescription = null,
-                        tint = if (selected) LiveColors.Accent else LiveColors.FgMute,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Text(
-                        text = provider.label,
-                        style = LiveType.CatLabel.copy(color = if (selected) LiveColors.Fg else LiveColors.FgDim),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = provider.count.toString(),
-                        style = LiveType.NumberMono.copy(color = LiveColors.FgMute),
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.SettingsInputAntenna,
+                            contentDescription = null,
+                            tint = if (selected) LiveColors.Accent else LiveColors.FgMute,
+                            modifier = Modifier.size(15.dp),
+                        )
+                        Text(
+                            text = provider.label,
+                            style = LiveType.CatLabel.copy(
+                                color = if (selected) LiveColors.Fg else LiveColors.FgDim,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 13.sp,
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = provider.count.toString(),
+                            style = LiveType.NumberMono.copy(
+                                color = if (selected) LiveColors.Accent else LiveColors.FgMute,
+                                fontSize = 11.sp,
+                            ),
+                        )
+                    }
                 }
             }
         }

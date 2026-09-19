@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -115,6 +117,7 @@ fun LiveTvGroupHome(
     playerActive: Boolean = true,
     variantCount: Int = 1,
     onOpenVariants: (() -> Unit)? = null,
+    miniPlayerContent: (@Composable () -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
@@ -159,21 +162,25 @@ fun LiveTvGroupHome(
                     .background(LiveColors.Panel)
                     .border(BorderStroke(1.dp, LiveColors.Divider), RoundedCornerShape(LiveDims.CardRadius)),
             ) {
-                MiniPlayerRow(
-                    exoPlayer = exoPlayer,
-                    channel = currentChannel,
-                    clockTickMillis = clockTickMillis,
-                    nowNext = nowNext,
-                    favoriteSet = favoriteSet,
-                    onFavoriteToggle = onToggleFavorite,
-                    onFullscreenClick = onOpenFullscreen,
-                    compact = compactLayout,
-                    landscapeCompact = landscapeCompact,
-                    playerActive = playerActive,
-                    variantCount = variantCount,
-                    onOpenVariants = onOpenVariants,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (miniPlayerContent != null) {
+                    miniPlayerContent()
+                } else {
+                    MiniPlayerRow(
+                        exoPlayer = exoPlayer,
+                        channel = currentChannel,
+                        clockTickMillis = clockTickMillis,
+                        nowNext = nowNext,
+                        favoriteSet = favoriteSet,
+                        onFavoriteToggle = onToggleFavorite,
+                        onFullscreenClick = onOpenFullscreen,
+                        compact = compactLayout,
+                        landscapeCompact = landscapeCompact,
+                        playerActive = playerActive,
+                        variantCount = variantCount,
+                        onOpenVariants = onOpenVariants,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
 
@@ -475,70 +482,126 @@ private fun PlaylistSubwayTile(
             )
         }
 
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier
-                .background(LiveColors.PanelRaised)
-                .border(BorderStroke(1.dp, LiveColors.Divider), RoundedCornerShape(8.dp)),
-        ) {
-            providers.forEach { provider ->
-                val isSelected = provider.id == selectedProviderId ||
-                    provider.id == selectedProviderId.removePrefix("source:")
-                DropdownMenuItem(
-                    text = {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = provider.label,
-                                style = LiveType.CatLabel.copy(
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) LiveColors.Accent else LiveColors.Fg,
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text(
-                                text = provider.count.toString(),
-                                style = LiveType.TimeMono.copy(
-                                    fontSize = 12.sp,
-                                    color = if (isSelected) LiveColors.Accent.copy(alpha = 0.8f) else LiveColors.FgMute,
-                                ),
-                            )
-                        }
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.SettingsInputAntenna,
-                            contentDescription = null,
-                            tint = if (isSelected) LiveColors.Accent else LiveColors.FgMute,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    },
-                    trailingIcon = if (isSelected) {
-                        {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = stringResource(R.string.live_home_playlist_selected),
-                                tint = LiveColors.Accent,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    } else null,
-                    onClick = {
-                        onSelectProvider(provider.id)
-                        expanded = false
-                    },
+        if (expanded) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { expanded = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(if (isSelected) LiveColors.Accent.copy(alpha = 0.12f) else Color.Transparent),
-                )
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null,
+                        ) { expanded = false },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(0.9f)
+                            .widthIn(max = 400.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(LiveColors.Panel)
+                            .border(BorderStroke(1.dp, LiveColors.Divider), RoundedCornerShape(20.dp))
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null,
+                            ) {}
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(LiveColors.Accent.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.SettingsInputAntenna,
+                                contentDescription = null,
+                                tint = LiveColors.Accent,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = stringResource(R.string.live_home_select_playlist),
+                            style = LiveType.CatLabel.copy(
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = LiveColors.Fg,
+                            ),
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 340.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(providers, key = { it.id }) { provider ->
+                                val isSelected = provider.id == selectedProviderId ||
+                                    provider.id == selectedProviderId.removePrefix("source:")
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(54.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isSelected) LiveColors.Accent.copy(alpha = 0.16f) else LiveColors.PanelRaised)
+                                        .border(
+                                            BorderStroke(
+                                                width = if (isSelected) 1.5.dp else 1.dp,
+                                                color = if (isSelected) LiveColors.Accent else LiveColors.Divider,
+                                            ),
+                                            shape = RoundedCornerShape(12.dp),
+                                        )
+                                        .clickable {
+                                            onSelectProvider(provider.id)
+                                            expanded = false
+                                        }
+                                        .padding(horizontal = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.SettingsInputAntenna,
+                                        contentDescription = null,
+                                        tint = if (isSelected) LiveColors.Accent else LiveColors.FgMute,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Text(
+                                        text = provider.label,
+                                        style = LiveType.CatLabel.copy(
+                                            fontSize = 14.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) LiveColors.Fg else LiveColors.FgDim,
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        text = provider.count.toString(),
+                                        style = LiveType.TimeMono.copy(
+                                            fontSize = 12.sp,
+                                            color = if (isSelected) LiveColors.Accent else LiveColors.FgMute,
+                                        ),
+                                    )
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = stringResource(R.string.live_home_playlist_selected),
+                                            tint = LiveColors.Accent,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

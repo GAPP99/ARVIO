@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -247,7 +248,14 @@ fun FullscreenHud(
                             0.45f to Color.Transparent,
                             1f to Color.Black.copy(alpha = 0.95f),
                         )
-                    ),
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) {
+                        visible = false
+                        onVisibilityChanged?.invoke(false)
+                    },
             )
 
             // --- Top Header Row (Category Name & Formatted Date/Time) ---
