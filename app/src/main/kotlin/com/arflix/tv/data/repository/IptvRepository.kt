@@ -50,6 +50,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Deferred
 import com.arflix.tv.data.model.PlaylistGroupKey
+import com.arflix.tv.data.model.StalkerCatalogKind
 import kotlinx.coroutines.launch
 import com.arflix.tv.network.OkHttpProvider
 import okhttp3.OkHttpClient
@@ -523,6 +524,29 @@ class IptvRepository @Inject constructor(
      */
     private val stalkerSeriesSearchCache =
         ConcurrentHashMap<StalkerVodSearchCacheKey, StalkerSeriesSearchCacheEntry>()
+
+    private data class StalkerCategoryCacheKey(
+        val portalId: String,
+        val apiIdentity: String,
+        val kind: StalkerCatalogKind
+    )
+
+    private data class StalkerCategoryCacheEntry(
+        val fetchedAtMs: Long,
+        val categories: List<com.arflix.tv.data.api.StalkerApi.StalkerCategory>
+    )
+
+    /**
+     * Category names per portal and catalog kind, for the settings screen.
+     *
+     * Only the names need the portal: the `category_id` a filter matches on is
+     * already part of every search answer. One request per portal and kind is
+     * therefore the entire cost of the whole category feature, and this cache
+     * keeps re-entering the screen from paying it again.
+     */
+    private val stalkerCategoryCache =
+        ConcurrentHashMap<StalkerCategoryCacheKey, StalkerCategoryCacheEntry>()
+    private val stalkerCategoryCacheTtlMs = 6 * 60 * 60_000L
 
     private data class StalkerSeasonsCacheKey(
         val portalId: String,
@@ -1035,6 +1059,18 @@ class IptvRepository @Inject constructor(
     fun observeHiddenGroups(): Flow<List<String>> =
         profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
             decodeHiddenGroups(prefs)
+        }
+
+    /**
+     * The `portalId|categoryId` keys the user switched off for [kind].
+     *
+     * Empty means "search every category" - see [filterStalkerCategorySelection]
+     * for why that, and not "search none", is the answer for an untouched
+     * portal.
+     */
+    fun observeHiddenStalkerCategories(kind: StalkerCatalogKind): Flow<List<String>> =
+        profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
+            decodeHiddenStalkerCategories(prefs, kind)
         }
 
     fun observeLockedGroups(): Flow<List<String>> =
@@ -2174,6 +2210,69 @@ class IptvRepository @Inject constructor(
         invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "toggle hidden group")
     }
 
+    /**
+     * Show or hide one Stalker catalog category of one portal.
+     *
+     * The key holds the category **id**, not its name: providers rename their
+     * groups ("Filme DE" becomes "DE | Filme") and a selection stored by name
+     * would quietly fall apart the next time they do. Live TV stores the name
+     * because that is all its genre list offers; here the id is right there in
+     * every catalog entry.
+     */
+    suspend fun toggleHiddenStalkerCategory(
+        kind: StalkerCatalogKind,
+        portalId: String,
+        categoryId: String
+    ) {
+        val trimmedPortal = portalId.trim()
+        val trimmedCategory = categoryId.trim()
+        if (trimmedPortal.isEmpty() || trimmedCategory.isEmpty()) return
+        val key = PlaylistGroupKey.build(trimmedPortal, trimmedCategory)
+        context.settingsDataStore.edit { prefs ->
+            val existing = decodeHiddenStalkerCategories(prefs, kind).toMutableList()
+            if (!existing.remove(key)) existing.add(key)
+            if (existing.isEmpty()) prefs.remove(hiddenStalkerCategoriesKey(kind))
+            else prefs[hiddenStalkerCategoriesKey(kind)] = gson.toJson(existing.distinct())
+        }
+        invalidationBus.markDirty(
+            CloudSyncScope.IPTV,
+            profileManager.getProfileIdSync(),
+            "toggle hidden stalker category"
+        )
+    }
+
+    /**
+     * The bulk "hide all / show all" of the categories screen, for one portal
+     * and one catalog kind. Mirrors [setGroupsHidden].
+     */
+    suspend fun setStalkerCategoriesHidden(
+        kind: StalkerCatalogKind,
+        portalId: String,
+        categoryIds: List<String>,
+        hidden: Boolean
+    ) {
+        val trimmedPortal = portalId.trim()
+        if (trimmedPortal.isEmpty()) return
+        val targetKeys = categoryIds
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .map { PlaylistGroupKey.build(trimmedPortal, it) }
+            .toHashSet()
+        if (targetKeys.isEmpty()) return
+        context.settingsDataStore.edit { prefs ->
+            val existing = decodeHiddenStalkerCategories(prefs, kind).toMutableList()
+            if (hidden) existing.addAll(targetKeys) else existing.removeAll { it in targetKeys }
+            val updated = existing.distinct()
+            if (updated.isEmpty()) prefs.remove(hiddenStalkerCategoriesKey(kind))
+            else prefs[hiddenStalkerCategoriesKey(kind)] = gson.toJson(updated)
+        }
+        invalidationBus.markDirty(
+            CloudSyncScope.IPTV,
+            profileManager.getProfileIdSync(),
+            "set stalker categories hidden"
+        )
+    }
+
     suspend fun toggleLockedGroup(playlistId: String, groupName: String) {
         val trimmedGroup = groupName.trim()
         val trimmedPlaylist = playlistId.trim()
@@ -2239,6 +2338,16 @@ class IptvRepository @Inject constructor(
             if (retainedOrder.isEmpty()) prefs.remove(groupOrderKey())
             else prefs[groupOrderKey()] = gson.toJson(retainedOrder)
             prefs[groupOrderSchemaKey()] = IPTV_GROUP_ORDER_SCHEMA.toString()
+
+            // Same reasoning for the two catalog selections: a portal that is
+            // gone must not leave a hidden-category set behind that a newly
+            // added portal reusing the id would silently inherit.
+            StalkerCatalogKind.entries.forEach { kind ->
+                val retainedCategories = decodeHiddenStalkerCategories(prefs, kind)
+                    .filterNot { PlaylistGroupKey(it).playlistId == trimmedId }
+                if (retainedCategories.isEmpty()) prefs.remove(hiddenStalkerCategoriesKey(kind))
+                else prefs[hiddenStalkerCategoriesKey(kind)] = gson.toJson(retainedCategories)
+            }
         }
         groupOrderLocallyDirty = true
         invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "clear group preferences")
@@ -4007,6 +4116,7 @@ class IptvRepository @Inject constructor(
         stalkerVodSearchCache.clear()
         stalkerSeriesSearchCache.clear()
         stalkerSeasonsCache.clear()
+        stalkerCategoryCache.clear()
         discoveredM3uEpgUrls.clear()
         xtreamVodCacheKey = null
         xtreamVodLoadedAtMs = 0L
@@ -4201,6 +4311,22 @@ class IptvRepository @Inject constructor(
         return StalkerPortalSupport.migratedPortalFromLegacy(legacyUrl, legacyMac)?.let { listOf(it) } ?: emptyList()
     }
 
+    /**
+     * Hidden Stalker VOD resp. series categories, the catalog counterpart of
+     * [hiddenGroupsKey]. Profile-bound like every other IPTV preference.
+     *
+     * Two keys rather than one: a movie category and a series category of the
+     * same portal can carry the same id, and one shared set would let hiding a
+     * film group hide a series group with it.
+     */
+    private fun hiddenStalkerCategoriesKey(kind: StalkerCatalogKind): Preferences.Key<String> =
+        profileManager.profileStringKey(hiddenStalkerCategoriesPrefName(kind))
+
+    private fun hiddenStalkerCategoriesPrefName(kind: StalkerCatalogKind): String = when (kind) {
+        StalkerCatalogKind.MOVIES -> "iptv_hidden_vod_categories"
+        StalkerCatalogKind.SERIES -> "iptv_hidden_series_categories"
+    }
+
     private fun hiddenGroupsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_hidden_groups")
     private fun hiddenGroupsKeyFor(profileId: String): Preferences.Key<String> =
         profileManager.profileStringKeyFor(profileId, "iptv_hidden_groups")
@@ -4239,6 +4365,27 @@ class IptvRepository @Inject constructor(
                 }
             } else list
             StalkerPortalSupport.normalizePlaylistGroupKeys(scoped)
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * No legacy shape to repair here, unlike [decodeHiddenGroups]: these keys
+     * were written with the `portalId|categoryId` form from their first
+     * version, so an entry without the separator is corruption, not history.
+     */
+    private fun decodeHiddenStalkerCategories(
+        prefs: Preferences,
+        kind: StalkerCatalogKind
+    ): List<String> {
+        val raw = prefs[hiddenStalkerCategoriesKey(kind)].orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
+            gson.fromJson<List<String>>(raw, type)
+                ?.map { it.trim() }
+                ?.filter { it.isNotBlank() && '|' in it }
+                ?.distinct()
+                .orEmpty()
         }.getOrDefault(emptyList())
     }
 
@@ -5787,16 +5934,20 @@ class IptvRepository @Inject constructor(
     ): List<StreamSource> {
         if (portal.portalUrl.isBlank() || portal.macAddress.isBlank()) return emptyList()
         val fingerprint = stalkerPortalFingerprint(portal)
+        val hiddenCategories = observeHiddenStalkerCategories(StalkerCatalogKind.MOVIES).first()
         // Portal id and fingerprint are both part of the key: two portals never
         // read each other's matches, and re-pointing a portal at another server
-        // invalidates only that portal's entries.
+        // invalidates only that portal's entries. The category selection joins
+        // them for the same reason - see [stalkerCategorySelectionTag].
+        val selectionTag = stalkerCategorySelectionTag(portal.id, hiddenCategories)
+        val selectionScope = if (selectionTag.isEmpty()) "" else "c$selectionTag|"
         val cacheKey = iptvMovieSourceCacheKey(
             profileIdHash = profileIdHash(),
             imdbId = imdbId,
             tmdbId = tmdbId,
             title = title,
             year = year
-        )?.let { base -> "stalker|${portal.id}|$base" }
+        )?.let { base -> "stalker|${portal.id}|$selectionScope$base" }
         if (cacheKey != null) {
             lookupCachedMovieSources(cacheKey, fingerprint)?.let { return it }
         }
@@ -5819,9 +5970,19 @@ class IptvRepository @Inject constructor(
         // count next to zero matches names the portal as the cause, whereas both
         // at zero points at the request or the portal's catalogue.
         var offered = 0
+        // Counted separately again: a lookup that comes back empty because the
+        // user deselected the only group carrying the film must be readable as
+        // exactly that, not as "the portal has nothing".
+        var skipped = 0
         for (query in stalkerVodSearchQueries(title, originalTitle)) {
-            val items = stalkerVodSearch(portal, fingerprint, api, query)
-            offered += items.size
+            val fetched = stalkerVodSearch(portal, fingerprint, api, query)
+            offered += fetched.size
+            val items = filterStalkerCategorySelection(
+                items = fetched,
+                portalId = portal.id,
+                hiddenKeys = hiddenCategories
+            ) { it.categoryId }
+            skipped += fetched.size - items.size
             if (items.isEmpty()) continue
             matches = matchStalkerVodItems(
                 items = items,
@@ -5834,7 +5995,7 @@ class IptvRepository @Inject constructor(
         }
         System.err.println(
             "[Stalker-VOD] portal=${portal.id} title='$title' " +
-                "offered=$offered matches=${matches.size}"
+                "offered=$offered skipped=$skipped matches=${matches.size}"
         )
         if (matches.isEmpty()) return emptyList()
 
@@ -6110,6 +6271,110 @@ class IptvRepository @Inject constructor(
      * so a portal that gets re-pointed at another server or MAC drops its own
      * cached matches without touching any other source.
      */
+    /**
+     * The categories of one Stalker portal, for the settings screen.
+     *
+     * Returns an empty list - never an error - when the portal does not
+     * implement `get_categories`: plenty of builds answer it with an HTML page
+     * under a plain HTTP 200, and a settings page that throws at those is
+     * worse than one that says "no categories". Only a real answer is cached,
+     * so a portal that was merely unreachable is asked again next time.
+     */
+    suspend fun stalkerCategories(
+        portalId: String,
+        kind: StalkerCatalogKind
+    ): List<com.arflix.tv.data.api.StalkerApi.StalkerCategory> {
+        val trimmedId = portalId.trim()
+        if (trimmedId.isEmpty()) return emptyList()
+        return withContext(Dispatchers.IO) {
+            val config = observeConfig().first()
+            // Every configured portal, not only the enabled ones: the settings
+            // screen is exactly where a portal that is currently switched off
+            // gets prepared for being switched on again.
+            val portal = config.stalkerPortals.firstOrNull { it.id == trimmedId }
+                ?: return@withContext emptyList()
+            if (portal.portalUrl.isBlank() || portal.macAddress.isBlank()) return@withContext emptyList()
+            val fingerprint = stalkerPortalFingerprint(portal)
+            val key = StalkerCategoryCacheKey(portal.id, fingerprint, kind)
+            val now = System.currentTimeMillis()
+            stalkerCategoryCache[key]?.let { cached ->
+                if (now - cached.fetchedAtMs < stalkerCategoryCacheTtlMs) return@withContext cached.categories
+                stalkerCategoryCache.remove(key)
+            }
+            val api = getOrCreateStalkerApi(portal) ?: return@withContext emptyList()
+            val categories = when (kind) {
+                StalkerCatalogKind.MOVIES -> api.getVodCategories()
+                StalkerCatalogKind.SERIES -> api.getSeriesCategories()
+            }
+            // null is "the portal did not answer", and caching that would turn
+            // one bad moment into six hours of an empty settings page.
+            if (categories == null) return@withContext emptyList()
+            stalkerCategoryCache[key] = StalkerCategoryCacheEntry(now, categories)
+            categories
+        }
+    }
+
+    /**
+     * Drops the entries whose category the user switched off for [portalId].
+     *
+     * Two deliberate non-filters:
+     *  - **An empty [hiddenKeys] searches everything.** A portal nobody has
+     *    configured must behave exactly as it did before this setting existed.
+     *  - **An entry without a `category_id` is kept.** The portal did not say
+     *    where it belongs, and "unknown" is not "unwanted" - dropping those
+     *    would hide films the user never deselected.
+     */
+    internal fun <T> filterStalkerCategorySelection(
+        items: List<T>,
+        portalId: String,
+        hiddenKeys: Collection<String>,
+        categoryIdOf: (T) -> String?
+    ): List<T> {
+        if (items.isEmpty() || hiddenKeys.isEmpty()) return items
+        val trimmedPortal = portalId.trim()
+        if (trimmedPortal.isEmpty()) return items
+        val hiddenForPortal = hiddenKeys
+            .asSequence()
+            .map { PlaylistGroupKey(it) }
+            .filter { it.playlistId == trimmedPortal }
+            .map { it.groupName }
+            .filter { it.isNotBlank() }
+            .toHashSet()
+        if (hiddenForPortal.isEmpty()) return items
+        return items.filter { item ->
+            val categoryId = categoryIdOf(item)?.trim().orEmpty()
+            categoryId.isBlank() || categoryId !in hiddenForPortal
+        }
+    }
+
+    /**
+     * A short, stable tag for the category selection of one portal, for the
+     * source cache key.
+     *
+     * Without it a lookup made before the user changed the selection would be
+     * served back afterwards, and the new setting would look like it did
+     * nothing until the cache expired. Empty for an untouched portal, so every
+     * entry cached by an earlier version stays valid.
+     */
+    internal fun stalkerCategorySelectionTag(portalId: String, hiddenKeys: Collection<String>): String {
+        if (hiddenKeys.isEmpty()) return ""
+        val trimmedPortal = portalId.trim()
+        val forPortal = hiddenKeys
+            .asSequence()
+            .map { PlaylistGroupKey(it) }
+            .filter { it.playlistId == trimmedPortal }
+            .map { it.groupName }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+            .toList()
+        if (forPortal.isEmpty()) return ""
+        return MessageDigest.getInstance("MD5")
+            .digest(forPortal.joinToString(",").toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+            .take(8)
+    }
+
     private fun stalkerPortalFingerprint(portal: StalkerPortalEntry): String {
         val raw = "${portal.portalUrl.trim().trimEnd('/').lowercase(Locale.ROOT)}|" +
             portal.macAddress.trim().uppercase(Locale.ROOT)
@@ -6171,15 +6436,19 @@ class IptvRepository @Inject constructor(
         if (portal.portalUrl.isBlank() || portal.macAddress.isBlank()) return emptyList()
         if (season <= 0 || episode <= 0) return emptyList()
         val fingerprint = stalkerPortalFingerprint(portal)
+        val hiddenCategories = observeHiddenStalkerCategories(StalkerCatalogKind.SERIES).first()
+        val selectionTag = stalkerCategorySelectionTag(portal.id, hiddenCategories)
+        val selectionScope = if (selectionTag.isEmpty()) "" else "c$selectionTag|"
         // Season and episode belong in the key: without them every episode of a
-        // show would read the first one's cached source back.
+        // show would read the first one's cached source back. The category
+        // selection belongs in it for the reason the movie path spells out.
         val cacheKey = iptvMovieSourceCacheKey(
             profileIdHash = profileIdHash(),
             imdbId = imdbId,
             tmdbId = tmdbId,
             title = title,
             year = null
-        )?.let { base -> "stalker_series|${portal.id}|$base|s${season}e$episode" }
+        )?.let { base -> "stalker_series|${portal.id}|$selectionScope$base|s${season}e$episode" }
         if (cacheKey != null) {
             lookupCachedMovieSources(cacheKey, fingerprint)?.let { return it }
         }
@@ -6203,9 +6472,22 @@ class IptvRepository @Inject constructor(
         // See the movie path: the offered count separates "the portal sent
         // nothing" from "the portal sent a catalogue page that matched nothing".
         var offered = 0
+        var skipped = 0
         for (query in stalkerVodSearchQueries(title, originalTitle)) {
-            val items = stalkerSeriesSearch(portal, fingerprint, api, query)
-            offered += items.size
+            val fetched = stalkerSeriesSearch(portal, fingerprint, api, query)
+            offered += fetched.size
+            // Sieved here, before the matcher and therefore before the binding
+            // cap below, which is the whole point of the setting: the cap keeps
+            // the first few shows the portal happens to list, so a filter
+            // applied afterwards would have nothing left to choose from. A
+            // portal listing one show per language cuts to the chosen ones
+            // here, and the cap then spends its places on those.
+            val items = filterStalkerCategorySelection(
+                items = fetched,
+                portalId = portal.id,
+                hiddenKeys = hiddenCategories
+            ) { it.categoryId }
+            skipped += fetched.size - items.size
             if (items.isEmpty()) continue
             matched = matchStalkerSeriesMatches(
                 items = items,
@@ -6220,7 +6502,7 @@ class IptvRepository @Inject constructor(
         if (shows.isEmpty()) {
             System.err.println(
                 "[Stalker-VOD] portal=${portal.id} series='$title' " +
-                    "offered=$offered shows=0"
+                    "offered=$offered skipped=$skipped shows=0"
             )
             return emptyList()
         }
@@ -6252,7 +6534,7 @@ class IptvRepository @Inject constructor(
 
         System.err.println(
             "[Stalker-VOD] portal=${portal.id} series='$title' s${season}e$episode " +
-                "shows=${shows.size} byId=${matched.matchedById} limit=$limit " +
+                "skipped=$skipped shows=${shows.size} byId=${matched.matchedById} limit=$limit " +
                 "bound=${bindings.size} sources=${sources.size}"
         )
         if (sources.isEmpty()) return emptyList()
