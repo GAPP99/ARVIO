@@ -377,10 +377,10 @@
     <string name="settings_ph_server_url_discover">Leave empty to discover automatically</string>
     <string name="settings_edit_tv_playlist">Edit TV Playlist</string>
     <string name="settings_add_tv_playlist">Add TV Playlist</string>
-    <string name="settings_catalog_pack_import_title">Import Catalog Pack</string>
-    <string name="settings_catalog_pack_import_desc">Import a bundle of catalogs from a JSON manifest URL</string>
+    <string name="settings_catalog_pack_import_title">Import Catalog Pack / Collections</string>
+    <string name="settings_catalog_pack_import_desc">Import a catalog pack or a collections file (e.g. a Nuvio collections export) from a URL or pasted JSON</string>
     <string name="settings_catalog_pack_import_badge">IMPORT</string>
-    <string name="settings_catalog_pack_url_label">Pack URL</string>
+    <string name="settings_catalog_pack_url_label">Pack / collections URL or JSON</string>
     <string name="settings_catalog_pack_loading">Loading catalog pack details...</string>
     <string name="settings_catalog_pack_import_failed">Import Failed</string>
     <string name="settings_catalog_pack_author">Author: %1$s • v%2$s</string>
@@ -1730,4 +1730,8 @@
     <string name="live_sources_failed">Could not load sources. Please try again.</string>
     <string name="settings_iptv_fallback_logos">Fallback channel logos</string>
     <string name="settings_iptv_fallback_logos_desc">Use alternative artwork only when the provider logo is missing or fails to load.</string>
+    <string name="settings_builtin_collections_title">Built-in Collections</string>
+    <string name="settings_builtin_collections_desc">Show the built-in ARVIO Services / Genres / Franchises rails. Turn off to use only your own imported collections</string>
+    <string name="settings_collections_installed">Installed collections: %1$s (%2$d rails)</string>
+    <string name="catalog_collections_invalid">This is not a valid collections file (Nuvio collections export JSON expected)</string>
 </resources>

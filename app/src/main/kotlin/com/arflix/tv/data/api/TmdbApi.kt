@@ -4,6 +4,7 @@ import com.google.gson.annotations.SerializedName
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.QueryMap
 
 /**
  * TMDB API interface
@@ -235,9 +236,43 @@ interface TmdbApi {
         @Query("api_key") apiKey: String,
         @Query("language") language: String? = null
     ): TmdbCollectionResponse
+
+    /**
+     * Free-form discover query used by imported collections, whose filters are
+     * raw TMDB query keys (with_companies, with_networks, *_date.gte, ...).
+     */
+    @GET("discover/{media_type}")
+    suspend fun discoverWithParams(
+        @Path("media_type") mediaType: String,
+        @Query("api_key") apiKey: String,
+        @QueryMap params: Map<String, String>,
+        @Query("sort_by") sortBy: String = "popularity.desc",
+        @Query("language") language: String? = null,
+        @Query("page") page: Int = 1
+    ): TmdbListResponse
+
+    /** Public TMDB v3 list; items keep the list's own order and carry a media_type. */
+    @GET("list/{list_id}")
+    suspend fun getPublicList(
+        @Path("list_id") listId: Int,
+        @Query("api_key") apiKey: String,
+        @Query("language") language: String? = null,
+        @Query("page") page: Int = 1
+    ): TmdbPublicListResponse
 }
 
 // Response data classes
+
+data class TmdbPublicListResponse(
+    val page: Int = 1,
+    val items: List<TmdbPublicListItem> = emptyList(),
+    @SerializedName("total_pages") val totalPages: Int = 1
+)
+
+data class TmdbPublicListItem(
+    val id: Int = 0,
+    @SerializedName("media_type") val mediaType: String? = null
+)
 
 data class TmdbListResponse(
     val page: Int = 1,

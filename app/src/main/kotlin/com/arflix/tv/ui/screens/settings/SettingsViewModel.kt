@@ -264,6 +264,7 @@ data class SettingsUiState(
     val pendingPackUrl: String? = null,
     val isPackLoading: Boolean = false,
     val packError: SettingsMessage? = null,
+    val builtInCollectionsEnabled: Boolean = true,
     // Addons
     val addons: List<Addon> = emptyList(),
     val isRefreshingAddons: Boolean = false,
@@ -2309,6 +2310,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun initializeCatalogs() {
+        _uiState.value = _uiState.value.copy(
+            builtInCollectionsEnabled = catalogRepository.isBuiltInCollectionsEnabled()
+        )
         viewModelScope.launch {
             runCatching {
                 catalogRepository.ensurePreinstalledDefaults(mediaRepository.getDefaultCatalogConfigs())
@@ -2324,6 +2328,29 @@ class SettingsViewModel @Inject constructor(
                 pendingPackManifest = null,
                 pendingPackUrl = null
             )
+            // Collections documents (e.g. a Nuvio collections export, by URL or pasted
+            // JSON) install directly; anything else continues as a catalog pack.
+            val collectionsResult = catalogRepository.importCollections(url)
+            if (collectionsResult != null) {
+                collectionsResult.onSuccess { (name, railCount) ->
+                    _uiState.value = _uiState.value.copy(
+                        isPackLoading = false,
+                        toastMessage = SettingsMessage.Res(
+                            R.string.settings_collections_installed,
+                            listOf(name, railCount)
+                        ),
+                        toastType = ToastType.SUCCESS
+                    )
+                }.onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        isPackLoading = false,
+                        packError = error.orCatalogMessage(
+                            SettingsMessage.Res(R.string.catalog_collections_invalid)
+                        )
+                    )
+                }
+                return@launch
+            }
             val result = catalogRepository.fetchCatalogPackManifest(url)
             result.onSuccess { manifest ->
                 _uiState.value = _uiState.value.copy(
@@ -2380,6 +2407,14 @@ class SettingsViewModel @Inject constructor(
                     )
                 )
             }
+        }
+    }
+
+    fun toggleBuiltInCollections() {
+        viewModelScope.launch {
+            val enabled = !catalogRepository.isBuiltInCollectionsEnabled()
+            catalogRepository.setBuiltInCollectionsEnabled(enabled)
+            _uiState.value = _uiState.value.copy(builtInCollectionsEnabled = enabled)
         }
     }
 
