@@ -127,7 +127,7 @@ fun MiniPlayerRow(
     // Read rapidly changing programme focus here, not in the surrounding guide.
     val displayedProgramme = focusedProgrammeProvider?.invoke() ?: focusedProgramme
     val drawerDirection = if (LocalLayoutDirection.current == LayoutDirection.Rtl) 1f else -1f
-    if (landscapeCompact && !compact) {
+    if (landscapeCompact) {
         val spec = landscapePhoneMiniPlayerSpec()
         Row(
             modifier = modifier

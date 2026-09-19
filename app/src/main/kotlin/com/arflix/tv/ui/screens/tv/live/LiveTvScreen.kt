@@ -2125,7 +2125,10 @@ fun LiveTvScreen(
                 System.err.println("[Sports-Scan] candidates=${candidateIds.size} events=${scannedEvents.size} liveChannels=${scannedEvents.count { it.channelOnly && it.isOnAir(guideClockMillis) }} elapsed=${android.os.SystemClock.elapsedRealtime() - startedAt}ms")
                 scannedEvents
             }
-            if (result == null) return@LaunchedEffect
+            if (result == null) {
+                sportsError = true
+                return@LaunchedEffect
+            }
             sportsEvents = retainSportsEventOrder(sportsEvents, result)
             viewModel.cachedSportsSchedule = SportsScheduleSnapshot(sportsScheduleKey, sportsEvents)
             completedSportsScan = scanVersion
@@ -2152,9 +2155,13 @@ fun LiveTvScreen(
         sportsDisplayEvents.any { it.hasChannels(guideClockMillis) &&
             (it.isOnAir(guideClockMillis) || it.isScheduledNow(guideClockMillis) || it.programme.startUtcMillis > guideClockMillis) }
     }
-    val sportsDisplayLoading = !sportsHasVisibleEvents &&
-        (completedSportsScan == null || sportsLoading || sportsMetadataLoading || sportsBroadcastLoading || sportsCatalogueLoading)
-    val sportsDisplayFailed = !sportsDisplayLoading && completedSportsScan != null && sportsError && sportsDisplayEvents.isEmpty()
+    val sportsDisplayLoading = shouldShowSportsLoading(
+        hasVisibleEvents = sportsHasVisibleEvents,
+        workLoading = sportsWorkLoading,
+        hasCompletedScan = completedSportsScan != null,
+        scanFailed = sportsError,
+    )
+    val sportsDisplayFailed = !sportsDisplayLoading && sportsError && !sportsHasVisibleEvents
     var sportsOpenedAt by remember { mutableLongStateOf(0L) }
     LaunchedEffect(sportsSelected, sportsDisplayLoading, sportsHasVisibleEvents) {
         if (!sportsSelected) sportsOpenedAt = 0L

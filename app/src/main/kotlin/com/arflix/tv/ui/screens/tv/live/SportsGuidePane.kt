@@ -107,10 +107,16 @@ internal fun SportsGuidePane(
     var artworkRetry by remember { mutableIntStateOf(0) }
     var failedArtwork by remember(artworkRetry) { mutableStateOf(emptySet<String>()) }
     var presentationRows by remember { mutableStateOf(emptyList<SportsGuideRow>()) }
+    var presentationLoading by remember { mutableStateOf(true) }
     LaunchedEffect(events, now) {
-        presentationRows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            // An image failure must not remove/reparent the focused lazy item.
-            sportsPresentationRows(events, now, emptySet())
+        presentationLoading = true
+        try {
+            presentationRows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                // An image failure must not remove/reparent the focused lazy item.
+                sportsPresentationRows(events, now, emptySet())
+            }
+        } finally {
+            presentationLoading = false
         }
     }
     val rows = remember(presentationRows) {
@@ -290,7 +296,7 @@ internal fun SportsGuidePane(
                 }
             }
         }
-        val isProcessing = loading || (events.isNotEmpty() && rows.isEmpty())
+        val isProcessing = loading || presentationLoading
         if (rows.isEmpty()) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {

@@ -58,6 +58,10 @@ data class ProfileUiState(
     val pinError: String = "" // Error message for wrong PIN
 )
 
+internal fun ProfileUiState.canFinishSelection(targetProfileId: String?): Boolean =
+    targetProfileId != null && activeProfile?.id == targetProfileId &&
+        !isSwitchingProfile && !isManageMode && !showPinDialog
+
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -194,8 +198,7 @@ class ProfileViewModel @Inject constructor(
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
-                isSwitchingProfile = true,
-                activeProfile = profile
+                isSwitchingProfile = true
             )
             try {
                 val previousProfileId = withContext(Dispatchers.IO) {
@@ -229,6 +232,8 @@ class ProfileViewModel @Inject constructor(
                         profileRepository.setActiveProfile(profile.id)
                     }
                 }
+
+                _uiState.value = _uiState.value.copy(activeProfile = profile)
 
                 viewModelScope.launch(Dispatchers.IO) {
                     if (profileRepository.getActiveProfileId() != profile.id) return@launch

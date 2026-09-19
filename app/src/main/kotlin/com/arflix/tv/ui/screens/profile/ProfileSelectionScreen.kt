@@ -161,30 +161,13 @@ fun ProfileSelectionScreen(
         }
     }
 
-    // Safety timeout: prevent perpetual freeze if transition state gets stranded
-    LaunchedEffect(isTransitioning) {
-        if (isTransitioning) {
-            delay(3500)
-            if (isTransitioning) {
-                if (!uiState.isManageMode && !uiState.showPinDialog && (uiState.activeProfile != null || transitionProfile != null)) {
-                    onProfileSelected()
-                } else {
-                    isTransitioning = false
-                    transitionProfile = null
-                }
-            }
-        }
-    }
-
     // Navigate to Home once the expand-to-center animation has finished AND profile data loading is complete
-    LaunchedEffect(isTransitioning, minAnimationCompleted, uiState.isSwitchingProfile, uiState.activeProfile?.id) {
+    LaunchedEffect(isTransitioning, minAnimationCompleted, uiState.isSwitchingProfile, uiState.activeProfile?.id,
+        transitionProfile?.id, uiState.isManageMode, uiState.showPinDialog) {
         if (
             isTransitioning &&
             minAnimationCompleted &&
-            !uiState.isSwitchingProfile &&
-            (uiState.activeProfile != null || transitionProfile != null) &&
-            !uiState.isManageMode &&
-            !uiState.showPinDialog
+            uiState.canFinishSelection(transitionProfile?.id)
         ) {
             onProfileSelected()
         }
