@@ -36,7 +36,6 @@
   <br />
 
   <a href="https://web.arvio.tv"><img src="https://img.shields.io/badge/ARVIO-Web%20App-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="ARVIO Web App" /></a>
-  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/ProdigyV21/ARVIO"><img src="https://img.shields.io/badge/Obtainium-Add%20App-6750A3?style=for-the-badge&logo=android" alt="Add to Obtainium" /></a>
 
   <br />
   <br />
