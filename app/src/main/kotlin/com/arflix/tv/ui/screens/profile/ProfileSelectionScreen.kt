@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -50,7 +51,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -92,9 +92,6 @@ fun ProfileSelectionScreen(
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
     var isReadyForInput by remember { mutableStateOf(isTouchDevice) }
 
-    val density = LocalDensity.current
-    val verticalCenterOffsetDp = if (isTouchDevice) 28.dp else 0.dp
-    val verticalCenterOffsetPx = with(density) { verticalCenterOffsetDp.toPx() }
 
     // Coordinate tracking & 3-step transition states
     var rootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -118,7 +115,7 @@ fun ProfileSelectionScreen(
         val root = rootCoordinates
         if (coords != null && root != null && root.isAttached && coords.isAttached) {
             val avatarCenterInRoot = root.localPositionOf(coords, Offset(coords.size.width / 2f, coords.size.height / 2f))
-            val rootCenter = Offset(root.size.width / 2f, root.size.height / 2f + verticalCenterOffsetPx)
+            val rootCenter = Offset(root.size.width / 2f, root.size.height / 2f)
             initialDeltaOffset = Offset(
                 x = avatarCenterInRoot.x - rootCenter.x,
                 y = avatarCenterInRoot.y - rootCenter.y
@@ -147,6 +144,14 @@ fun ProfileSelectionScreen(
         }
     }
 
+    // Cancel any running transition if entering manage mode or editing a profile
+    LaunchedEffect(uiState.isManageMode, uiState.editingProfile) {
+        if (uiState.isManageMode || uiState.editingProfile != null) {
+            isTransitioning = false
+            transitionProfile = null
+        }
+    }
+
     // Guarantee full completion of the expand/center animation before moving to Home
     LaunchedEffect(isTransitioning) {
         if (isTransitioning) {
@@ -156,13 +161,28 @@ fun ProfileSelectionScreen(
         }
     }
 
+    // Safety timeout: prevent perpetual freeze if transition state gets stranded
+    LaunchedEffect(isTransitioning) {
+        if (isTransitioning) {
+            delay(3500)
+            if (isTransitioning) {
+                if (!uiState.isManageMode && !uiState.showPinDialog && (uiState.activeProfile != null || transitionProfile != null)) {
+                    onProfileSelected()
+                } else {
+                    isTransitioning = false
+                    transitionProfile = null
+                }
+            }
+        }
+    }
+
     // Navigate to Home once the expand-to-center animation has finished AND profile data loading is complete
     LaunchedEffect(isTransitioning, minAnimationCompleted, uiState.isSwitchingProfile, uiState.activeProfile?.id) {
         if (
             isTransitioning &&
             minAnimationCompleted &&
             !uiState.isSwitchingProfile &&
-            uiState.activeProfile != null &&
+            (uiState.activeProfile != null || transitionProfile != null) &&
             !uiState.isManageMode &&
             !uiState.showPinDialog
         ) {
@@ -211,6 +231,7 @@ fun ProfileSelectionScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(appBackgroundDark())
+            .navigationBarsPadding()
             .onGloballyPositioned { rootCoordinates = it },
         contentAlignment = Alignment.Center
     ) {
@@ -222,7 +243,6 @@ fun ProfileSelectionScreen(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .offset(y = verticalCenterOffsetDp)
                     .graphicsLayer { alpha = backgroundAlpha }
             ) {
                 // Title
@@ -374,8 +394,7 @@ fun ProfileSelectionScreen(
 
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .offset(y = verticalCenterOffsetDp),
+                    .fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 // The enlarged profile card: centered directly at (0, 0)
@@ -485,7 +504,7 @@ fun ProfileSelectionScreen(
                     title = stringResource(R.string.enter_pin_to_unlock),
                     onPinConfirmed = { pin ->
                         val pending = uiState.pendingProfileForPin
-                        if (pending != null && PinUtil.verifyPin(pin, pending.pin)) {
+                        if (pending != null && PinUtil.verifyPin(pin, pending.pin) && uiState.pinContext == "select") {
                             startTransitionForProfile(pending)
                         }
                         viewModel.verifyPinAndSelectProfile(pin)

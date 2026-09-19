@@ -1546,6 +1546,7 @@
     <string name="profile_updated">Profile updated</string>
     <string name="profile_deleted">Profile deleted</string>
     <string name="profile_pin_set_success">Profile PIN set successfully</string>
+    <string name="profile_pin_removed_success">Profile PIN removed</string>
     <string name="tv_failed_load_iptv">Failed to load IPTV</string>
     <string name="tv_link_failed_start">Failed to start TV auth</string>
     <string name="tv_link_failed_poll">Failed to poll TV auth status</string>

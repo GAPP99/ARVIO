@@ -722,11 +722,31 @@ fun ArflixApp(
 
     val isScrollAwayRoute = isMobile && showBottomBar
 
+    val mainScreenBottomBarOffsets = remember { mutableMapOf<String, Float>() }
+    val currentMainRoute = remember(currentRoute) {
+        when (currentRoute?.substringBefore('?')) {
+            Screen.Home.route, Screen.Search.route, Screen.Watchlist.route, "tv", "settings" ->
+                currentRoute.substringBefore('?')
+            else -> null
+        }
+    }
+
+    // Keep the active main screen's bottom bar state updated as the user scrolls
+    LaunchedEffect(bottomBarOffsetPx) {
+        if (showBottomBar && currentMainRoute != null) {
+            mainScreenBottomBarOffsets[currentMainRoute] = bottomBarOffsetPx
+        }
+    }
+
+    // Restore the bottom bar's state when returning to a main screen from a subpage or subscreen
     LaunchedEffect(currentRoute, isSettingsSubPage, isTvSubScreen, showBottomBar) {
         settleJob?.cancel()
         settleJob = null
-        if (showBottomBar) {
-            bottomBarOffsetPx = 0f
+        if (showBottomBar && currentMainRoute != null) {
+            val saved = mainScreenBottomBarOffsets[currentMainRoute] ?: 0f
+            bottomBarOffsetPx = if (measuredBarHeightPx > 0f) {
+                if (saved > measuredBarHeightPx * 0.5f) measuredBarHeightPx else 0f
+            } else saved
         }
     }
 
@@ -900,6 +920,8 @@ fun ArflixApp(
             AppBottomBar(
                 currentRoute = currentRoute,
                 onNavigate = { route ->
+                    mainScreenBottomBarOffsets[route] = 0f
+                    bottomBarOffsetPx = 0f
                     navController.navigate(route) {
                         popUpTo("home") { inclusive = false }
                         launchSingleTop = true

@@ -193,7 +193,10 @@ class ProfileViewModel @Inject constructor(
         if (_uiState.value.isSwitchingProfile) return
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSwitchingProfile = true)
+            _uiState.value = _uiState.value.copy(
+                isSwitchingProfile = true,
+                activeProfile = profile
+            )
             try {
                 val previousProfileId = withContext(Dispatchers.IO) {
                     profileRepository.getActiveProfileId()
@@ -414,7 +417,13 @@ class ProfileViewModel @Inject constructor(
             }
 
             profileRepository.updateProfile(updatedProfile)
-            _uiState.value = _uiState.value.copy(editingProfile = null)
+            val updatedProfiles = _uiState.value.profiles.map {
+                if (it.id == updatedProfile.id) updatedProfile else it
+            }
+            _uiState.value = _uiState.value.copy(
+                editingProfile = null,
+                profiles = updatedProfiles
+            )
             showToast(context.getString(R.string.profile_updated), ToastType.SUCCESS)
             runCatching { cloudSyncRepository.pushToCloud(force = true) }
         }
@@ -537,7 +546,13 @@ class ProfileViewModel @Inject constructor(
         val updatedProfile = profile.copy(pin = hashedPin, isLocked = true)
         viewModelScope.launch {
             profileRepository.updateProfile(updatedProfile)
-            _uiState.value = _uiState.value.copy(editingProfile = updatedProfile)
+            val updatedProfiles = _uiState.value.profiles.map {
+                if (it.id == updatedProfile.id) updatedProfile else it
+            }
+            _uiState.value = _uiState.value.copy(
+                editingProfile = updatedProfile,
+                profiles = updatedProfiles
+            )
             hidePinDialog()
             showToast(context.getString(R.string.profile_pin_set_success), ToastType.SUCCESS)
             runCatching { cloudSyncRepository.pushToCloud(force = true) }
@@ -549,7 +564,14 @@ class ProfileViewModel @Inject constructor(
         val updatedProfile = profile.copy(pin = null, isLocked = false)
         viewModelScope.launch {
             profileRepository.updateProfile(updatedProfile)
-            _uiState.value = _uiState.value.copy(editingProfile = updatedProfile)
+            val updatedProfiles = _uiState.value.profiles.map {
+                if (it.id == updatedProfile.id) updatedProfile else it
+            }
+            _uiState.value = _uiState.value.copy(
+                editingProfile = updatedProfile,
+                profiles = updatedProfiles
+            )
+            showToast(context.getString(R.string.profile_pin_removed_success), ToastType.SUCCESS)
             runCatching { cloudSyncRepository.pushToCloud(force = true) }
         }
     }

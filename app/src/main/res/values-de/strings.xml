@@ -1538,6 +1538,7 @@
     <string name="profile_updated">Profil aktualisiert</string>
     <string name="profile_deleted">Profil gelöscht</string>
     <string name="profile_pin_set_success">Profil-PIN erfolgreich festgelegt</string>
+    <string name="profile_pin_removed_success">Profil-PIN entfernt</string>
     <string name="tv_failed_load_iptv">IPTV konnte nicht geladen werden</string>
     <string name="tv_link_failed_start">TV-Authentifizierung konnte nicht gestartet werden</string>
     <string name="tv_link_failed_poll">Status der TV-Authentifizierung konnte nicht abgefragt werden</string>
