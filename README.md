@@ -38,6 +38,9 @@
   <a href="https://web.arvio.tv">
     <img src="https://img.shields.io/badge/ARVIO-Web%20App-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="ARVIO Web App" />
   </a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/ProdigyV21/ARVIO">
+    <img src="https://img.shields.io/badge/Obtainium-Add%20App-6750A3?style=for-the-badge&logo=android" alt="Add to Obtainium" />
+  </a>
 
   <br />
   <br />
@@ -98,9 +101,29 @@ It is not intended as an advertising page, download landing page, or content dis
 
 ## Availability
 
-ARVIO is available on Google Play:
+ARVIO is available across official app stores, direct GitHub releases, and Obtainium:
 
-[<img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" width="160">](https://play.google.com/store/apps/details?id=com.arvio.tv)
+<p align="left">
+  <a href="https://play.google.com/store/apps/details?id=com.arvio.tv">
+    <img src="assets/badges/badge_google_play.png" alt="Get it on Google Play" width="160">
+  </a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/ProdigyV21/ARVIO">
+    <img src="assets/badges/badge_obtainium.png" alt="Get it on Obtainium" width="160">
+  </a>
+  <a href="https://github.com/ProdigyV21/ARVIO/releases/latest">
+    <img src="assets/badges/badge_github.png" alt="Get it on GitHub" width="160">
+  </a>
+</p>
+
+### Obtainium (Recommended for Sideloading)
+Install and automatically receive updates directly from GitHub Releases using [Obtainium](https://github.com/ImranR98/Obtainium):
+
+- **1-Click Add:** Click the **Get it on Obtainium** badge above or open [`obtainium://add/https://github.com/ProdigyV21/ARVIO`](obtainium://add/https://github.com/ProdigyV21/ARVIO) on your Android device.
+- **Manual App Source URL:** `https://github.com/ProdigyV21/ARVIO`
+- See [Obtainium Setup Guide](docs/distribution/OBTAINIUM.md) for pre-configured JSON import and APK filtering details.
+
+### Direct GitHub Releases
+Signed APKs (`ARVIO-v*-sideload-release.apk`) and checksums (`SHA256SUMS.txt`) are published on [GitHub Releases](https://github.com/ProdigyV21/ARVIO/releases/latest).
 
 
 

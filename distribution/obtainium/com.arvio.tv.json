@@ -1,0 +1,12 @@
+{
+    "apps": [
+        {
+            "id": "com.arvio.tv",
+            "url": "https://github.com/ProdigyV21/ARVIO",
+            "author": "ProdigyV21",
+            "name": "ARVIO",
+            "preferredApkIndex": null,
+            "additionalSettings": "{\"apkFilter\":\"ARVIO-.*-sideload-release\\\\.apk\",\"autoCheckForUpdates\":true,\"filterByStatus\":true,\"includePrereleases\":false,\"fallbackToOlderReleases\":true}"
+        }
+    ]
+}
