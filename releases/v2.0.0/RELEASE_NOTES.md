@@ -2,6 +2,10 @@
 
 **A new Library. A more powerful Search. A better Live TV experience.**
 
+## September 19 Hotfix (Build 317)
+
+The APK below replaces the initial build 316. It restores Telegram's release configuration and fixes disappearing home-server connections and missing library lists after sync. Existing installations can update without clearing their settings. If you already installed 2.0.0 from GitHub, download and install this replacement APK.
+
 ARVIO 2.0 brings a major refresh across TV, phones, tablets and the web. This release brings together the work since v1.9.997: a redesigned Library for your watchlists and home servers, richer discovery filters, more flexible IPTV and sports navigation, and improvements to the everyday experience of browsing, watching and keeping everything in sync.
 
 ## A completely redesigned Library
@@ -83,6 +87,6 @@ This release was made possible by **@Himanth-reddy, @ReichiMD, @Aaronnn17, @sile
 - **Google Play:** the Play build is submitted separately and becomes available after Google's review and rollout.
 - **Checksums:** `SHA256SUMS.txt` covers the public APK download.
 
-**Version 2.0.0 · Android version code 316 · Android 6.0 or newer.**
+**Version 2.0.0 · Android version code 317 · Android 6.0 or newer.**
 
 ARVIO does not include movies, television channels or streaming subscriptions. Connect your own compatible, authorized sources. Provider, browser and device capabilities determine playback and feature availability.
