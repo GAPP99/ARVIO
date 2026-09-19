@@ -35,19 +35,13 @@
   <br />
   <br />
 
-  <a href="https://web.arvio.tv">
-    <img src="https://img.shields.io/badge/ARVIO-Web%20App-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="ARVIO Web App" />
-  </a>
-  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/ProdigyV21/ARVIO">
-    <img src="https://img.shields.io/badge/Obtainium-Add%20App-6750A3?style=for-the-badge&logo=android" alt="Add to Obtainium" />
-  </a>
+  <a href="https://web.arvio.tv"><img src="https://img.shields.io/badge/ARVIO-Web%20App-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="ARVIO Web App" /></a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/ProdigyV21/ARVIO"><img src="https://img.shields.io/badge/Obtainium-Add%20App-6750A3?style=for-the-badge&logo=android" alt="Add to Obtainium" /></a>
 
   <br />
   <br />
 
- <a href="https://trendshift.io/repositories/28671?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-28671" target="_blank" rel="noopener noreferrer">
-    <img src="https://trendshift.io/api/badge/trendshift/repositories/28671/weekly?language=Kotlin" alt="ProdigyV21/ARVIO | Trendshift" width="250" height="55" />
-  </a>
+  <a href="https://trendshift.io/repositories/28671?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-28671" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/28671/weekly?language=Kotlin" alt="ProdigyV21/ARVIO | Trendshift" width="250" height="55" /></a>
 
 
 </div>
@@ -104,15 +98,9 @@ It is not intended as an advertising page, download landing page, or content dis
 ARVIO is available across official app stores, direct GitHub releases, and Obtainium:
 
 <p align="left">
-  <a href="https://play.google.com/store/apps/details?id=com.arvio.tv">
-    <img src="assets/badges/badge_google_play.png" alt="Get it on Google Play" width="160">
-  </a>
-  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/ProdigyV21/ARVIO">
-    <img src="assets/badges/badge_obtainium.png" alt="Get it on Obtainium" width="160">
-  </a>
-  <a href="https://github.com/ProdigyV21/ARVIO/releases/latest">
-    <img src="assets/badges/badge_github.png" alt="Get it on GitHub" width="160">
-  </a>
+  <a href="https://play.google.com/store/apps/details?id=com.arvio.tv"><img src="assets/badges/badge_google_play.png" alt="Get it on Google Play" width="160"></a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/ProdigyV21/ARVIO"><img src="assets/badges/badge_obtainium.png" alt="Get it on Obtainium" width="160"></a>
+  <a href="https://github.com/ProdigyV21/ARVIO/releases/latest"><img src="assets/badges/badge_github.png" alt="Get it on GitHub" width="160"></a>
 </p>
 
 ### Obtainium (Recommended for Sideloading)
