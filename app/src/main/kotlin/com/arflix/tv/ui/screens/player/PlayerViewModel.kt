@@ -3549,14 +3549,30 @@ class PlayerViewModel @Inject constructor(
             val targetLangName = languageCodeToName(targetLang)
             // Include the best (rejected) score so a fast verdict is visibly a real scan result.
             val noMatch = onNoMatch ?: { score ->
+                // "No well-synced subtitle found" is only true when nothing is on screen. When the
+                // scan ends without evidence but a preferred-language subtitle IS selected — the
+                // release-name pick, kept by selectLastResort — that message contradicts what the
+                // user is watching. The Office S01E01 (Sept 2026): a failover landed on a remux
+                // whose only embedded track was PGS and whose container indexed no subtitle cues,
+                // so nothing could be measured; the subtitle chosen was perfect, and the app
+                // announced that it had found none. Report what happened: it was kept, unverified.
+                val kept = _uiState.value.selectedSubtitle
+                    ?.takeIf { !it.isEmbedded && normalizeLanguage(it.lang) == targetLang }
                 showMatchToast(
-                    if (score == null) {
-                        PlayerMessage.Res(
+                    when {
+                        kept != null && score == null -> PlayerMessage.Res(
+                            R.string.player_match_kept_unverified,
+                            listOf(kept.label)
+                        )
+                        kept != null && score != null -> PlayerMessage.Res(
+                            R.string.player_match_kept_unverified_score,
+                            listOf(kept.label, (score * 100).toInt())
+                        )
+                        score == null -> PlayerMessage.Res(
                             R.string.player_match_none_language,
                             listOf(targetLangName)
                         )
-                    } else {
-                        PlayerMessage.Res(
+                        else -> PlayerMessage.Res(
                             R.string.player_match_none_language_score,
                             listOf(targetLangName, (score * 100).toInt())
                         )
@@ -3870,15 +3886,36 @@ class PlayerViewModel @Inject constructor(
             }
             val builtInReference = embeddedRefs.firstOrNull { normalizeLanguage(it.lang) == "en" }
                 ?: embeddedRefs.firstOrNull()
-            val sourceLabel = if (builtInReference != null) "Built-in" else "Hearing"
-            val sourceLabelRes = if (builtInReference != null) {
+            // Image-based (PGS/VOBSUB) or forced embedded tracks are excluded above because they
+            // carry no TEXT — nothing to translate, nothing to compare lines against. Their cue
+            // TIMINGS are a different matter: the container's Cues index stores them exactly like a
+            // text track's, so on a file whose only embedded subtitles are images the index can
+            // still supply a whole-file timing reference. Kept separate from [embeddedRefs] so it
+            // can never be mistaken for a text reference.
+            val bitmapReference = if (builtInReference != null) {
+                null
+            } else {
+                subs.firstOrNull { it.isEmbedded && it.isBitmap && normalizeLanguage(it.lang) == "en" }
+                    ?: subs.firstOrNull { it.isEmbedded && it.isBitmap }
+            }
+            // What the reference will PROBABLY be. Both are reassigned the moment something
+            // actually supplies one, because this guess is wrong whenever the container index
+            // steps in: with AI off and only an image track, "Hearing" was printed and then shown
+            // to the user in the match toast, while no hearing scan had run or could run (The
+            // Office S01E05, Sept 2026). A label must describe what happened, not what was likely.
+            var sourceLabel = if (builtInReference != null) "Built-in" else "Hearing"
+            var sourceLabelRes = if (builtInReference != null) {
                 R.string.player_match_source_builtin
             } else {
                 R.string.player_match_source_hearing
             }
+            fun useContainerIndexLabel() {
+                sourceLabel = "Container index"
+                sourceLabelRes = R.string.player_match_source_index
+            }
             android.util.Log.i(
                 "SubMatch",
-                "reference source=$sourceLabel embeddedRefs=${embeddedRefs.size} " +
+                "reference source=$sourceLabel (provisional label) embeddedRefs=${embeddedRefs.size} " +
                     "ref=\"${builtInReference?.label ?: "-"}\" (lang=${builtInReference?.lang}) " +
                     "allEmbedded=${subs.count { it.isEmbedded }}"
             )
@@ -4001,6 +4038,43 @@ class PlayerViewModel @Inject constructor(
              * lives here once instead of at each call site.
              */
             suspend fun runInPlayerReference(reference: Subtitle): List<ScoredCandidate>? {
+                // Container index first. A Matroska Cues index carries the embedded track's
+                // AUTHORED cue times for the whole file, readable in a few range requests before
+                // the player has buffered anything — so where it exists it dominates everything
+                // below it: nothing is taken off screen (the optimistic pick keeps rendering), the
+                // reference spans the film instead of the next few seconds, and a scan that used
+                // to spend minutes collecting cues in realtime decides at once.
+                // Timings only, though — the index carries no text — so AI verification further
+                // down stays gated on referenceCues and does not run for this path.
+                val indexedRefs = collectIndexedReferenceCues(reference)
+                if (indexedRefs.size >= MATCH_MIN_REF_INTERVALS) {
+                    referenceRefs = indexedRefs
+                    // Score EVERY candidate here, unlike the buffer paths. The Office S01E04
+                    // (Sept 2026): the first candidate cleared the bar at 0.87, was taken on the
+                    // spot, and was the wrong sync — while the second in the list was perfect and
+                    // was never even loaded. Two reasons this path must compare:
+                    //  1. It has NO reference text (a Cues index stores timings only), so AI
+                    //     verification cannot run and nothing downstream can catch a bad pick.
+                    //     Candidates scored against each other are the only evidence left.
+                    //  2. Laziness bought memory and bandwidth back when the reference was a
+                    //     6-cue buffer read and candidates came over the network. Preload has
+                    //     usually already written these to disk, and a whole-file reference is
+                    //     what makes comparing them meaningful in the first place.
+                    loaded = loadAll()
+                    useContainerIndexLabel()
+                    matchStep(
+                        "2· reference from container index (${indexedRefs.size} cues) — " +
+                            "comparing ${loaded.size} subtitles…"
+                    )
+                    Log.i(
+                        "SubMatch",
+                        "container-index reference carries no text — scoring all ${loaded.size} " +
+                            "candidates (AI verification cannot run on this path)"
+                    )
+                    return withContext(Dispatchers.Default) {
+                        scoreCandidatesWithOffsets(loaded, referenceRefs, debug = true)
+                    }
+                }
                 if (provisional != null) {
                     provisionalDisplaced = true
                     _uiState.value = _uiState.value.copy(provisionalMatch = null)
@@ -4097,7 +4171,32 @@ class PlayerViewModel @Inject constructor(
                             referenceCues = emptyList()
                             runInPlayerReference(builtInReference)
                         } else {
-                            matchStep("2· reference ok (${referenceRefs.size} cues / ${span / 1000}s) — scoring…")
+                            // Upgrade the reference to the container index when the file carries
+                            // one. The buffer describes only the seconds around the playhead —
+                            // From S02E04 (Sept 2026) decided a whole episode on 7 cues spanning
+                            // 16s, corroborating a +7.3s shift the AI pairing disagreed with —
+                            // while the index describes the entire file. The buffer's TEXT is kept
+                            // as referenceCues, so AI verification still runs: this buys timing
+                            // coverage without giving up the identity check.
+                            val indexedRefs = collectIndexedReferenceCues(builtInReference, referenceCues)
+                            if (indexedRefs.size > referenceRefs.size) {
+                                Log.i(
+                                    "SubMatch",
+                                    "reference upgraded: player buffer ${referenceRefs.size} cues / " +
+                                        "${span / 1000}s -> container index ${indexedRefs.size} cues"
+                                )
+                                referenceRefs = indexedRefs
+                                useContainerIndexLabel()
+                                // Compare every candidate once the reference spans the whole file.
+                                // Laziness is only defensible while the reference is a handful of
+                                // buffered cues, where scoring the rest proves little. House of the
+                                // Dragon S01E01 (Sept 2026): this path scored ONLY the first pick,
+                                // an HMAX WEB-DL subtitle, at 0.77 and stopped — while the same ten
+                                // candidates on another source showed a BluRay-cut subtitle at 0.96.
+                                // The source was a BluRay rip; the better subtitle was never loaded.
+                                loaded = loadAll()
+                            }
+                            matchStep("2· reference ok (${referenceRefs.size} cues) — scoring…")
                             withContext(Dispatchers.Default) {
                                 scoreCandidatesWithOffsets(loaded, referenceRefs, debug = true)
                             }
@@ -4107,6 +4206,45 @@ class PlayerViewModel @Inject constructor(
                 // No AI on screen: the reference track has to be taken from the visible player,
                 // which is what main has always done. Subtitles are hidden for the scan's duration.
                 builtInReference != null -> runInPlayerReference(builtInReference)
+                // Every embedded track is an image (PGS/VOBSUB) or forced — the ordinary shape of a
+                // BluRay remux. There is no text to read, so the in-player reference and AI both
+                // have nothing to work with, and the scan used to stop here and keep whatever the
+                // filename ranking guessed. The container index does not need text: it reads cue
+                // TIMESTAMPS, and an image track's cues are indexed like any other. So the file can
+                // still be verified. (The Office S01E01, Sept 2026: a failover landed on an AVC
+                // remux whose single embedded track was PGS — allEmbedded=1, embeddedRefs=0 —
+                // and a correct subtitle was kept as an unverified guess rather than confirmed.)
+                bitmapReference != null -> {
+                    val indexedRefs = collectIndexedReferenceCues(bitmapReference)
+                    if (indexedRefs.size >= MATCH_MIN_REF_INTERVALS) {
+                        referenceRefs = indexedRefs
+                        // Nothing is taken off screen here either: an image track is never selected,
+                        // so the optimistic pick keeps rendering while this scores.
+                        loaded = loadAll()
+                        useContainerIndexLabel()
+                        Log.i(
+                            "SubMatch",
+                            "embedded subtitles are image-only — container index supplies the timing " +
+                                "reference (${indexedRefs.size} cues, ${loaded.size} candidates; " +
+                                "no text, so AI verification cannot run)"
+                        )
+                        matchStep(
+                            "2· reference from container index (${indexedRefs.size} cues) — " +
+                                "comparing ${loaded.size} subtitles…"
+                        )
+                        withContext(Dispatchers.Default) {
+                            scoreCandidatesWithOffsets(loaded, referenceRefs, debug = true)
+                        }
+                    } else {
+                        // No index either (MP4, no Cues, wrong language) — fall to the ladder with
+                        // the same outcome as before this branch existed.
+                        Log.i(
+                            "SubMatch",
+                            "image-only embedded tracks and no usable container index — nothing to verify against"
+                        )
+                        null
+                    }
+                }
                 // AI translation is already on screen as the fallback — the hearing path is too
                 // unreliable to risk replacing it, so just stay on AI.
                 _uiState.value.isAiTranslating -> null
@@ -4209,8 +4347,10 @@ class PlayerViewModel @Inject constructor(
                     provisional
                         ?.let { p -> list.firstOrNull { it.sub.provider == p.provider && it.sub.id == p.id } }
                         ?.takeIf { accepted(it) }
-                        ?: list.filter { accepted(it) }.maxByOrNull { it.score }
-                        ?: list.maxByOrNull { it.score }
+                        // Verify the candidate we would actually commit to, tie-break included —
+                        // otherwise the model vets one subtitle and a different one gets selected.
+                        ?: list.filter { accepted(it) }.bestWithTieBreak(streamSrc)
+                        ?: list.bestWithTieBreak(streamSrc)
                 } ?: break
                 if ("${aiTarget.sub.provider}|${aiTarget.sub.id}" in aiRejected) break
                 val targetCues = loaded.firstOrNull {
@@ -4229,13 +4369,30 @@ class PlayerViewModel @Inject constructor(
                     val aiSync = measureOffsetWithAi(referenceCues, targetCues, aiTarget.sub.label)
                     outcome = aiSync.verdict()
                     val aiOffset = aiSync?.offsetMs
-                    suspend fun scoreAt(offsetMs: Long) = withContext(Dispatchers.Default) {
+                    suspend fun scoreAt(
+                        offsetMs: Long,
+                        toleranceMs: Long = MATCH_OVERLAP_TOLERANCE_MS,
+                    ) = withContext(Dispatchers.Default) {
                         SubtitleSyncMatcher.scoreByTiming(
                             SubtitleSyncMatcher.shiftCues(targetCues, offsetMs),
                             referenceRefs,
-                            MATCH_OVERLAP_TOLERANCE_MS
+                            toleranceMs
                         )
                     }
+                    /**
+                     * Authored vs shifted, judged STRICTLY (no overlap tolerance).
+                     *
+                     * The ±[MATCH_OVERLAP_TOLERANCE_MS] used elsewhere exists so a correctly-timed
+                     * but differently-segmented subtitle is not docked — it is not a yardstick for
+                     * choosing between two timings of the SAME subtitle, because it absorbs the
+                     * very error being measured. House of the Dragon S01E01 (Sept 2026): a uniform
+                     * ~714ms lateness, confirmed by the model on 4/4 paired lines and visible in
+                     * the per-segment fits (0.30→0.47, 0.57→0.76), scored 0.77 "as authored"
+                     * against 0.69 shifted under the tolerant metric — so the real fix was thrown
+                     * away and the user watched a subtitle a second out for the whole episode.
+                     */
+                    suspend fun improvesStrictly(offsetMs: Long): Boolean =
+                        scoreAt(offsetMs, toleranceMs = 0L) > scoreAt(0L, toleranceMs = 0L) + MATCH_AI_MIN_GAIN
                     fun replaceTarget(score: Double, offsetMs: Long) {
                         results = results?.map {
                             if (it === aiTarget) ScoredCandidate(it.sub, score, offsetMs) else it
@@ -4308,13 +4465,31 @@ class PlayerViewModel @Inject constructor(
                             // lines are the evidence, and demanding the same gain throws away
                             // correct fixes: From S02E05 (Sept 2026) discarded a verified -8.5s
                             // correction because it scored 0.9096 against a 0.91 bar.
-                            if (aiScore >= aiTarget.score + MATCH_AI_MIN_GAIN) {
+                            // Two ways a model-measured shift earns its place. The tolerant
+                            // comparison is the original one. The STRICT one exists because the
+                            // ±MATCH_OVERLAP_TOLERANCE_MS window absorbs sub-second errors: a
+                            // uniformly ~714ms-late subtitle scored 0.77 authored vs 0.69 shifted
+                            // and the fix was discarded, while strict scoring of the same pair
+                            // showed the shift clearly ahead (House of the Dragon S01E01, Sept
+                            // 2026 — model agreed on 4/4 paired lines, and the user watched the
+                            // whole episode a second out). Tolerance is for not docking a good
+                            // subtitle, never for choosing between two timings of one subtitle.
+                            val strictlyBetter = aiApplied != 0L && improvesStrictly(aiApplied)
+                            if (aiScore >= aiTarget.score + MATCH_AI_MIN_GAIN || strictlyBetter) {
                                 Log.i(
                                     "SubMatch",
                                     "[ai-sync] overrides ${aiTarget.offsetMs}ms with ${aiApplied}ms: " +
-                                        "${"%.2f".format(aiTarget.score)} -> ${"%.2f".format(aiScore)}"
+                                        "${"%.2f".format(aiTarget.score)} -> ${"%.2f".format(aiScore)}" +
+                                        if (strictlyBetter && aiScore < aiTarget.score + MATCH_AI_MIN_GAIN) {
+                                            " (accepted on strict scoring — tolerance was masking the error)"
+                                        } else {
+                                            ""
+                                        }
                                 )
-                                replaceTarget(aiScore, aiApplied)
+                                // Keep the TOLERANT score for the candidate: the 0.70 accept bar
+                                // and every comparison against other candidates are calibrated on
+                                // it. Only the decision above is strict.
+                                replaceTarget(maxOf(aiScore, aiTarget.score), aiApplied)
                             } else if (aiTarget.offsetMs != 0L) {
                                 // AI contradicts a shift the sweep wanted to apply and cannot beat
                                 // it on our own metric either. Neither instrument is trustworthy
@@ -4350,7 +4525,40 @@ class PlayerViewModel @Inject constructor(
                 escalate()
             }
 
-            val best = results?.maxByOrNull { it.score }
+            val best = results?.bestWithTieBreak(streamSrc)
+            // DIAGNOSTIC (remove with the others): is the winner's error UNIFORM across the file?
+            // A single number cannot say — 0.77 overall with a rejected +638ms fix is consistent
+            // both with "off only in places" and with "uniformly off, and the reference is off the
+            // same way". Fitting the offset separately over the first, middle and last third of
+            // the reference windows distinguishes them: three similar offsets mean a constant
+            // error the sweep should have taken, three different ones mean drift or a re-cut.
+            best?.let { candidate ->
+                val winnerCues = loaded.firstOrNull {
+                    it.first.provider == candidate.sub.provider && it.first.id == candidate.sub.id
+                }?.second
+                if (winnerCues != null && referenceRefs.size >= 12) {
+                    val third = referenceRefs.size / 3
+                    val segments = listOf(
+                        "start" to referenceRefs.take(third),
+                        "middle" to referenceRefs.drop(third).take(third),
+                        "end" to referenceRefs.drop(third * 2),
+                    )
+                    withContext(Dispatchers.Default) {
+                        segments.forEach { (name, refs) ->
+                            val fit = SubtitleSyncMatcher.estimateOffsetMatch(
+                                winnerCues, refs, 0L, MATCH_OFFSET_MAX_MS
+                            )
+                            Log.i(
+                                "SubMatch",
+                                "[offset-profile] $name refs=${refs.size} " +
+                                    "bestOffset=${fit?.offsetMs ?: 0}ms " +
+                                    "scoreAtOffset=${"%.2f".format(fit?.correctedScore ?: 0.0)} " +
+                                    "scoreAsAuthored=${"%.2f".format(fit?.baseScore ?: 0.0)}"
+                            )
+                        }
+                    }
+                }
+            }
             val provisionalScored = provisional?.let { p ->
                 results?.firstOrNull { it.sub.provider == p.provider && it.sub.id == p.id }
             }
@@ -4370,9 +4578,29 @@ class PlayerViewModel @Inject constructor(
             fun cleared(candidate: ScoredCandidate): Boolean =
                 !aiIsArbiter || "${candidate.sub.provider}|${candidate.sub.id}" in aiVerdicts
 
+            // Keeping the on-screen pick stops short of keeping a worse one: when another
+            // candidate is clearly better (≥ MATCH_SWAP_MIN_GAIN) and has itself been accepted and
+            // cleared, it takes over.
+            // One bar, whatever the verdict is worth. A lower bar (0.03) for timing-only verdicts
+            // was tried on 2026-09-19 and reverted within the hour: South Park S06E02 swapped a
+            // 0.87 subtitle for a 0.90 one on that margin and landed on a subtitle that did not
+            // match the episode. Three hundredths across 60 reference windows is inside this
+            // metric's noise, not evidence — do not lower this again without a calibration over
+            // many files, and never on the strength of one report.
+            val provisionalOutclassed = provisionalScored != null && best != null &&
+                best !== provisionalScored && accepted(best) && cleared(best) &&
+                best.score >= provisionalScored.score + MATCH_SWAP_MIN_GAIN
+            if (provisionalOutclassed && provisionalScored != null && best != null) {
+                Log.i(
+                    "SubMatch",
+                    "swapping the on-screen pick: \"${provisionalScored.sub.label}\" " +
+                        "${"%.2f".format(provisionalScored.score)} -> \"${best.sub.label}\" " +
+                        "${"%.2f".format(best.score)} (gain ≥ $MATCH_SWAP_MIN_GAIN)"
+                )
+            }
             val winner = when {
-                provisionalScored != null && accepted(provisionalScored) && cleared(provisionalScored) ->
-                    provisionalScored
+                provisionalScored != null && accepted(provisionalScored) &&
+                    cleared(provisionalScored) && !provisionalOutclassed -> provisionalScored
                 best == null || !accepted(best) || !cleared(best) -> null
                 else -> best
             }
@@ -4774,6 +5002,115 @@ class PlayerViewModel @Inject constructor(
         return collected.values.sortedBy { it.startMs }
     }
 
+    /**
+     * The sync reference read out of the container itself: Matroska stores a Cues index, and
+     * muxers are recommended to index every subtitle frame, so the embedded track's whole timing
+     * timeline is usually readable from a few megabytes of metadata over HTTP range requests —
+     * no playback, no seeking, no demuxing (see [com.arflix.tv.ui.screens.player.subtitles.MatroskaSubtitleIndex]).
+     *
+     * Returns empty for everything this cannot serve — MP4/HLS/DASH, servers without range
+     * support, and the common muxer that indexed only the video track — and the caller falls back
+     * to the in-player reference exactly as before.
+     *
+     * The result is DOWNSAMPLED. A feature-length index holds hundreds to thousands of cues, and
+     * every one of them is a reference window the offset sweep re-scores at each of its ~80 steps
+     * per candidate; a few dozen windows spread across the film carry the same alignment evidence
+     * for a fraction of the work, which matters on the TV boxes this runs on.
+     */
+    private suspend fun collectIndexedReferenceCues(
+        reference: Subtitle,
+        // Cues already observed in the player for this same track, when the caller has any. The
+        // index must then agree with them before it is trusted — see the gate below.
+        verifyAgainst: List<SubtitleSyncMatcher.TimedCue> = emptyList(),
+    ): List<Pair<Long, Long>> {
+        val url = _uiState.value.selectedStreamUrl?.takeIf { it.isNotBlank() } ?: run {
+            Log.i("SubMatch", "container index skipped: no stream URL")
+            return emptyList()
+        }
+        val headers = _uiState.value.selectedStream?.behaviorHints?.proxyHeaders?.request.orEmpty()
+        Log.i("SubMatch", "container index: probing ${runCatching { java.net.URI(url).host }.getOrNull().orEmpty()} " +
+            "headers=${headers.size}")
+        val timeline = runCatching {
+            com.arflix.tv.ui.screens.player.subtitles.MatroskaIndexSource.load(url, headers) {
+                Log.i("SubMatch", it)
+            }
+        }.onFailure { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            Log.w("SubMatch", "matroska index failed: ${error.message}")
+        }.getOrNull() ?: return emptyList()
+
+        // Must be the reference's own language, never "whatever was indexed first" — see
+        // MatroskaSubtitleIndex.pickTrackForLanguage. A forced track is subtitles for a handful of
+        // foreign lines, not a timeline of the dialogue, so those are excluded there too.
+        val track = com.arflix.tv.ui.screens.player.subtitles.MatroskaSubtitleIndex
+            .pickTrackForLanguage(timeline.tracks, reference.lang)
+            ?: run {
+                Log.i(
+                    "SubMatch",
+                    "container index: nothing indexed in the reference language (${reference.lang}) — " +
+                        "indexed=${timeline.tracks.joinToString { "${it.trackNumber}:${it.language ?: "-"}" }}"
+                )
+                return emptyList()
+            }
+
+        // Where the caller saw real cues, the index has to agree with them before it is trusted.
+        // Track number and language do not prove sameness — a file can carry two tracks in one
+        // language (SDH vs dialogue, two dubs) — and scoring against the wrong one mis-times every
+        // verdict while looking perfectly confident. Checked against the FULL list: downsampling
+        // below would drop the very cues being compared.
+        if (verifyAgainst.isNotEmpty() &&
+            !com.arflix.tv.ui.screens.player.subtitles.MatroskaSubtitleIndex
+                .agreesWithObserved(track.cues, verifyAgainst)
+        ) {
+            Log.i(
+                "SubMatch",
+                "container index rejected: indexed track ${track.trackNumber} does not line up " +
+                    "with the ${verifyAgainst.size} cues observed in the player"
+            )
+            return emptyList()
+        }
+
+        val step = kotlin.math.max(1, track.cues.size / MATCH_INDEX_MAX_REFS)
+        val sampled = track.cues.filterIndexed { index, _ -> index % step == 0 }
+            .take(MATCH_INDEX_MAX_REFS)
+        Log.i(
+            "SubMatch",
+            "reference from container index: track=${track.trackNumber} lang=${track.language ?: "-"} " +
+                "cues=${track.cues.size} sampled=${sampled.size} span=${track.spanMs / 1000}s"
+        )
+        return sampled.map { it.startMs to it.endMs }
+    }
+
+    /**
+     * The winner among scored candidates: highest timing score, ties broken by release name.
+     *
+     * Timing scores cluster hard. The Office S01E05 (Sept 2026) produced a **four-way tie at
+     * 0.82**, and `maxByOrNull` then returns whichever happens to sit first in the list — a coin
+     * flip decided which subtitle the user reads. Within [MATCH_TIE_EPSILON] the timing evidence
+     * genuinely cannot separate them, so the release-name heuristic that already ranked them does:
+     * for a BluRay remux it prefers the subtitle cut for a BluRay over one cut for a DVDRip, which
+     * is exactly the distinction overlap scoring is blind to.
+     *
+     * Deliberately NOT a score comparison in disguise: a candidate outside the epsilon always
+     * wins on score alone, however good its filename looks.
+     */
+    private fun List<ScoredCandidate>.bestWithTieBreak(streamSrc: String): ScoredCandidate? {
+        val top = maxByOrNull { it.score } ?: return null
+        val contenders = filter { it.score >= top.score - MATCH_TIE_EPSILON }
+        if (contenders.size <= 1) return top
+        val winner = contenders.maxByOrNull { weightedSubtitleScore(streamSrc, it.sub.id) } ?: top
+        if (winner !== top) {
+            Log.i(
+                "SubMatch",
+                "tie-break: ${contenders.size} candidates within $MATCH_TIE_EPSILON of " +
+                    "${"%.2f".format(top.score)} — release name prefers \"${winner.sub.label}\" " +
+                    "(name=${weightedSubtitleScore(streamSrc, winner.sub.id)}) over " +
+                    "\"${top.sub.label}\" (name=${weightedSubtitleScore(streamSrc, top.sub.id)})"
+            )
+        }
+        return winner
+    }
+
     private fun scoreCandidatesWithOffsets(
         loaded: List<Pair<Subtitle, List<SubtitleSyncMatcher.TimedCue>>>,
         rawRefs: List<Pair<Long, Long>>,
@@ -4861,8 +5198,36 @@ class PlayerViewModel @Inject constructor(
         return ests.map { e ->
             var score = e.normal // tolerant, offset 0
             var off = 0L
+            // (a) Whole-file agreement. With an index-scale reference the file can corroborate a
+            // shift by itself: fit the offset independently over thirds and require them to agree
+            // (SubtitleSyncMatcher.segmentConsistentOffset). That evidence is stronger than the
+            // gain bars below, so it applies even to a subtitle that already clears the accept
+            // threshold — which is the case those bars miss. South Park S06E02 (Sept 2026): a
+            // candidate sat at 0.87 as authored while a ~2s shift made it right, and nothing
+            // looked, because rescueNeeded only searches below 0.70. A wrong cut cannot fake this:
+            // its thirds disagree (that episode's kept subtitle read 2025/6900/6700ms).
+            if (allowOffsets && refs.size >= MATCH_SEGMENT_OFFSET_MIN_REFS) {
+                SubtitleSyncMatcher.segmentConsistentOffset(
+                    e.cues, refs, MATCH_OFFSET_MIN_MS, MATCH_OFFSET_MAX_MS
+                )?.let { fit ->
+                    val shifted = SubtitleSyncMatcher.scoreByTiming(
+                        SubtitleSyncMatcher.shiftCues(e.cues, fit.offsetMs), refs, tol
+                    )
+                    if (shifted > score) {
+                        if (debug) {
+                            android.util.Log.i(
+                                "SubMatch",
+                                "[offset] \"${e.sub.label}\" ${fit.offsetMs}ms agrees across the file: " +
+                                    "${"%.2f".format(score)} -> ${"%.2f".format(shifted)}"
+                            )
+                        }
+                        score = shifted
+                        off = fit.offsetMs
+                    }
+                }
+            }
             // Only subtitles that failed as authored are shifted (see rescueNeeded above).
-            if (e.normal < MATCH_SUCCESS_THRESHOLD_TIMING) {
+            if (off == 0L && e.normal < MATCH_SUCCESS_THRESHOLD_TIMING) {
                 // (b) lone strong offset — qualify via the strict search (≥ 0.80), then take the
                 // tolerant score at that shift so the accept bar is measured consistently.
                 e.offset?.let {
@@ -6424,6 +6789,27 @@ class PlayerViewModel @Inject constructor(
         // is trustworthy on any reference — but a low one is not evidence of a bad subtitle when
         // there is barely anything to compare against. Mirrors the in-player path's buffered quorum.
         private const val MATCH_MIN_REFS_FOR_REJECT = 6
+
+        // Scores this close are a tie: the timing evidence cannot separate the candidates, so
+        // something other than a coin flip has to choose. See bestWithTieBreak.
+        private const val MATCH_TIE_EPSILON = 0.02
+
+        // How much better another candidate must score before it displaces the subtitle already on
+        // screen. The swap policy exists so a marginally better sync does not change typography and
+        // line breaks mid-scene — but it was absolute, and so protected a demonstrably worse pick:
+        // The Office S01E05 (Sept 2026, AI off) kept the provisional at 0.74 while four candidates
+        // scored 0.84, and the kept one turned out to be a different cut (offset profile
+        // -375/-2600/-1475ms). A tenth of a point is not "marginal"; this bar is.
+        private const val MATCH_SWAP_MIN_GAIN = 0.08
+
+        // Reference windows needed before cross-segment agreement is meaningful as corroboration.
+        // Well below a downsampled container index (60) and far above what a buffer read yields.
+        private const val MATCH_SEGMENT_OFFSET_MIN_REFS = 24
+
+        // Reference windows kept from a container-index reference (which can hold thousands).
+        // Evenly spread across the file, so coverage stays whole-film while the offset sweep's
+        // cost stays comparable to a buffer-collected reference.
+        private const val MATCH_INDEX_MAX_REFS = 60
 
         private const val MATCH_SUCCESS_THRESHOLD_TIMING = 0.70
         private const val MATCH_SUCCESS_THRESHOLD_HEARING = 0.30

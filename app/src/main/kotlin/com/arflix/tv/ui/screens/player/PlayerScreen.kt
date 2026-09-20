@@ -2292,6 +2292,13 @@ fun PlayerScreen(
         if (playerReleased) return@LaunchedEffect
         val subtitle = uiState.selectedSubtitle
         val url = uiState.selectedStreamUrl ?: return@LaunchedEffect
+        // DIAGNOSTIC (remove once the English-subtitle report is resolved): what the ViewModel
+        // asked for, versus what the branches below actually manage to put on the player.
+        android.util.Log.i(
+            "SubMatch",
+            "[select] apply \"${subtitle?.label ?: "none"}\" lang=${subtitle?.lang ?: "-"} " +
+                "embedded=${subtitle?.isEmbedded} playbackStarted=$hasPlaybackStarted"
+        )
 
         if (subtitle == null) {
             // Disable all text tracks
@@ -2370,6 +2377,12 @@ fun PlayerScreen(
                         val matches = fid.isNotBlank() &&
                             fid.substringAfter(ADDON_SUB_ID_PREFIX) == targetTrackId
                         if (matches) {
+                            // DIAGNOSTIC (remove with the others): the attached track was found,
+                            // so this switch needs no rebuild.
+                            android.util.Log.i(
+                                "SubMatch",
+                                "[select] attached track matched id=$targetTrackId — override applied"
+                            )
                             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                                 .buildUpon()
                                 .clearOverridesOfType(C.TRACK_TYPE_TEXT)
@@ -2393,6 +2406,15 @@ fun PlayerScreen(
                 if (attempt == 0) delay(400)
             }
         }
+
+        // DIAGNOSTIC (remove with the others): no attached track matched, so this pick falls to a
+        // MediaItem rebuild. If a selection never lands, the previously selected track — during a
+        // scan, the embedded English reference — is what stays on screen.
+        android.util.Log.i(
+            "SubMatch",
+            "[select] no attached track for \"${subtitle.label}\" — rebuilding MediaItem " +
+                "(preload=${latestUiState.subtitlePreloadEnabled} state=${exoPlayer.playbackState})"
+        )
 
         // External subtitle: rebuild MediaItem with just this one subtitle
         if (subtitle.url.isNotBlank() && exoPlayer.playbackState != Player.STATE_IDLE) {
