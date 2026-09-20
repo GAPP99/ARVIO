@@ -205,16 +205,6 @@ private class TranslatingTextOutput(
     private var hasFiredFirstCue = false
     private var cueSerial = 0
 
-    // DIAGNOSTIC counters (remove once the English-subtitle report is resolved). Cue callbacks
-    // fire several times a second, so every diagnostic below is capped rather than left to spam
-    // the trail the scan's own logs live in.
-    private var sourceShown = 0
-    private var translationsRequested = 0
-
-    private companion object {
-        const val DIAGNOSTIC_LOG_LIMIT = 8
-    }
-
     override fun onCues(cueGroup: CueGroup) {
         val cues = cueGroup.cues
 
@@ -227,15 +217,6 @@ private class TranslatingTextOutput(
         }
 
         if (!manager.isEnabled) {
-            // DIAGNOSTIC (remove once the English-subtitle report is resolved): this branch puts
-            // the SOURCE language on screen. Legitimate when AI is off, a bug when the user
-            // believes AI translation is running.
-            if (cues.isNotEmpty() && sourceShown++ < DIAGNOSTIC_LOG_LIMIT) {
-                android.util.Log.i(
-                    "SubMatch",
-                    "[cues] passthrough(disabled) group text=\"${extractRawText(cues).take(40)}\""
-                )
-            }
             lastCueGroup = cueGroup
             delegate.onCues(
                 if (manager.removeSubtitleHearingImpaired)
@@ -288,12 +269,6 @@ private class TranslatingTextOutput(
         // The lastCueGroup guard prevents a stale translation from overwriting a newer cue.
         delegate.onCues(CueGroup(emptyList(), cueGroup.presentationTimeUs))
         val captured = cueGroup
-        // DIAGNOSTIC (remove with the others): proves the modern path ran and a translation was
-        // actually requested — its absence in a session is what says the English came from a
-        // pass-through instead.
-        if (translationsRequested++ < DIAGNOSTIC_LOG_LIMIT) {
-            android.util.Log.i("SubMatch", "[cues] translating \"${text.take(40)}\"")
-        }
         scope.launch {
             val translated = manager.translate(text)
             handler.post {
@@ -337,17 +312,7 @@ private class TranslatingTextOutput(
             // report. Hiding costs nothing: the CueGroup path owns translation and will deliver
             // the translated cue — and if it somehow does not, a blank is the same outcome the
             // in-flight branch above already accepts.
-            else -> {
-                // DIAGNOSTIC (remove with the others): positive proof this branch hid the source
-                // language instead of painting it.
-                if (sourceShown++ < DIAGNOSTIC_LOG_LIMIT) {
-                    android.util.Log.i(
-                        "SubMatch",
-                        "[cues] hidden(deprecated callback, awaiting translation) text=\"${text.take(40)}\""
-                    )
-                }
-                delegate.onCues(emptyList())
-            }
+            else -> delegate.onCues(emptyList())
         }
     }
 

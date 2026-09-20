@@ -4526,39 +4526,6 @@ class PlayerViewModel @Inject constructor(
             }
 
             val best = results?.bestWithTieBreak(streamSrc)
-            // DIAGNOSTIC (remove with the others): is the winner's error UNIFORM across the file?
-            // A single number cannot say — 0.77 overall with a rejected +638ms fix is consistent
-            // both with "off only in places" and with "uniformly off, and the reference is off the
-            // same way". Fitting the offset separately over the first, middle and last third of
-            // the reference windows distinguishes them: three similar offsets mean a constant
-            // error the sweep should have taken, three different ones mean drift or a re-cut.
-            best?.let { candidate ->
-                val winnerCues = loaded.firstOrNull {
-                    it.first.provider == candidate.sub.provider && it.first.id == candidate.sub.id
-                }?.second
-                if (winnerCues != null && referenceRefs.size >= 12) {
-                    val third = referenceRefs.size / 3
-                    val segments = listOf(
-                        "start" to referenceRefs.take(third),
-                        "middle" to referenceRefs.drop(third).take(third),
-                        "end" to referenceRefs.drop(third * 2),
-                    )
-                    withContext(Dispatchers.Default) {
-                        segments.forEach { (name, refs) ->
-                            val fit = SubtitleSyncMatcher.estimateOffsetMatch(
-                                winnerCues, refs, 0L, MATCH_OFFSET_MAX_MS
-                            )
-                            Log.i(
-                                "SubMatch",
-                                "[offset-profile] $name refs=${refs.size} " +
-                                    "bestOffset=${fit?.offsetMs ?: 0}ms " +
-                                    "scoreAtOffset=${"%.2f".format(fit?.correctedScore ?: 0.0)} " +
-                                    "scoreAsAuthored=${"%.2f".format(fit?.baseScore ?: 0.0)}"
-                            )
-                        }
-                    }
-                }
-            }
             val provisionalScored = provisional?.let { p ->
                 results?.firstOrNull { it.sub.provider == p.provider && it.sub.id == p.id }
             }
