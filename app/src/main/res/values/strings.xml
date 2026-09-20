@@ -1730,4 +1730,37 @@
     <string name="live_sources_failed">Could not load sources. Please try again.</string>
     <string name="settings_iptv_fallback_logos">Fallback channel logos</string>
     <string name="settings_iptv_fallback_logos_desc">Use alternative artwork only when the provider logo is missing or fails to load.</string>
+
+    <!-- Stream Integrations & Priority -->
+    <string name="settings_stream_integrations">Stream Integrations</string>
+    <string name="settings_desc_stream_integrations">Reorder integrations to control playback and loading priority.</string>
+    <string name="settings_stream_integrations_list_title">Integrations</string>
+    <string name="settings_stream_integrations_helper">Higher integrations are searched first.</string>
+    <string name="settings_no_stream_integrations_configured">No stream integrations configured. Add addons, plugins, home servers, IPTV playlists, or Telegram to set their playback order.</string>
+    <string name="stream_integration_home_server">Home Server</string>
+    <string name="stream_integration_home_server_desc">Local and personal media servers (Jellyfin, Emby, Plex).</string>
+    <string name="stream_integration_stremio">Stremio Addons</string>
+    <string name="stream_integration_stremio_desc">Installed community streaming and debrid addons.</string>
+    <string name="stream_integration_plugins">Plugins &amp; Extensions</string>
+    <string name="stream_integration_plugins_desc">Custom scraper extensions and runtime plugins.</string>
+    <string name="stream_integration_telegram">Telegram</string>
+    <string name="stream_integration_telegram_desc">Direct streaming from your connected Telegram chats and channels.</string>
+    <string name="stream_integration_iptv_vod">IPTV VOD</string>
+    <string name="stream_integration_iptv_vod_desc">Video-on-demand movies and series from your IPTV playlists.</string>
+    <string name="stream_integration_move_up">Move up</string>
+    <string name="stream_integration_move_down">Move down</string>
+    <string name="stream_integration_toggle_enabled">Pull streams</string>
+    <string name="stream_integration_priority">Priority #%1$d</string>
+    <string name="stream_integration_open_settings">Configure</string>
+    <string name="stream_integration_reorder">Reorder</string>
+    <string name="settings_pill_integrations">%1$d active</string>
+    <string name="settings_fact_integrations">Active integrations</string>
+    <string name="settings_stream_search_mode">Search Mode</string>
+    <string name="settings_stream_search_mode_parallel">Parallel</string>
+    <string name="settings_stream_search_mode_parallel_desc">Search all integrations simultaneously.</string>
+    <string name="settings_stream_search_mode_sequential">Sequential</string>
+    <string name="settings_stream_search_mode_sequential_desc">Search integrations by priority.</string>
+    <string name="settings_stream_switch_to_parallel">Switch to Parallel</string>
+    <string name="settings_stream_switch_to_sequential">Switch to Sequential</string>
 </resources>
+
