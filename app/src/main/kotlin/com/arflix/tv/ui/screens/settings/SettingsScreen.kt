@@ -987,9 +987,9 @@ fun SettingsScreen(
                     val focusedStremioAddonMaxAction = if (focusedStremioAddon == null) {
                         0
                     } else if (focusedStremioAddonCanDelete) {
-                        3
+                        1
                     } else {
-                        2
+                        0
                     }
 
                     val isRtl = isRtlLayoutDirection
@@ -1531,9 +1531,7 @@ fun SettingsScreen(
                                                     val canDelete = !(addon.id == "opensubtitles" && addon.type == com.arflix.tv.data.model.AddonType.SUBTITLE)
                                                     when (addonActionIndex) {
                                                         0 -> viewModel.toggleAddon(addon.id)
-                                                        1 -> viewModel.moveAddonUp(addon.id)
-                                                        2 -> viewModel.moveAddonDown(addon.id)
-                                                        3 -> if (canDelete) {
+                                                        1 -> if (canDelete) {
                                                             viewModel.removeAddon(addon.id)
                                                             addonActionIndex = 0
                                                             if (contentFocusIndex >= stremioAddons.size && contentFocusIndex > 0) {
@@ -2182,8 +2180,6 @@ fun SettingsScreen(
                             focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
                             focusedActionIndex = addonActionIndex,
                             onToggleAddon = { viewModel.toggleAddon(it) },
-                            onMoveAddonUp = { viewModel.moveAddonUp(it) },
-                            onMoveAddonDown = { viewModel.moveAddonDown(it) },
                             onDeleteAddon = { viewModel.removeAddon(it) },
                             onAddCustomAddon = { showCustomAddonInput = true },
                             onRefreshAddons = { viewModel.refreshAddons() }
@@ -5126,8 +5122,6 @@ private fun MobileSettingsSubPage(
                     focusedIndex = -1,
                     focusedActionIndex = 0,
                     onToggleAddon = { viewModel.toggleAddon(it) },
-                    onMoveAddonUp = { viewModel.moveAddonUp(it) },
-                    onMoveAddonDown = { viewModel.moveAddonDown(it) },
                     onDeleteAddon = { viewModel.removeAddon(it) },
                     onAddCustomAddon = onAddCustomAddonClick,
                     onRefreshAddons = { viewModel.refreshAddons() }
@@ -9050,8 +9044,6 @@ private fun StremioAddonsSettings(
     focusedIndex: Int = -1,
     focusedActionIndex: Int = 0,
     onToggleAddon: (String) -> Unit = {},
-    onMoveAddonUp: (String) -> Unit = {},
-    onMoveAddonDown: (String) -> Unit = {},
     onDeleteAddon: (String) -> Unit = {},
     onAddCustomAddon: () -> Unit = {},
     onRefreshAddons: () -> Unit = {}
@@ -9094,8 +9086,6 @@ private fun StremioAddonsSettings(
                 } else {
                     addons.forEachIndexed { index, addon ->
                         val canDelete = !(addon.id == "opensubtitles" && addon.type == com.arflix.tv.data.model.AddonType.SUBTITLE)
-                        val canMoveUp = index > 0
-                        val canMoveDown = index < addons.lastIndex
                         Row(
                             modifier = Modifier.fillMaxWidth().clickable { onToggleAddon(addon.id) }.padding(horizontal = 16.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -9110,36 +9100,6 @@ private fun StremioAddonsSettings(
                             // Toggle switch
                             Box(modifier = Modifier.width(44.dp).height(24.dp).background(color = if (addon.isEnabled) SuccessGreen else Color.White.copy(alpha = 0.2f), shape = RoundedCornerShape(13.dp)).padding(3.dp), contentAlignment = if (addon.isEnabled) Alignment.CenterEnd else Alignment.CenterStart) {
                                 Box(modifier = Modifier.size(18.dp).background(color = Color.White, shape = RoundedCornerShape(10.dp)))
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clickable(enabled = canMoveUp) { onMoveAddonUp(addon.id) }
-                                    .background(Color.White.copy(alpha = if (canMoveUp) 0.1f else 0.04f), RoundedCornerShape(8.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.ArrowUpward,
-                                    contentDescription = stringResource(R.string.settings_cd_move_addon_up),
-                                    tint = TextSecondary.copy(alpha = if (canMoveUp) 1f else 0.35f),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clickable(enabled = canMoveDown) { onMoveAddonDown(addon.id) }
-                                    .background(Color.White.copy(alpha = if (canMoveDown) 0.1f else 0.04f), RoundedCornerShape(8.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.ArrowDownward,
-                                    contentDescription = stringResource(R.string.settings_cd_move_addon_down),
-                                    tint = TextSecondary.copy(alpha = if (canMoveDown) 1f else 0.35f),
-                                    modifier = Modifier.size(18.dp)
-                                )
                             }
                             if (canDelete) {
                                 Spacer(modifier = Modifier.width(12.dp))
@@ -9170,8 +9130,6 @@ private fun StremioAddonsSettings(
                         focusedAction = if (focusedIndex == index) focusedActionIndex else -1,
                         canDelete = canDelete,
                         onToggle = { onToggleAddon(addon.id) },
-                        onMoveUp = { onMoveAddonUp(addon.id) },
-                        onMoveDown = { onMoveAddonDown(addon.id) },
                         onDelete = { onDeleteAddon(addon.id) },
                         modifier = Modifier.settingsFocusSlot(index)
                     )
@@ -9252,15 +9210,11 @@ private fun AddonRow(
     focusedAction: Int = -1,
     canDelete: Boolean = true,
     onToggle: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isToggleFocused = isFocused && focusedAction == 0
-    val isMoveUpFocused = isFocused && focusedAction == 1
-    val isMoveDownFocused = isFocused && focusedAction == 2
-    val isDeleteFocused = canDelete && isFocused && focusedAction == 3
+    val isDeleteFocused = canDelete && isFocused && focusedAction == 1
     val isEnabled = addon.isEnabled
     val focusRingColor = resolveAccentColor(fallback = Pink)
 
@@ -9366,18 +9320,6 @@ private fun AddonRow(
                     )
                 }
             }
-
-            CatalogActionChip(
-                icon = Icons.Default.ArrowUpward,
-                isFocused = isMoveUpFocused,
-                onClick = onMoveUp
-            )
-
-            CatalogActionChip(
-                icon = Icons.Default.ArrowDownward,
-                isFocused = isMoveDownFocused,
-                onClick = onMoveDown
-            )
 
             if (canDelete) {
                 CatalogActionChip(

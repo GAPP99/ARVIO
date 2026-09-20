@@ -486,4 +486,69 @@ class StreamIntegrationRepository @Inject constructor(
             reason = "stream_search_mode_changed_${mode.id}"
         )
     }
+
+    fun exportCloudSettingsForProfile(
+        prefs: androidx.datastore.preferences.core.Preferences,
+        profileId: String
+    ): StreamIntegrationProfileCloudState {
+        val searchMode = StreamSearchMode.fromId(prefs[searchModeKey(profileId)]).id
+        val customOrder = prefs[providerOrderKey(profileId)].orEmpty()
+        val macroOrder = prefs[orderKey(profileId)].orEmpty()
+
+        val macroEnabled = buildMap {
+            StreamIntegrationType.entries.forEach { type ->
+                prefs[enabledKey(profileId, type)]?.let { put(type.id, it) }
+            }
+        }
+
+        val providerEnabled = buildMap {
+            val prefix = "profile_${profileId}_$STREAM_PROVIDER_ENABLED_PREFIX"
+            prefs.asMap().forEach { (key, value) ->
+                if (key.name.startsWith(prefix) && value is Boolean) {
+                    val providerId = key.name.removePrefix(prefix)
+                    put(providerId, value)
+                }
+            }
+        }
+
+        return StreamIntegrationProfileCloudState(
+            searchMode = searchMode,
+            customProviderOrder = customOrder,
+            macroCategoryOrder = macroOrder,
+            macroEnabledMap = macroEnabled,
+            providerEnabledMap = providerEnabled
+        )
+    }
+
+    fun applyCloudSettingsForProfile(
+        prefs: androidx.datastore.preferences.core.MutablePreferences,
+        profileId: String,
+        state: StreamIntegrationProfileCloudState
+    ) {
+        if (state.searchMode.isNotBlank()) {
+            prefs[searchModeKey(profileId)] = StreamSearchMode.fromId(state.searchMode).id
+        }
+        if (state.customProviderOrder.isNotBlank()) {
+            prefs[providerOrderKey(profileId)] = state.customProviderOrder
+        }
+        if (state.macroCategoryOrder.isNotBlank()) {
+            prefs[orderKey(profileId)] = state.macroCategoryOrder
+        }
+        state.macroEnabledMap.forEach { (typeId, isEnabled) ->
+            StreamIntegrationType.fromId(typeId)?.let { type ->
+                prefs[enabledKey(profileId, type)] = isEnabled
+            }
+        }
+        state.providerEnabledMap.forEach { (providerId, isEnabled) ->
+            prefs[providerEnabledKey(profileId, providerId)] = isEnabled
+        }
+    }
 }
+
+data class StreamIntegrationProfileCloudState(
+    val searchMode: String = StreamSearchMode.PARALLEL.id,
+    val customProviderOrder: String = "",
+    val macroCategoryOrder: String = "",
+    val macroEnabledMap: Map<String, Boolean> = emptyMap(),
+    val providerEnabledMap: Map<String, Boolean> = emptyMap()
+)

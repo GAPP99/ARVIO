@@ -10,6 +10,7 @@ import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.AddonType
 import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.Profile
+import com.arflix.tv.data.model.StreamSearchMode
 import com.arflix.tv.data.repository.ContinueWatchingItem
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_LANDSCAPE
@@ -105,7 +106,8 @@ class CloudSyncRepository @Inject constructor(
     private val profileAvatarImageManager: ProfileAvatarImageManager,
     private val invalidationBus: CloudSyncInvalidationBus,
     private val pluginDataStore: com.arflix.tv.data.local.PluginDataStore,
-    private val syncProviderStore: com.arflix.tv.data.repository.sync.SyncProviderStore
+    private val syncProviderStore: com.arflix.tv.data.repository.sync.SyncProviderStore,
+    private val streamIntegrationRepository: StreamIntegrationRepository
 ) {
     private val TAG = "CloudSync"
     private val gson = Gson()
@@ -303,7 +305,12 @@ class CloudSyncRepository @Inject constructor(
         val filterSubtitlesByLanguage: Boolean = true,
         val homeServerConnectionJson: String? = null,
         val torrServerBaseUrl: String? = null,
-        val catalogueRowLayoutModes: Map<String, String> = emptyMap()
+        val catalogueRowLayoutModes: Map<String, String> = emptyMap(),
+        val streamSearchMode: String = StreamSearchMode.PARALLEL.id,
+        val streamProvidersCustomOrder: String = "",
+        val streamIntegrationsMacroOrder: String = "",
+        val streamMacroEnabledMap: Map<String, Boolean> = emptyMap(),
+        val streamProviderEnabledMap: Map<String, Boolean> = emptyMap()
     )
 
     // ── DataStore key helpers ──
@@ -633,6 +640,7 @@ class CloudSyncRepository @Inject constructor(
         // Per-profile settings
         val profileSettingsById = buildMap<String, CloudProfileSettings> {
             profiles.forEach { profile ->
+                val streamCloudState = streamIntegrationRepository.exportCloudSettingsForProfile(prefs, profile.id)
                 put(
                     profile.id,
                     CloudProfileSettings(
@@ -678,7 +686,12 @@ class CloudSyncRepository @Inject constructor(
                         ),
                         includeSpecials = prefs[includeSpecialsKeyFor(profile.id)] ?: false,
                         autoPlayMaxQuality = AutoplayLimits.normalizeQuality(prefs[autoPlayMaxQualityKeyFor(profile.id)]),
-                        autoPlayMaxSizeGb = AutoplayLimits.normalizeSizeGb(prefs[autoPlayMaxSizeKeyFor(profile.id)] ?: 0)
+                        autoPlayMaxSizeGb = AutoplayLimits.normalizeSizeGb(prefs[autoPlayMaxSizeKeyFor(profile.id)] ?: 0),
+                        streamSearchMode = streamCloudState.searchMode,
+                        streamProvidersCustomOrder = streamCloudState.customProviderOrder,
+                        streamIntegrationsMacroOrder = streamCloudState.macroCategoryOrder,
+                        streamMacroEnabledMap = streamCloudState.macroEnabledMap,
+                        streamProviderEnabledMap = streamCloudState.providerEnabledMap
                     )
                 )
             }
@@ -772,10 +785,47 @@ class CloudSyncRepository @Inject constructor(
 
         // Addons are shared account state. Keep the per-profile payload shape
         // for older clients, but each profile receives the same shared list.
-        val sharedAddons = streamRepository.installedAddons.first()
+        // For backwards compatibility with older versions of ARVIO that read
+        // stream provider priority directly from the addons list order, order the
+        // Stremio addons in the exported snapshot to reflect their configured priority.
+        val installed = streamRepository.installedAddons.first()
+        val activeProfileCustomOrder = prefs[profileManager.profileStringKeyFor(profileManager.getProfileIdSync(), "stream_providers_custom_order")].orEmpty()
+        val activeOrderedStremioIds = if (activeProfileCustomOrder.isNotBlank()) {
+            activeProfileCustomOrder.split(",")
+                .map { it.trim() }
+                .filter { it.startsWith("stremio:") }
+                .map { it.removePrefix("stremio:") }
+        } else {
+            emptyList()
+        }
+        val sharedAddons = if (activeOrderedStremioIds.isNotEmpty()) {
+            val addonMap = installed.associateBy { it.id }
+            val prioritized = activeOrderedStremioIds.mapNotNull { addonMap[it] }
+            val remaining = installed.filter { it.id !in activeOrderedStremioIds }
+            prioritized + remaining
+        } else {
+            installed
+        }
         val addonsByProfile = buildMap<String, List<Addon>> {
             profiles.forEach { profile ->
-                put(profile.id, sharedAddons)
+                val profileCustomOrder = prefs[profileManager.profileStringKeyFor(profile.id, "stream_providers_custom_order")].orEmpty()
+                val profileOrderedStremioIds = if (profileCustomOrder.isNotBlank()) {
+                    profileCustomOrder.split(",")
+                        .map { it.trim() }
+                        .filter { it.startsWith("stremio:") }
+                        .map { it.removePrefix("stremio:") }
+                } else {
+                    emptyList()
+                }
+                val profileAddons = if (profileOrderedStremioIds.isNotEmpty()) {
+                    val addonMap = installed.associateBy { it.id }
+                    val prioritized = profileOrderedStremioIds.mapNotNull { addonMap[it] }
+                    val remaining = installed.filter { it.id !in profileOrderedStremioIds }
+                    prioritized + remaining
+                } else {
+                    sharedAddons
+                }
+                put(profile.id, profileAddons)
             }
         }
         root.put("addonsByProfile", JSONObject(gson.toJson(addonsByProfile)))
@@ -1514,6 +1564,17 @@ class CloudSyncRepository @Inject constructor(
                         state.autoPlayMaxQuality?.let { prefs[autoPlayMaxQualityKeyFor(profileId)] = AutoplayLimits.normalizeQuality(it) }
                         state.autoPlayMaxSizeGb?.let { prefs[autoPlayMaxSizeKeyFor(profileId)] = AutoplayLimits.normalizeSizeGb(it) }
                         prefs[includeSpecialsKeyFor(profileId)] = state.includeSpecials
+                        streamIntegrationRepository.applyCloudSettingsForProfile(
+                            prefs = prefs,
+                            profileId = profileId,
+                            state = StreamIntegrationProfileCloudState(
+                                searchMode = state.streamSearchMode,
+                                customProviderOrder = state.streamProvidersCustomOrder,
+                                macroCategoryOrder = state.streamIntegrationsMacroOrder,
+                                macroEnabledMap = state.streamMacroEnabledMap,
+                                providerEnabledMap = state.streamProviderEnabledMap
+                            )
+                        )
                     }
                 }
             }
@@ -1687,6 +1748,7 @@ class CloudSyncRepository @Inject constructor(
                 // Apply the reconciled list even when it is empty — an intentional "removed all"
                 // must propagate (reconcile only returns empty when the cloud set is genuinely newer;
                 // opensubtitles is re-enforced downstream so playback isn't left with nothing).
+                // Legacy order from cloud is preserved for compatibility with older versions.
                 streamRepository.replaceSharedAddonsFromCloud(resolvedAddons)
                 appliedCloudAddons = true
             }

@@ -26,6 +26,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.ConscryptMode
 import java.util.UUID
+import androidx.datastore.preferences.core.edit
+import com.arflix.tv.util.settingsDataStore
 import javax.inject.Provider
 
 @RunWith(RobolectricTestRunner::class)
@@ -402,5 +404,58 @@ class StreamIntegrationRepositoryTest {
         repo.setSearchMode(StreamSearchMode.PARALLEL)
         assertEquals(StreamSearchMode.PARALLEL, repo.getSearchMode())
         assertEquals(StreamSearchMode.PARALLEL, repo.observeSearchMode().first())
+    }
+
+    @Test
+    fun exportAndApplyCloudSettingsRoundTrip() = runBlocking {
+        val repo = createRepository()
+        val context = RuntimeEnvironment.getApplication()
+
+        repo.setSearchMode(StreamSearchMode.SEQUENTIAL)
+        val initialItems = repo.getProviderItems()
+        if (initialItems.size >= 2) {
+            repo.moveProviderItemDown(initialItems[0].id)
+            repo.toggleProviderItem(initialItems[1].id)
+        }
+
+        val prefsBefore = context.settingsDataStore.data.first()
+        val exported = repo.exportCloudSettingsForProfile(prefsBefore, profile)
+
+        assertEquals(StreamSearchMode.SEQUENTIAL.id, exported.searchMode)
+
+        // Apply into new/clean preferences for another profile
+        val targetProfile = "profile-target"
+        context.settingsDataStore.edit { mutablePrefs ->
+            repo.applyCloudSettingsForProfile(mutablePrefs, targetProfile, exported)
+        }
+
+        val prefsAfter = context.settingsDataStore.data.first()
+        val reExported = repo.exportCloudSettingsForProfile(prefsAfter, targetProfile)
+
+        assertEquals(exported.searchMode, reExported.searchMode)
+        assertEquals(exported.customProviderOrder, reExported.customProviderOrder)
+        assertEquals(exported.providerEnabledMap, reExported.providerEnabledMap)
+        assertEquals(exported.macroCategoryOrder, reExported.macroCategoryOrder)
+        assertEquals(exported.macroEnabledMap, reExported.macroEnabledMap)
+    }
+
+    @Test
+    fun cloudProfileSettingsStreamIntegrationsRoundTrip() {
+        val gson = com.google.gson.Gson()
+        val original = CloudSyncRepository.CloudProfileSettings(
+            streamSearchMode = StreamSearchMode.SEQUENTIAL.id,
+            streamProvidersCustomOrder = "stremio:torrentio,plugin_repo:rep1",
+            streamIntegrationsMacroOrder = "stremio,homeserver",
+            streamMacroEnabledMap = mapOf("telegram" to false),
+            streamProviderEnabledMap = mapOf("stremio:torrentio" to true)
+        )
+        val json = gson.toJson(original)
+        val restored = gson.fromJson(json, CloudSyncRepository.CloudProfileSettings::class.java)
+
+        assertEquals(StreamSearchMode.SEQUENTIAL.id, restored.streamSearchMode)
+        assertEquals("stremio:torrentio,plugin_repo:rep1", restored.streamProvidersCustomOrder)
+        assertEquals("stremio,homeserver", restored.streamIntegrationsMacroOrder)
+        assertEquals(false, restored.streamMacroEnabledMap["telegram"])
+        assertEquals(true, restored.streamProviderEnabledMap["stremio:torrentio"])
     }
 }

@@ -1209,6 +1209,7 @@ class PlayerViewModel @Inject constructor(
                                 val allAddons = streamRepository.installedAddonsForSourceResolution()
                                 val targetAddon = allAddons.firstOrNull { it.id == providerItem.id }
                                     ?: allAddons.firstOrNull { it.id.equals(providerItem.id, ignoreCase = true) }
+                                    ?: allAddons.firstOrNull { providerItem.id == "stremio:${it.id}" || providerItem.rawProviderKeys.contains(it.id) }
                                 if (targetAddon != null) {
                                     streamRepository.resolveAddonStreams(
                                         addon = targetAddon,

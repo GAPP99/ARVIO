@@ -2175,6 +2175,20 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    @Deprecated("Addon ordering is now managed via StreamIntegrationsScreen.")
+    fun moveAddonUp(addonId: String) {
+        viewModelScope.launch {
+            streamRepository.moveAddonUp(addonId)
+        }
+    }
+
+    @Deprecated("Addon ordering is now managed via StreamIntegrationsScreen.")
+    fun moveAddonDown(addonId: String) {
+        viewModelScope.launch {
+            streamRepository.moveAddonDown(addonId)
+        }
+    }
+
     fun toggleAddon(addonId: String) {
         viewModelScope.launch {
             streamRepository.toggleAddon(addonId)
@@ -2182,31 +2196,6 @@ class SettingsViewModel @Inject constructor(
             runCatching {
                 catalogRepository.syncAddonCatalogs(addonsAfterToggle)
             }
-            syncLocalStateToCloud(silent = true)
-        }
-    }
-
-    fun moveAddonUp(addonId: String) {
-        moveAddon(addonId, moveUp = true)
-    }
-
-    fun moveAddonDown(addonId: String) {
-        moveAddon(addonId, moveUp = false)
-    }
-
-    private fun moveAddon(addonId: String, moveUp: Boolean) {
-        viewModelScope.launch {
-            val moved = if (moveUp) {
-                streamRepository.moveAddonUp(addonId)
-            } else {
-                streamRepository.moveAddonDown(addonId)
-            }
-            if (!moved) return@launch
-            val addonsAfterMove = streamRepository.installedAddons.first()
-            runCatching {
-                catalogRepository.syncAddonCatalogs(addonsAfterMove)
-            }
-            _uiState.value = _uiState.value.copy(addons = addonsAfterMove)
             syncLocalStateToCloud(silent = true)
         }
     }

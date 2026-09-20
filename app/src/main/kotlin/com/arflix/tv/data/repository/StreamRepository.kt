@@ -712,27 +712,6 @@ class StreamRepository @Inject constructor(
         }
     }
 
-    suspend fun moveAddonUp(addonId: String): Boolean {
-        return moveAddon(addonId, direction = -1)
-    }
-
-    suspend fun moveAddonDown(addonId: String): Boolean {
-        return moveAddon(addonId, direction = 1)
-    }
-
-    private suspend fun moveAddon(addonId: String, direction: Int): Boolean {
-        if (direction == 0) return false
-        val addons = installedAddons.first().toMutableList()
-        val currentIndex = addons.indexOfFirst { it.id == addonId }
-        if (currentIndex < 0) return false
-        val targetIndex = (currentIndex + direction).coerceIn(0, addons.lastIndex)
-        if (targetIndex == currentIndex) return false
-        val moved = addons.removeAt(currentIndex)
-        addons.add(targetIndex, moved)
-        saveAddons(addons)
-        return true
-    }
-
     private suspend fun hydrateCustomAddon(url: String, customName: String? = null): Addon {
         val normalizedUrl = resolveAddonInstallUrl(url)
         if (normalizedUrl.isBlank()) {
@@ -1060,6 +1039,30 @@ class StreamRepository @Inject constructor(
         val current = installedAddons.first()
         val addons = current.filter { it.id != addonId }
         saveAddons(addons)
+    }
+
+    @Deprecated(
+        message = "Addon order is now managed via StreamIntegrationRepository provider priorities.",
+        replaceWith = ReplaceWith("streamIntegrationRepository.moveProviderItemUp(\"stremio:\$addonId\")")
+    )
+    suspend fun moveAddonUp(addonId: String): Boolean = moveAddon(addonId, -1)
+
+    @Deprecated(
+        message = "Addon order is now managed via StreamIntegrationRepository provider priorities.",
+        replaceWith = ReplaceWith("streamIntegrationRepository.moveProviderItemDown(\"stremio:\$addonId\")")
+    )
+    suspend fun moveAddonDown(addonId: String): Boolean = moveAddon(addonId, 1)
+
+    private suspend fun moveAddon(addonId: String, direction: Int): Boolean {
+        val currentAddons = installedAddons.first().toMutableList()
+        val currentIndex = currentAddons.indexOfFirst { it.id == addonId }
+        if (currentIndex == -1) return false
+        val newIndex = currentIndex + direction
+        if (newIndex !in currentAddons.indices) return false
+        val item = currentAddons.removeAt(currentIndex)
+        currentAddons.add(newIndex, item)
+        saveAddons(currentAddons)
+        return true
     }
 
     suspend fun replaceAddonsFromCloud(addons: List<Addon>) {
