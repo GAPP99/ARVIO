@@ -43,6 +43,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -568,14 +569,6 @@ fun LiveTvScreen(
     val deviceType = LocalDeviceType.current
     val isTouchDevice = deviceType.isTouchDevice()
     val useTouchRail = isTouchDevice && configuration.smallestScreenWidthDp < 600
-    val miniPlayerLayout = liveTvMiniPlayerLayout(
-        isTouchDevice = isTouchDevice,
-        smallestScreenWidthDp = configuration.smallestScreenWidthDp,
-        screenWidthDp = configuration.screenWidthDp,
-        screenHeightDp = configuration.screenHeightDp,
-    )
-    val compactTouchLayout = isTouchDevice && configuration.screenWidthDp < 900
-    val landscapeCompactMiniPlayer = miniPlayerLayout == LiveTvMiniPlayerLayout.LANDSCAPE_COMPACT
     val showTopBar = !isTouchDevice
     val contentTopPadding = if (showTopBar) LiveDims.ContentTopInset else 0.dp
     val coroutineScope = rememberCoroutineScope()
@@ -3674,7 +3667,7 @@ fun LiveTvScreen(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(LiveColors.Bg)
@@ -3834,6 +3827,14 @@ fun LiveTvScreen(
                 }
             )
     ) {
+        val miniPlayerLayout = liveTvMiniPlayerLayout(
+            isTouchDevice = isTouchDevice,
+            availableWidthDp = maxWidth.value.toInt(),
+            availableHeightDp = maxHeight.value.toInt(),
+        )
+        val compactTouchLayout = isTouchDevice && maxWidth < 900.dp
+        val landscapeCompactMiniPlayer =
+            miniPlayerLayout == LiveTvMiniPlayerLayout.LANDSCAPE_COMPACT
         LiveTvRenderBoundary {
             // Content area starts below the translucent top bar so it doesn't get
             // overwritten.
@@ -3953,7 +3954,7 @@ fun LiveTvScreen(
                         focusedChannelId = null
                         epgPrefetchAnchorId = null
                     },
-                    compactLayout = true,
+                    compactLayout = miniPlayerLayout != LiveTvMiniPlayerLayout.STANDARD,
                     landscapeCompact = landscapeCompactMiniPlayer,
                     playerActive = miniPlayerActive,
                     variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
@@ -4040,7 +4041,7 @@ fun LiveTvScreen(
                                 onFullscreenClick = openFullScreenPlayer,
                                 variantCount = playingChannel?.let { variantCountFor(it, variantGroups) } ?: 1,
                                 onOpenVariants = playingChannel?.let { channel -> { openVariantPicker(channel) } },
-                                compact = true,
+                                compact = miniPlayerLayout != LiveTvMiniPlayerLayout.STANDARD,
                                 landscapeCompact = landscapeCompactMiniPlayer,
                                 playerActive = miniPlayerActive,
                                 modifier = Modifier.fillMaxWidth(),
