@@ -110,11 +110,7 @@ fun ChannelRow(
     val foreground = if (visuallyFocused) Color.Black else LiveColors.Fg
     val secondary = if (visuallyFocused) Color.Black.copy(alpha = .7f) else LiveColors.FgDim
     val now = nowNext?.now
-    val animatedBorderWidth = animateDpAsState(
-        targetValue = if (visuallyFocused) LiveDims.FocusBorder else 0.dp,
-        animationSpec = tween(durationMillis = 70),
-        label = "channel-row-border",
-    )
+    val animatedBorderWidth = if (visuallyFocused) LiveDims.FocusBorder else 0.dp
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -137,9 +133,7 @@ fun ChannelRow(
                     cornerRadius = CornerRadius(radius),
                 )
                 drawContent()
-                // Read animation state in drawing, not composition: channel
-                // text and logo layout should not rebuild for each border frame.
-                val stroke = if (visuallyFocused) animatedBorderWidth.value.toPx() else 0f
+                val stroke = if (visuallyFocused) animatedBorderWidth.toPx() else 0f
                 if (stroke > 0f) {
                     drawRoundRect(
                         color = LiveColors.FocusRing,

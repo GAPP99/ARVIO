@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.FlowPreview::class)
+
 package com.arflix.tv.ui.screens.tv.live
 
 import androidx.activity.compose.BackHandler
@@ -32,6 +34,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -89,6 +95,7 @@ import com.arflix.tv.ui.focus.arvioManualBringIntoViewBoundary
 import com.arflix.tv.util.LocalDeviceType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
@@ -100,7 +107,7 @@ private const val EpgPastWindowMinutes = 2 * 60
 private const val EpgFutureWindowMinutes = 10 * 60
 private const val CompactEpgPastWindowMinutes = 90
 private const val CompactEpgFutureWindowMinutes = 6 * 60
-private const val ChannelWindowPrefetchThreshold = 10
+private const val ChannelWindowPrefetchThreshold = 30
 
 enum class EpgGridFocusMode {
     ChannelList,
@@ -480,8 +487,8 @@ fun EpgGrid(
         }
             .filterNotNull()
             .distinctUntilChanged()
+            .debounce(100L)
             .collect { (first, last) ->
-                currentVisibleRange(first + channelWindowOffset, last + channelWindowOffset)
                 if (first <= ChannelWindowPrefetchThreshold && channelWindowOffset > 0) {
                     onRequestPreviousChannels()
                 }
@@ -492,6 +499,20 @@ fun EpgGrid(
                 ) {
                     currentNextPage()
                 }
+            }
+    }
+    LaunchedEffect(channelListState, channelWindowOffset) {
+        snapshotFlow {
+            val visibleItems = channelListState.layoutInfo.visibleItemsInfo
+            val first = visibleItems.firstOrNull()?.index ?: return@snapshotFlow null
+            val last = visibleItems.last().index
+            first to last
+        }
+            .filterNotNull()
+            .distinctUntilChanged()
+            .debounce(150L)
+            .collect { (first, last) ->
+                currentVisibleRange(first + channelWindowOffset, last + channelWindowOffset)
             }
     }
 
@@ -721,6 +742,9 @@ fun EpgGrid(
             ) {
                 LazyColumn(
                     state = if (channels.isEmpty()) emptyChannelListState else channelListState,
+                    contentPadding = PaddingValues(
+                        bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    ),
                     modifier = Modifier
                         .fillMaxSize()
                         .testTag("iptv-guide")
@@ -958,12 +982,17 @@ fun EpgGrid(
 
                 // Read scrolling in the drawing phase, not the whole guide composition.
                 Canvas(Modifier.fillMaxSize()) {
-                    if (clockTickMillis in windowStartMillis until windowEndMillis) {
+                    if (channels.isNotEmpty() && clockTickMillis in windowStartMillis until windowEndMillis) {
                         val nowMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
                         val inside = (nowMin * pxPerMin).dp.toPx() - hScroll.value
                         val x = (channelColumnWidth + 1.dp).toPx() + inside
                         if (inside >= 0f && x < size.width) {
-                            drawRect(LiveColors.Accent, Offset(x, 0f), Size(1.dp.toPx(), size.height))
+                            val visibleItems = channelListState.layoutInfo.visibleItemsInfo
+                            val lastItemBottom = visibleItems.lastOrNull()?.let { (it.offset + it.size).toFloat() } ?: 0f
+                            val lineHeight = minOf(size.height, lastItemBottom)
+                            if (lineHeight > 0f) {
+                                drawRect(LiveColors.Accent, Offset(x, 0f), Size(1.dp.toPx(), lineHeight))
+                            }
                         }
                     }
                 }
@@ -1030,22 +1059,27 @@ private fun ProgramsRow(
         val placements = remember(programs, placeholderTitle, noProgrammeData, windowStartMillis, windowEndMillis) {
             buildProgramPlacements(programs, windowStartMillis, windowEndMillis, nowMillis, placeholderTitle, noProgrammeData)
         }
-        val focusablePlacementIndices = remember(placements, channel.catchupDays, nowMillis) {
-            placements.mapIndexedNotNull { index, placement ->
+        val isTouch = LocalDeviceType.current.isTouchDevice()
+        val focusablePlacementIndices = remember(placements, channel.catchupDays, nowMillis, isTouch) {
+            if (isTouch) emptyList()
+            else placements.mapIndexedNotNull { index, placement ->
                 val canFocus = placement.canFocus(channel, nowMillis)
                 if (canFocus) index else null
             }
         }
-        val focusableIndexByPlacementIndex = remember(focusablePlacementIndices) {
-            focusablePlacementIndices
+        val focusableIndexByPlacementIndex = remember(focusablePlacementIndices, isTouch) {
+            if (isTouch) emptyMap()
+            else focusablePlacementIndices
                 .withIndex()
                 .associate { (focusIndex, placementIndex) -> placementIndex to focusIndex }
         }
-        val rowFocusRequesters = remember(channel.id, focusablePlacementIndices.size) {
-            List(focusablePlacementIndices.size) { FocusRequester() }
+        val rowFocusRequesters = remember(channel.id, focusablePlacementIndices.size, isTouch) {
+            if (isTouch) emptyList()
+            else List(focusablePlacementIndices.size) { FocusRequester() }
         }
-        val rowFocusTargets = remember(placements, focusablePlacementIndices, nowMillis) {
-            focusablePlacementIndices.mapNotNull { index ->
+        val rowFocusTargets = remember(placements, focusablePlacementIndices, nowMillis, isTouch) {
+            if (isTouch) emptyList()
+            else focusablePlacementIndices.mapNotNull { index ->
                 placements.getOrNull(index)?.let { placement ->
                     ProgramFocusTarget(
                         startMin = placement.startMin,
@@ -1055,15 +1089,19 @@ private fun ProgramsRow(
                 }
             }
         }
-        DisposableEffect(channel.id, rowFocusRequesters, rowFocusTargets) {
-            focusRequesters[channel.id] = rowFocusRequesters
-            focusTargets[channel.id] = rowFocusTargets
+        DisposableEffect(channel.id, rowFocusRequesters, rowFocusTargets, isTouch) {
+            if (!isTouch) {
+                focusRequesters[channel.id] = rowFocusRequesters
+                focusTargets[channel.id] = rowFocusTargets
+            }
             onDispose {
-                if (focusRequesters[channel.id] === rowFocusRequesters) {
-                    focusRequesters.remove(channel.id)
-                }
-                if (focusTargets[channel.id] === rowFocusTargets) {
-                    focusTargets.remove(channel.id)
+                if (!isTouch) {
+                    if (focusRequesters[channel.id] === rowFocusRequesters) {
+                        focusRequesters.remove(channel.id)
+                    }
+                    if (focusTargets[channel.id] === rowFocusTargets) {
+                        focusTargets.remove(channel.id)
+                    }
                 }
             }
         }

@@ -128,8 +128,8 @@ internal fun appBottomBarSpec(mode: AppBottomBarMode): AppBottomBarSpec = when (
     )
 }
 
-internal fun mobileContentInsets(systemBars: WindowInsets, showBottomBar: Boolean): WindowInsets =
-    if (showBottomBar) systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal) else systemBars
+internal fun mobileContentInsets(systemBars: WindowInsets, showBottomBar: Boolean = false): WindowInsets =
+    systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
 
 internal fun shouldShowBottomBar(
     isMobile: Boolean,
@@ -169,6 +169,9 @@ val bottomBarItems = listOf(
 
 /** Bottom clearance applied inside scrolling content rather than to its viewport. */
 val LocalBottomBarInset = staticCompositionLocalOf { 0.dp }
+
+/** Full height of the bottom bar including system navigation bar insets when visible. */
+val LocalBottomBarHeight = staticCompositionLocalOf { 0.dp }
 
 @Composable
 internal fun currentBottomBarSpec(): AppBottomBarSpec {
