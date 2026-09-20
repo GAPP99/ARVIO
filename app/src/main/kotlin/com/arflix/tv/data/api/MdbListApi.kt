@@ -237,7 +237,8 @@ data class MdbPlaybackItem(
 )
 
 data class MdbScrobbleBody(
-    val progress: Int,
+    /** 0-100. Fractional values are accepted and stored (verified: 25.5 -> "25.50"). */
+    val progress: Float,
     val movie: MdbScrobbleMovie? = null,
     val show: MdbScrobbleShow? = null
 )

@@ -538,8 +538,19 @@ class PlayerViewModel @Inject constructor(
     private val SKIP_INTERVAL_MIN_VISIBLE_MS = 250L
 
     private val SCROBBLE_UPDATE_INTERVAL_MS = 20_000L
-    private val WATCH_HISTORY_UPDATE_INTERVAL_MS = 60_000L
-    private val CLOUD_PUSH_INTERVAL_MS = 5 * 60_000L // Push CW to cloud occasionally during active playback
+    private val FIRST_SCROBBLE_HEARTBEAT_DELAY_MS = 5_000L
+    private val WATCH_HISTORY_UPDATE_INTERVAL_MS = 30_000L
+    // Exact resume positions only reach other devices through our own cloud
+    // snapshot, because a tracker stores a percentage and never a position.
+    //
+    // This timer is not what carries the usual handoff: pausing or leaving the
+    // player pushes immediately, so walking from one room to another is already
+    // exact. It only covers losing power mid-episode, where a few minutes of
+    // drift on the *other* device is a fair price — each push uploads the whole
+    // account snapshot (tens of KB, a function invocation and two blob writes),
+    // so a short interval multiplies backend cost by the hour without improving
+    // the case anyone actually hits.
+    private val CLOUD_PUSH_INTERVAL_MS = 3 * 60_000L
 
     private var lastCloudPushTime = 0L
 
@@ -5743,6 +5754,14 @@ class PlayerViewModel @Inject constructor(
         val job = viewModelScope.launch(Dispatchers.IO) {
             val currentTime = System.currentTimeMillis()
             val progressFraction = (progressPercent / 100f).coerceIn(0f, 1f)
+            // Trackers store a percentage, never a position, so a resume time on
+            // another device is only ever as precise as this number. Sending the
+            // truncated integer percent costs up to a minute on a feature film.
+            val scrobbleProgressPercent = if (duration > 0L) {
+                (position.toDouble() / duration.toDouble() * 100.0).toFloat().coerceIn(0f, 100f)
+            } else {
+                progressPercent.toFloat()
+            }
             val selectedStream = _uiState.value.selectedStream
             val streamAddonIdForCheck = selectedStream?.addonId?.takeIf { it.isNotBlank() }
             val isLiveStreamOrSports = SportsAddonCapabilities.isLiveStreamOrSportsItem(
@@ -5761,7 +5780,7 @@ class PlayerViewModel @Inject constructor(
                     remoteSyncManager.scrobbleStart(
                         mediaType = currentMediaType,
                         tmdbId = currentMediaId,
-                        progress = progressPercent.toFloat(),
+                        progress = scrobbleProgressPercent,
                         season = currentSeason,
                         episode = currentEpisode,
                         isAnime = isCurrentAnime()
@@ -5771,7 +5790,11 @@ class PlayerViewModel @Inject constructor(
 
                     // Scrobble start failed
                 }
-                lastScrobbleTime = currentTime
+                // Opening the session clears the tracker's stored resume point
+                // until the next heartbeat commits a new one, so bring the first
+                // one forward instead of leaving a full interval during which
+                // losing power would drop the title out of Continue Watching.
+                lastScrobbleTime = currentTime - SCROBBLE_UPDATE_INTERVAL_MS + FIRST_SCROBBLE_HEARTBEAT_DELAY_MS
             } else if (!isLiveStreamOrSports && !isPlaying && lastIsPlaying) {
                 try {
                     if (progressPercent in 80 until Constants.WATCHED_THRESHOLD && !hasScrobbledIntermediateStop && !hasMarkedWatched) {
@@ -5779,7 +5802,7 @@ class PlayerViewModel @Inject constructor(
                         remoteSyncManager.scrobbleStop(
                             mediaType = currentMediaType,
                             tmdbId = currentMediaId,
-                            progress = progressPercent.toFloat(),
+                            progress = scrobbleProgressPercent,
                             season = currentSeason,
                             episode = currentEpisode,
                             isAnime = isCurrentAnime()
@@ -5788,7 +5811,7 @@ class PlayerViewModel @Inject constructor(
                         remoteSyncManager.scrobblePause(
                             mediaType = currentMediaType,
                             tmdbId = currentMediaId,
-                            progress = progressPercent.toFloat(),
+                            progress = scrobbleProgressPercent,
                             season = currentSeason,
                             episode = currentEpisode,
                             isAnime = isCurrentAnime()
@@ -5806,7 +5829,7 @@ class PlayerViewModel @Inject constructor(
                     remoteSyncManager.scrobbleProgress(
                         mediaType = currentMediaType,
                         tmdbId = currentMediaId,
-                        progress = progressPercent.toFloat(),
+                        progress = scrobbleProgressPercent,
                         season = currentSeason,
                         episode = currentEpisode,
                         isAnime = isCurrentAnime()
@@ -5904,7 +5927,7 @@ class PlayerViewModel @Inject constructor(
                     remoteSyncManager.scrobbleStop(
                         mediaType = currentMediaType,
                         tmdbId = currentMediaId,
-                        progress = progressPercent.toFloat(),
+                        progress = scrobbleProgressPercent,
                         season = currentSeason,
                         episode = currentEpisode,
                         isAnime = isCurrentAnime()
