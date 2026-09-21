@@ -47,6 +47,7 @@ import com.arflix.tv.util.AnimeMapper
 import com.arflix.tv.util.AppLogger
 import com.arflix.tv.util.Constants
 import com.arflix.tv.util.EpisodeAvailability
+import com.arflix.tv.util.ForcedSubtitles
 import com.arflix.tv.util.fallbackAdjacentEpisodeIdentity
 import com.arflix.tv.util.settingsDataStore
 import com.arflix.tv.util.weightedSubtitleScore
@@ -195,6 +196,7 @@ data class PlayerUiState(
     val subtitleOffset: String = "Bottom",
     val subtitleVerticalPct: Int = 2,
     val filterSubtitlesByLanguage: Boolean = false,
+    val useForcedSubtitles: Boolean = false,
     val subtitleRemoveHearingImpaired: Boolean = false,
     val error: PlayerMessage? = null,
     val isSetupError: Boolean = false, // true when error is due to missing addons (shows friendly guide instead of red error)
@@ -312,6 +314,9 @@ class PlayerViewModel @Inject constructor(
     private var currentBackdrop: String? = null
     private var currentEpisodeTitle: String? = null
     private var currentOriginalLanguage: String? = null
+    // Language of the audio track currently playing, fed in from PlayerScreen. Only the
+    // forced-subtitles rule reads it; empty means "not known (yet)".
+    private var currentAudioLanguage: String? = null
     private var currentAirDate: String? = null
     private var currentGenreIds: List<Int> = emptyList()
     private var currentItemTitle: String = ""
@@ -553,6 +558,7 @@ class PlayerViewModel @Inject constructor(
     private fun defaultAudioLanguageKey() = profileManager.profileStringKey("default_audio_language")
     private fun subtitleUsageKey() = profileManager.profileStringKey("subtitle_usage_v1")
     private fun filterSubtitlesByLanguageKey() = profileManager.profileBooleanKey("filter_subtitles_by_lang")
+    private fun useForcedSubtitlesKey() = profileManager.profileBooleanKey("use_forced_subtitles")
     private fun secondarySubtitleKey() = profileManager.profileStringKey("secondary_subtitle")
     private val subtitleMenuCandidates = linkedMapOf<String, Subtitle>()
     private fun frameRateMatchingModeKey() = profileManager.profileStringKey("frame_rate_matching_mode")
@@ -739,6 +745,7 @@ class PlayerViewModel @Inject constructor(
                 "Bottom" -> 2; "Low" -> 8; "Medium" -> 15; "High" -> 25; else -> 2
             }
             val filterSubLang = prefs[filterSubtitlesByLanguageKey()] ?: true
+            val useForcedSubs = prefs[useForcedSubtitlesKey()] ?: false
             val removeHi = prefs[profileManager.profileBooleanKey("subtitle_remove_hearing_impaired")] ?: false
             translationManager.removeSubtitleHearingImpaired = removeHi
             val autoPlayNext = prefs[autoPlayNextKey()] ?: true
@@ -802,6 +809,7 @@ class PlayerViewModel @Inject constructor(
                 subtitleOffset = subOffset,
                 subtitleVerticalPct = subVertPct,
                 filterSubtitlesByLanguage = filterSubLang,
+                useForcedSubtitles = useForcedSubs,
                 subtitleRemoveHearingImpaired = removeHi,
                 autoPlayNext = autoPlayNext,
                 autoSkipIntro = autoSkipIntro,
@@ -1169,7 +1177,7 @@ class PlayerViewModel @Inject constructor(
                     val providers = streamIntegrationRepository.observeProviderItems().first().filter { it.isEnabled }
                     val total = providers.size.coerceAtLeast(1)
                     var index = 0
-                    var foundStreams: List<StreamSource> = emptyList()
+                    val sequentialCandidates = SequentialStreamCandidates(autoPlayMinimumQuality, autoPlayLimits)
 
                     for (providerItem in providers) {
                         index++
@@ -1191,7 +1199,8 @@ class PlayerViewModel @Inject constructor(
                                         title = lookupTitle,
                                         year = null,
                                         tmdbId = currentMediaId,
-                                        timeoutMs = 3_500L
+                                        timeoutMs = 3_500L,
+                                        providerId = providerItem.id
                                     )
                                 } else {
                                     streamRepository.resolveEpisodeHomeServerSources(
@@ -1201,7 +1210,8 @@ class PlayerViewModel @Inject constructor(
                                         title = lookupTitle,
                                         tmdbId = currentMediaId,
                                         tvdbId = currentTvdbId,
-                                        timeoutMs = 3_500L
+                                        timeoutMs = 3_500L,
+                                        providerId = providerItem.id
                                     )
                                 }
                             }
@@ -1249,7 +1259,8 @@ class PlayerViewModel @Inject constructor(
                                                 tmdbId = mediaId.toString(),
                                                 mediaType = if (mediaType == MediaType.MOVIE) "movie" else "tv",
                                                 season = seasonNumber,
-                                                episode = episodeNumber
+                                                episode = episodeNumber,
+                                                allowedProviderIds = setOf(providerItem.id)
                                             ).collect { (_, results) ->
                                                 if (results != null) {
                                                     pluginStreams.addAll(results.map { it.toStreamSource() })
@@ -1274,7 +1285,8 @@ class PlayerViewModel @Inject constructor(
                                         year = null,
                                         tmdbId = currentMediaId,
                                         timeoutMs = 3_500L,
-                                        originalTitle = lookupOriginalTitle
+                                        originalTitle = lookupOriginalTitle,
+                                        providerId = providerItem.id
                                     )
                                 } else {
                                     streamRepository.resolveEpisodeVodSources(
@@ -1285,7 +1297,8 @@ class PlayerViewModel @Inject constructor(
                                         tmdbId = currentMediaId,
                                         tvdbId = currentTvdbId,
                                         timeoutMs = 3_500L,
-                                        originalTitle = lookupOriginalTitle
+                                        originalTitle = lookupOriginalTitle,
+                                        providerId = providerItem.id
                                     )
                                 }
                             }
@@ -1296,12 +1309,10 @@ class PlayerViewModel @Inject constructor(
                             u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                         }
                         val filteredCandidates = streamRepository.applyQualityRegexFilters(validCandidates)
-                        if (filteredCandidates.isNotEmpty()) {
-                            foundStreams = sortStreamsByQualityAndSize(filteredCandidates, preferredLanguage)
-                            break
-                        }
+                        if (sequentialCandidates.accept(filteredCandidates)) break
                     }
 
+                    val foundStreams = sortStreamsByQualityAndSize(sequentialCandidates.streams, preferredLanguage)
                     if (foundStreams.isNotEmpty()) {
                         val autoplayCandidates = eligiblePlayerAutoplayStreams(foundStreams, autoPlayMinimumQuality, autoPlayLimits)
                         val targetSelection = autoplayCandidates.firstOrNull()
@@ -1408,7 +1419,8 @@ class PlayerViewModel @Inject constructor(
                         tmdbId = mediaId.toString(),
                         mediaType = if (mediaType == MediaType.MOVIE) "movie" else "tv",
                         season = seasonNumber,
-                        episode = episodeNumber
+                        episode = episodeNumber,
+                        allowedProviderIds = streamIntegrationRepository.enabledProviderIds(StreamIntegrationType.PLUGINS)
                     ).map { (_, results) ->
                         pluginSearchStarted = true
                         results.orEmpty().map { it.toStreamSource() }
@@ -1907,7 +1919,8 @@ class PlayerViewModel @Inject constructor(
             // a fallback-language track (e.g. English selected while waiting for Hebrew), let
             // applyPreferredSubtitle decide whether to upgrade to the preferred language.
             if (currentSel?.isEmbedded == true &&
-                normalizeLanguage(currentSel.lang) == normalizeLanguage(preferred)) {
+                normalizeLanguage(currentSel.lang) == normalizeLanguage(preferred) &&
+                !forcedModeWantsAnotherLook(currentSel, preferred)) {
                 return@launch
             }
             val subs = _uiState.value.subtitles
@@ -1934,7 +1947,14 @@ class PlayerViewModel @Inject constructor(
         // sync, so it beats any auto logic — it overrides an auto-selected/auto-matched subtitle and
         // cancels a running "Find best match" scan. It never overrides a real user pick. This also
         // handles embedded tracks that resolve *after* the auto-match already started.
-        if (!userPickedSubtitle && normalizedPref.isNotBlank() && !isSubtitleDisabledPreference(preference)) {
+        // Forced mode only takes over when the audio language allows it (forcedRuleApplies). If it
+        // does not — a dubbed film — every line below must behave exactly as it does today, the
+        // shortcut included, so the whole decision is made once here and reused.
+        val forcedActive = _uiState.value.useForcedSubtitles && normalizedPref.isNotBlank() &&
+            !isSubtitleDisabledPreference(preference) && forcedRuleApplies(normalizedPref)
+        // This shortcut deliberately skips forced tracks, which are exactly the ones forced mode is
+        // after — selectForcedSubtitle does the picking instead.
+        if (!forcedActive && !userPickedSubtitle && normalizedPref.isNotBlank() && !isSubtitleDisabledPreference(preference)) {
             val embeddedPref = subtitles.firstOrNull {
                 it.isEmbedded && !it.isBitmap && !it.isForced &&
                     !it.label.contains("forced", ignoreCase = true) &&
@@ -1942,7 +1962,9 @@ class PlayerViewModel @Inject constructor(
             }
             if (embeddedPref != null && _uiState.value.selectedSubtitle?.id != embeddedPref.id) {
                 cancelFindBestMatch("preferred-language embedded track appeared")
-                hasManualSubtitleSelection = true
+                // Forced mode must reconsider this automatic pick when the audio changes.
+                // Actual menu selections still set the manual-selection guard themselves.
+                hasManualSubtitleSelection = !_uiState.value.useForcedSubtitles
                 translationManager.isEnabled = false
                 aiSourceSubtitle = null
                 _uiState.value = _uiState.value.copy(
@@ -1965,6 +1987,11 @@ class PlayerViewModel @Inject constructor(
         val normalizedFallback = fallbackLanguage
             ?.let { normalizeLanguage(it) }
             ?.takeIf { it.isNotBlank() && it != normalizedPref }
+
+        if (forcedActive) {
+            selectForcedSubtitle(subtitles, normalizedPref, normalizedFallback)
+            return
+        }
 
         val streamSrc = _uiState.value.selectedStream?.source.orEmpty()
 
@@ -2117,6 +2144,78 @@ class PlayerViewModel @Inject constructor(
                 autoMatchAttempted = true
                 findBestSubtitleMatch()
             }
+        }
+    }
+
+    /**
+     * Whether the forced rule may run for this film, and which track it picks.
+     * The rule itself lives in [ForcedSubtitles] — pure, and unit-tested there.
+     */
+    /**
+     * Whether forced mode must have the selection decided again.
+     *
+     * Both gates below ([scheduleSubtitleSelection] and the reapply check in
+     * [updatePlayerTextTracks]) judge an existing pick by its LANGUAGE, which in forced mode tells
+     * them nothing: the plain English track and the English forced track are equally English, so
+     * they concluded "already fine" and the rule never ran a second time. On a file with ten
+     * English tracks that made the whole setting look dead.
+     */
+    private fun forcedModeWantsAnotherLook(current: Subtitle?, preference: String): Boolean {
+        if (!_uiState.value.useForcedSubtitles) return false
+        val normalizedPref = normalizeLanguage(preference)
+        if (normalizedPref.isBlank() || isSubtitleDisabledPreference(preference)) return false
+        if (!forcedRuleApplies(normalizedPref)) return false
+        return ForcedSubtitles.needsAnotherLook(current, ruleActive = true)
+    }
+
+    private fun forcedRuleApplies(normalizedPref: String): Boolean =
+        ForcedSubtitles.ruleApplies(currentAudioLanguage, normalizedPref, ::normalizeLanguage)
+
+    /**
+     * Applies the forced pick, including the deliberate "nothing at all" when no forced track
+     * exists: no dropping back to a full track, and no AI translation either — showing the whole
+     * dialogue is the very thing this setting exists to prevent.
+     */
+    private fun selectForcedSubtitle(
+        subtitles: List<Subtitle>,
+        normalizedPref: String,
+        normalizedFallback: String?
+    ) {
+        val match = ForcedSubtitles.pick(subtitles, normalizedPref, normalizedFallback, ::normalizeLanguage)
+        if (_uiState.value.selectedSubtitle?.id == match?.id) return
+
+        cancelFindBestMatch("forced-subtitles mode picked its own track")
+        translationManager.isEnabled = false
+        aiSourceSubtitle = null
+        _uiState.value = _uiState.value.copy(
+            selectedSubtitle = match,
+            isAiTranslating = false,
+            isAiAvailable = false,
+            aiTargetLanguageName = "",
+            subtitleSelectionNonce = _uiState.value.subtitleSelectionNonce + 1
+        )
+        Log.i("SubMatch", "forced mode: target=$normalizedPref picked=\"${match?.label ?: "none"}\"")
+    }
+
+    /**
+     * The language currently being spoken, reported by the player.
+     *
+     * It arrives from [PlayerScreen] because that is the only place that sees the ExoPlayer track
+     * list. It routinely lands AFTER the first subtitle pick and changes again when the viewer
+     * switches audio track, so both cases re-run the selection instead of leaving the forced rule
+     * to decide on a blank.
+     */
+    fun updatePlayerAudioLanguage(language: String?) {
+        val normalized = language?.trim().orEmpty()
+        if (normalized.equals(currentAudioLanguage.orEmpty(), ignoreCase = true)) return
+        currentAudioLanguage = normalized
+        if (!_uiState.value.useForcedSubtitles || hasManualSubtitleSelection) return
+        viewModelScope.launch {
+            applyPreferredSubtitle(
+                getDefaultSubtitle(),
+                _uiState.value.subtitles,
+                currentOriginalLanguage
+            )
         }
     }
 
@@ -2312,9 +2411,9 @@ class PlayerViewModel @Inject constructor(
         } else {
             stream.addonId.ifBlank { stream.addonName }
         }
-        val directIndex = currentAddonOrderedIds.indexOfFirst { orderedId ->
-            orderedId == stream.addonId || orderedId == tabId
-        }
+        val tabIndex = currentAddonOrderedIds.indexOf(tabId)
+        if (tabIndex >= 0) return tabIndex
+        val directIndex = currentAddonOrderedIds.indexOf(stream.addonId)
         if (directIndex >= 0) return directIndex
         val fuzzyIndex = currentAddonOrderedIds.indexOfFirst { orderedId ->
             tabId.contains(orderedId) || orderedId.contains(tabId)
@@ -3255,6 +3354,10 @@ class PlayerViewModel @Inject constructor(
             val normalizedPref = normalizeLanguage(preferred)
             val shouldReapply = when {
                 currentSel == null -> true
+                // Forced mode judges the pick itself, not its language — see
+                // forcedModeWantsAnotherLook. Without this the forced track arriving later than a
+                // plain one of the same language never displaces it.
+                forcedModeWantsAnotherLook(currentSel, preferred) -> true
                 // AI is active (source track is embedded): re-check any time embedded tracks arrive
                 // so a preferred-language built-in that arrives late can displace the AI source.
                 _uiState.value.isAiTranslating && finalList.any { it.isEmbedded } -> true
@@ -3513,6 +3616,24 @@ class PlayerViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 subtitles = (filtered + listOfNotNull(selected)).distinctBy { it.id }
             )
+        }
+    }
+
+    fun setUseForcedSubtitles(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(useForcedSubtitles = enabled)
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[useForcedSubtitlesKey()] = enabled
+            }
+            // Re-decide right away: flipping this while a film runs should be visible at once,
+            // not only on the next one.
+            if (!hasManualSubtitleSelection) {
+                applyPreferredSubtitle(
+                    getDefaultSubtitle(),
+                    _uiState.value.subtitles,
+                    currentOriginalLanguage
+                )
+            }
         }
     }
 

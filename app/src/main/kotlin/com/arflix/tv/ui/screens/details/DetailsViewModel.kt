@@ -1894,7 +1894,8 @@ class DetailsViewModel @Inject constructor(
                             tmdbId = tmdbIdStr,
                             mediaType = pluginMediaType,
                             season = if (requestMediaType != MediaType.MOVIE) (canonicalSeason ?: 1) else null,
-                            episode = if (requestMediaType != MediaType.MOVIE) (canonicalEpisode ?: 1) else null
+                            episode = if (requestMediaType != MediaType.MOVIE) (canonicalEpisode ?: 1) else null,
+                            allowedProviderIds = streamIntegrationRepository.enabledProviderIds(StreamIntegrationType.PLUGINS)
                         ).collect { pair ->
                             val scraperInfo = pair.first
                             val results: List<LocalScraperResult>? = pair.second

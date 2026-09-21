@@ -280,8 +280,9 @@ class StreamIntegrationRepository @Inject constructor(
                 }
 
                 // 5. IPTV VOD
-                val vodPlaylists = iptvConfig.playlists.filter { it.importVod ?: true }
-                val vodPortals = iptvConfig.stalkerPortals.filter { it.importVod ?: true }
+                val vodPlaylists = iptvConfig.playlists.ifEmpty { iptvRepository.activePlaylists(iptvConfig) }
+                    .filter { (it.importVod ?: true) || (it.importSeries ?: true) }
+                val vodPortals = iptvConfig.stalkerPortals.filter { (it.importVod ?: true) || (it.importSeries ?: true) }
                 vodPlaylists.forEach { playlist ->
                     add(
                         StreamProviderItem(
@@ -356,7 +357,7 @@ class StreamIntegrationRepository @Inject constructor(
                 }
 
                 item.copy(
-                    isEnabled = finalEnabled,
+                    isEnabled = finalEnabled && prefs[enabledKey(profileId, item.type)] != false,
                     priority = index + 1,
                     canMoveUp = index > 0,
                     canMoveDown = index < total - 1
@@ -367,6 +368,14 @@ class StreamIntegrationRepository @Inject constructor(
 
     suspend fun getProviderItems(): List<StreamProviderItem> {
         return observeProviderItems().first()
+    }
+
+    suspend fun enabledProviderIds(type: StreamIntegrationType, selectedId: String? = null): Set<String> {
+        val profileId = profileManager.getProfileId()
+        if (context.settingsDataStore.data.first()[enabledKey(profileId, type)] == false) return emptySet()
+        return getProviderItems().filter {
+            it.type == type && it.isEnabled && (selectedId == null || it.id == selectedId)
+        }.map { it.id }.toSet()
     }
 
     suspend fun moveProviderItemUp(id: String): Boolean {

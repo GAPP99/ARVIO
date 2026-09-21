@@ -303,6 +303,7 @@ class CloudSyncRepository @Inject constructor(
         val subtitleSettingsUpdatedAt: Long = 0L,
         val secondarySubtitle: String = "Off",
         val filterSubtitlesByLanguage: Boolean = true,
+        val useForcedSubtitles: Boolean = false,
         val homeServerConnectionJson: String? = null,
         val torrServerBaseUrl: String? = null,
         val catalogueRowLayoutModes: Map<String, String> = emptyMap(),
@@ -366,6 +367,8 @@ class CloudSyncRepository @Inject constructor(
         profileManager.profileStringKeyFor(profileId, "secondary_subtitle")
     private fun filterSubtitlesByLanguageKeyFor(profileId: String) =
         profileManager.profileBooleanKeyFor(profileId, "filter_subtitles_by_lang")
+    private fun useForcedSubtitlesKeyFor(profileId: String) =
+        profileManager.profileBooleanKeyFor(profileId, "use_forced_subtitles")
     private fun defaultSubtitleKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "default_subtitle")
     private fun defaultAudioLanguageKeyFor(profileId: String) =
@@ -670,6 +673,7 @@ class CloudSyncRepository @Inject constructor(
                         subtitleStylized = prefs[subtitleStylizedKeyFor(profile.id)] ?: true,
                         secondarySubtitle = prefs[secondarySubtitleKeyFor(profile.id)] ?: "Off",
                         filterSubtitlesByLanguage = prefs[filterSubtitlesByLanguageKeyFor(profile.id)] ?: true,
+                        useForcedSubtitles = prefs[useForcedSubtitlesKeyFor(profile.id)] ?: false,
                         homeServerConnectionJson = homeServerRepository.exportCloudConnectionsJsonForProfile(profile.id),
                         torrServerBaseUrl = streamRepository.exportTorrServerBaseUrlForProfile(profile.id),
                         catalogueRowLayoutModes = catalogueRowLayoutModesForProfile(prefs, profile.id),
@@ -1545,6 +1549,7 @@ class CloudSyncRepository @Inject constructor(
                         prefs[subtitleStylizedKeyFor(profileId)] = state.subtitleStylized
                         prefs[secondarySubtitleKeyFor(profileId)] = state.secondarySubtitle.ifBlank { "Off" }
                         prefs[filterSubtitlesByLanguageKeyFor(profileId)] = state.filterSubtitlesByLanguage
+                        prefs[useForcedSubtitlesKeyFor(profileId)] = state.useForcedSubtitles
                         state.homeServerConnectionJson?.let { homeServerConnectionJson ->
                             homeServerConnectionsToImport[profileId] = homeServerConnectionJson
                         }

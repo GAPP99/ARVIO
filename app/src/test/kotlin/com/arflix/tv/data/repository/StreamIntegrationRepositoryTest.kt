@@ -43,8 +43,8 @@ class StreamIntegrationRepositoryTest {
         every { activeProfileId } returns MutableStateFlow(profile)
         coEvery { getProfileId() } returns profile
         every { getProfileIdSync() } returns profile
-        every { profileStringKeyFor(any(), any()) } answers { stringPreferencesKey("${firstArg<String>()}_${secondArg<String>()}") }
-        every { profileBooleanKeyFor(any(), any()) } answers { booleanPreferencesKey("${firstArg<String>()}_${secondArg<String>()}") }
+        every { profileStringKeyFor(any(), any()) } answers { stringPreferencesKey("profile_${firstArg<String>()}_${secondArg<String>()}") }
+        every { profileBooleanKeyFor(any(), any()) } answers { booleanPreferencesKey("profile_${firstArg<String>()}_${secondArg<String>()}") }
     }
 
     private val invalidationBus = mockk<CloudSyncInvalidationBus>(relaxed = true)
@@ -364,6 +364,7 @@ class StreamIntegrationRepositoryTest {
         }
         val emptyIptvRepo = mockk<IptvRepository> {
             every { observeConfig() } returns MutableStateFlow(IptvConfig())
+            every { activePlaylists(any()) } returns emptyList()
         }
         val unauthTelegramRepo = mockk<TelegramRepository> {
             every { isAuthenticated() } returns false
@@ -391,6 +392,41 @@ class StreamIntegrationRepositoryTest {
         val repo = createRepository()
         assertEquals(StreamSearchMode.PARALLEL, repo.getSearchMode())
         assertEquals(StreamSearchMode.PARALLEL, repo.observeSearchMode().first())
+    }
+
+    @Test
+    fun enabledProviderSelectionExcludesDisabledAndUnrelatedProviders() = runBlocking {
+        val repo = createRepository()
+        assertEquals(setOf("homeserver:conn_emby_1"), repo.enabledProviderIds(StreamIntegrationType.HOME_SERVER))
+        assertTrue(repo.enabledProviderIds(StreamIntegrationType.HOME_SERVER, "homeserver:other").isEmpty())
+        repo.toggleProviderItem("homeserver:conn_emby_1")
+        assertTrue(repo.enabledProviderIds(StreamIntegrationType.HOME_SERVER).isEmpty())
+        assertEquals(setOf("iptv_playlist:playlist_1"), repo.enabledProviderIds(StreamIntegrationType.IPTV_VOD))
+        repo.toggleProviderItem("iptv_playlist:playlist_1")
+        assertTrue(repo.enabledProviderIds(StreamIntegrationType.IPTV_VOD).isEmpty())
+    }
+
+    @Test
+    fun selectionAndDisableArePerProviderNotPerCategory() = runBlocking {
+        fakeIptvConfig.value = fakeIptvConfig.value.copy(playlists = fakeIptvConfig.value.playlists +
+            fakeIptvConfig.value.playlists.first().copy(id = "playlist_2", importVod = false, importSeries = true))
+        fakePluginRepos.value = fakePluginRepos.value + fakePluginRepos.value.first().copy(id = "repo2")
+        val repo = createRepository()
+        assertEquals(setOf("iptv_playlist:playlist_2"), repo.enabledProviderIds(StreamIntegrationType.IPTV_VOD, "iptv_playlist:playlist_2"))
+        repo.toggleProviderItem("iptv_playlist:playlist_1")
+        assertEquals(setOf("iptv_playlist:playlist_2"), repo.enabledProviderIds(StreamIntegrationType.IPTV_VOD))
+        repo.toggleProviderItem("plugin_repo:repo1")
+        assertEquals(setOf("plugin_repo:repo2"), repo.enabledProviderIds(StreamIntegrationType.PLUGINS))
+    }
+
+    @Test
+    fun macroDisableOverridesIndividualProviderAndCloudRestoreKeepsSelection() = runBlocking {
+        val repo = createRepository()
+        repo.toggleIntegration(StreamIntegrationType.HOME_SERVER)
+        assertTrue(repo.enabledProviderIds(StreamIntegrationType.HOME_SERVER, "homeserver:conn_emby_1").isEmpty())
+        repo.toggleProviderItem("iptv_playlist:playlist_1")
+        val exported = repo.exportCloudSettingsForProfile(RuntimeEnvironment.getApplication().settingsDataStore.data.first(), profile)
+        assertEquals(false, exported.providerEnabledMap["iptv_playlist:playlist_1"])
     }
 
     @Test

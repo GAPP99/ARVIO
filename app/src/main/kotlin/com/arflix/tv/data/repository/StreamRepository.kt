@@ -1333,7 +1333,8 @@ class StreamRepository @Inject constructor(
         addonId: String,
         catalogType: String,
         catalogId: String,
-        skip: Int = 0
+        skip: Int = 0,
+        genre: String? = null
     ): StremioCatalogResponse = withContext(Dispatchers.IO) {
         val addon = installedAddons.first().firstOrNull { it.id == addonId }
             ?: throw IllegalArgumentException("Addon not found")
@@ -1350,7 +1351,8 @@ class StreamRepository @Inject constructor(
                 catalogType = typeCandidate,
                 catalogId = catalogId,
                 skip = skip,
-                queryBase = queryBase
+                queryBase = queryBase,
+                genre = genre
             )
             for (url in urls) {
                 val response = try {
@@ -2164,13 +2166,19 @@ class StreamRepository @Inject constructor(
         }
     }
 
+    private suspend fun integrationCacheRevision(addons: List<Addon>): String {
+        val enabled = streamIntegrationRepository.getUnifiedSourceOrderedIdsSync()
+        return streamAddonConfigurationRevision(addons) + ":integrations:" + enabled.joinToString("|")
+    }
+
     private suspend fun prioritizeStreamingAddons(streamAddons: List<Addon>): List<Addon> {
         val stremioEnabled = streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.STREMIO_ADDONS)
         if (!stremioEnabled) return emptyList()
         val userOrderedIds = streamIntegrationRepository.getUnifiedSourceOrderedIdsSync()
-        return streamAddons.sortedWith(
+        val enabledIds = streamIntegrationRepository.enabledProviderIds(StreamIntegrationType.STREMIO_ADDONS)
+        return streamAddons.filter { "stremio:${it.id}" in enabledIds }.sortedWith(
             compareBy<Addon> { addon ->
-                val pos = userOrderedIds.indexOfFirst { it == addon.id || it.contains(addon.id) || addon.id.contains(it) }
+                val pos = userOrderedIds.indexOf(addon.id)
                 if (pos >= 0) pos else Int.MAX_VALUE
             }.thenByDescending { getAddonHealthBias(it.id) }
         )
@@ -2194,7 +2202,7 @@ class StreamRepository @Inject constructor(
             profileId = profileManager.getProfileIdSync(),
             type = "movie",
             imdbId = imdbId,
-            addonRevision = streamAddonConfigurationRevision(streamAddons)
+            addonRevision = integrationCacheRevision(streamAddons)
         )
         val profileId = profileManager.getProfileIdSync()
         if (!forceRefresh) {
@@ -2226,7 +2234,7 @@ class StreamRepository @Inject constructor(
             profileId = profileId,
             type = "movie",
             imdbId = imdbId,
-            addonRevision = streamAddonConfigurationRevision(streamAddons)
+            addonRevision = integrationCacheRevision(streamAddons)
         )
         val cachedResult = CachedStreamResult(result, System.currentTimeMillis())
         synchronized(streamResultCache) {
@@ -2252,7 +2260,7 @@ class StreamRepository @Inject constructor(
                 profileId = profileId,
                 type = "movie",
                 imdbId = imdbId,
-                addonRevision = streamAddonConfigurationRevision(streamAddons)
+                addonRevision = integrationCacheRevision(streamAddons)
             )
             val cacheKey = if (sequential) "$baseCacheKey:seq" else baseCacheKey
             if (!forceRefresh) {
@@ -2283,7 +2291,7 @@ class StreamRepository @Inject constructor(
                             subtitles = cached.result.subtitles,
                             completedAddons = 1,
                             totalAddons = 1,
-                            isFinal = false
+                            isFinal = isStreamCacheFresh(cached)
                         )
                     )
                     if (isStreamCacheFresh(cached)) {
@@ -2582,14 +2590,16 @@ class StreamRepository @Inject constructor(
         title: String = "",
         year: Int? = null,
         tmdbId: Int? = null,
-        timeoutMs: Long = 5_000L
+        timeoutMs: Long = 5_000L,
+        providerId: String? = null
     ): List<StreamSource> = withContext(Dispatchers.IO) {
         withTimeoutOrNull(timeoutMs.coerceIn(250L, 20_000L)) {
             homeServerRepository.resolveMovieSources(
                 imdbId = imdbId,
                 title = title,
                 year = year,
-                tmdbId = tmdbId
+                tmdbId = tmdbId,
+                allowedProviderIds = streamIntegrationRepository.enabledProviderIds(StreamIntegrationType.HOME_SERVER, providerId)
             )
         }.orEmpty()
     }
@@ -2600,7 +2610,8 @@ class StreamRepository @Inject constructor(
         year: Int? = null,
         tmdbId: Int? = null,
         timeoutMs: Long = 15_000L,
-        originalTitle: String? = null
+        originalTitle: String? = null,
+        providerId: String? = null
     ): List<StreamSource> = withContext(Dispatchers.IO) {
         withTimeoutOrNull(timeoutMs.coerceIn(500L, 90_000L)) {
             runCatching {
@@ -2610,7 +2621,8 @@ class StreamRepository @Inject constructor(
                     imdbId = imdbId,
                     tmdbId = tmdbId,
                     allowNetwork = true,
-                    originalTitle = originalTitle
+                    originalTitle = originalTitle,
+                    allowedProviderIds = streamIntegrationRepository.enabledProviderIds(StreamIntegrationType.IPTV_VOD, providerId)
                 )
             }.onFailure { e ->
                 System.err.println("[VOD] resolveMovieVodSources failed: ${e.message}")
@@ -2773,7 +2785,7 @@ class StreamRepository @Inject constructor(
             season = season,
             episode = episode,
             providerEpisodeId = animeQueryOverride,
-            addonRevision = streamAddonConfigurationRevision(streamAddons)
+            addonRevision = integrationCacheRevision(streamAddons)
         )
         if (!forceRefresh) {
             synchronized(streamResultCache) {
@@ -2846,7 +2858,7 @@ class StreamRepository @Inject constructor(
                 season = season,
                 episode = episode,
                 providerEpisodeId = animeQueryOverride,
-                addonRevision = streamAddonConfigurationRevision(streamAddons)
+                addonRevision = integrationCacheRevision(streamAddons)
             )
             val cacheKey = if (sequential) "$baseCacheKey:seq" else baseCacheKey
             if (!forceRefresh) {
@@ -3117,7 +3129,8 @@ class StreamRepository @Inject constructor(
         title: String = "",
         tmdbId: Int? = null,
         tvdbId: Int? = null,
-        timeoutMs: Long = 5_000L
+        timeoutMs: Long = 5_000L,
+        providerId: String? = null
     ): List<StreamSource> = withContext(Dispatchers.IO) {
         withTimeoutOrNull(timeoutMs.coerceIn(250L, 20_000L)) {
             homeServerRepository.resolveEpisodeSources(
@@ -3126,7 +3139,8 @@ class StreamRepository @Inject constructor(
                 season = season,
                 episode = episode,
                 tmdbId = tmdbId,
-                tvdbId = tvdbId
+                tvdbId = tvdbId,
+                allowedProviderIds = streamIntegrationRepository.enabledProviderIds(StreamIntegrationType.HOME_SERVER, providerId)
             )
         }.orEmpty()
     }
@@ -3139,7 +3153,8 @@ class StreamRepository @Inject constructor(
         tmdbId: Int? = null,
         tvdbId: Int? = null,
         timeoutMs: Long = 45_000L,
-        originalTitle: String? = null
+        originalTitle: String? = null,
+        providerId: String? = null
     ): List<StreamSource> = withContext(Dispatchers.IO) {
         withPartialVodResults(timeoutMs.coerceIn(500L, 90_000L)) { onSources ->
             runCatching {
@@ -3151,7 +3166,8 @@ class StreamRepository @Inject constructor(
                     tmdbId = tmdbId,
                     allowNetwork = true,
                     originalTitle = originalTitle,
-                    onSources = onSources
+                    onSources = onSources,
+                    allowedProviderIds = streamIntegrationRepository.enabledProviderIds(StreamIntegrationType.IPTV_VOD, providerId)
                 )
             }.onFailure { e ->
                 if (e is CancellationException) throw e

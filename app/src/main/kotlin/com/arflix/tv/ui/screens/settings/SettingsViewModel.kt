@@ -178,6 +178,7 @@ data class SettingsUiState(
     val subtitleOffset: String = "Bottom",
     val subtitleStylized: Boolean = true,
     val filterSubtitlesByLanguage: Boolean = true,
+    val useForcedSubtitles: Boolean = false,
     val secondarySubtitle: String = "Off",
     val trailerAutoPlay: Boolean = true,
     val trailerSoundEnabled: Boolean = false,
@@ -272,6 +273,7 @@ data class SettingsUiState(
     val pendingPackUrl: String? = null,
     val isPackLoading: Boolean = false,
     val packError: SettingsMessage? = null,
+    val builtInCollectionsEnabled: Boolean = true,
     // Addons
     val addons: List<Addon> = emptyList(),
     val isRefreshingAddons: Boolean = false,
@@ -403,6 +405,7 @@ class SettingsViewModel @Inject constructor(
     private fun subtitleFontKey() = profileManager.profileStringKey("subtitle_font")
     private fun subtitleStylizedKey() = profileManager.profileBooleanKey("subtitle_stylized")
     private fun filterSubtitlesByLanguageKey() = profileManager.profileBooleanKey("filter_subtitles_by_lang")
+    private fun useForcedSubtitlesKey() = profileManager.profileBooleanKey("use_forced_subtitles")
     private fun secondarySubtitleKey() = profileManager.profileStringKey("secondary_subtitle")
     private val dnsProviderKey = stringPreferencesKey(OkHttpProvider.DNS_PROVIDER_PREF_KEY)
     private val customUserAgentKey = stringPreferencesKey(OkHttpProvider.USER_AGENT_PREF_KEY)
@@ -623,6 +626,7 @@ class SettingsViewModel @Inject constructor(
             val subtitleOffset = prefs[subtitleOffsetKey()] ?: "Bottom"
             val subtitleStylized = prefs[subtitleStylizedKey()] ?: true
             val filterSubtitlesByLanguage = prefs[filterSubtitlesByLanguageKey()] ?: true
+            val useForcedSubtitles = prefs[useForcedSubtitlesKey()] ?: false
             val secondarySubtitle = prefs[secondarySubtitleKey()]?.trim()?.takeIf { it.isNotBlank() } ?: "Off"
             val dnsProviderValue = normalizeDnsProviderValue(prefs[dnsProviderKey])
             val customUserAgent = prefs[customUserAgentKey].orEmpty().trim()
@@ -718,6 +722,7 @@ class SettingsViewModel @Inject constructor(
                 subtitleOffset = subtitleOffset,
                 subtitleStylized = subtitleStylized,
                 filterSubtitlesByLanguage = filterSubtitlesByLanguage,
+                useForcedSubtitles = useForcedSubtitles,
                 secondarySubtitle = secondarySubtitle,
                 dnsProvider = dnsProviderLabel(dnsProviderValue),
                 customUserAgent = customUserAgent,
@@ -1454,6 +1459,16 @@ class SettingsViewModel @Inject constructor(
                 prefs[filterSubtitlesByLanguageKey()] = enabled
             }
             _uiState.value = _uiState.value.copy(filterSubtitlesByLanguage = enabled)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun setUseForcedSubtitles(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[useForcedSubtitlesKey()] = enabled
+            }
+            _uiState.value = _uiState.value.copy(useForcedSubtitles = enabled)
             syncLocalStateToCloud(silent = true)
         }
     }
@@ -2394,6 +2409,9 @@ class SettingsViewModel @Inject constructor(
 
     private fun initializeCatalogs() {
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                builtInCollectionsEnabled = catalogRepository.isBuiltInCollectionsEnabled()
+            )
             runCatching {
                 catalogRepository.ensurePreinstalledDefaults(mediaRepository.getDefaultCatalogConfigs())
             }
@@ -2408,6 +2426,30 @@ class SettingsViewModel @Inject constructor(
                 pendingPackManifest = null,
                 pendingPackUrl = null
             )
+            // Collections documents (e.g. a Nuvio collections export, by URL or pasted
+            // JSON) install directly; anything else continues as a catalog pack.
+            val collectionsResult = catalogRepository.importCollections(url)
+            if (collectionsResult != null) {
+                collectionsResult.onSuccess { (name, railCount) ->
+                    syncLocalStateToCloud(silent = true)
+                    _uiState.value = _uiState.value.copy(
+                        isPackLoading = false,
+                        toastMessage = SettingsMessage.Res(
+                            R.string.settings_collections_installed,
+                            listOf(name, railCount)
+                        ),
+                        toastType = ToastType.SUCCESS
+                    )
+                }.onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        isPackLoading = false,
+                        packError = error.orCatalogMessage(
+                            SettingsMessage.Res(R.string.catalog_collections_invalid)
+                        )
+                    )
+                }
+                return@launch
+            }
             val result = catalogRepository.fetchCatalogPackManifest(url)
             result.onSuccess { manifest ->
                 _uiState.value = _uiState.value.copy(
@@ -2464,6 +2506,15 @@ class SettingsViewModel @Inject constructor(
                     )
                 )
             }
+        }
+    }
+
+    fun toggleBuiltInCollections() {
+        viewModelScope.launch {
+            val enabled = !catalogRepository.isBuiltInCollectionsEnabled()
+            catalogRepository.setBuiltInCollectionsEnabled(enabled)
+            _uiState.value = _uiState.value.copy(builtInCollectionsEnabled = enabled)
+            syncLocalStateToCloud(silent = true)
         }
     }
 
