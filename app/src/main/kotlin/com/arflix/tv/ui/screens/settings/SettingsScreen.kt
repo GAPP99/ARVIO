@@ -652,7 +652,7 @@ fun SettingsScreen(
                 7 + uiState.iptvPlaylists.size + uiState.iptvStalkerPortals.size
             }
             "home_server" -> uiState.homeServerConnections.size + 3
-            "catalogs" -> uiState.catalogs.size + 1 // Add + Import + catalogs
+            "catalogs" -> uiState.catalogs.size + 2 // Add + Import + Built-in collections toggle + catalogs
             "stremio" -> stremioAddons.size + 1 // rows + refresh + add button
             "plugins" -> pluginsMaxIndex
             "accounts" -> 16 // Includes About & Credits.
@@ -1085,7 +1085,7 @@ fun SettingsScreen(
                                             )
                                     ) {
                                         iptvActionIndex--
-                                    } else if (currentSection == "catalogs" && contentFocusIndex > 1 && catalogActionIndex > 0) {
+                                    } else if (currentSection == "catalogs" && contentFocusIndex > 2 && catalogActionIndex > 0) {
                                         catalogActionIndex--
                                     } else {
                                         activeZone = Zone.SECTION
@@ -1137,7 +1137,7 @@ fun SettingsScreen(
                                         iptvActionIndex++
                                     } else if (currentSection == "iptv" && !showIptvCategoriesSettings && stalkerCount > 0 && contentFocusIndex in stalkerStart..stalkerEnd && iptvActionIndex < iptvRowMaxAction()) {
                                         iptvActionIndex++
-                                    } else if (currentSection == "catalogs" && contentFocusIndex > 1 && catalogActionIndex < 5) {
+                                    } else if (currentSection == "catalogs" && contentFocusIndex > 2 && catalogActionIndex < 5) {
                                         catalogActionIndex++
                                     }
                                 }
@@ -1440,8 +1440,10 @@ fun SettingsScreen(
                                                 showCatalogInput = true
                                             } else if (contentFocusIndex == 1) {
                                                 showCatalogPackInput = true
+                                            } else if (contentFocusIndex == 2) {
+                                                viewModel.toggleBuiltInCollections()
                                             } else {
-                                                val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 2)
+                                                val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 3)
                                                 if (catalog != null) {
                                                     when (catalogActionIndex) {
                                                         0 -> {
@@ -2097,6 +2099,8 @@ fun SettingsScreen(
                             focusedActionIndex = catalogActionIndex,
                             onAddCatalog = { showCatalogInput = true },
                             onImportCatalogPack = { showCatalogPackInput = true },
+                            builtInCollectionsEnabled = uiState.builtInCollectionsEnabled,
+                            onToggleBuiltInCollections = { viewModel.toggleBuiltInCollections() },
                             onRenameCatalog = { catalog ->
                                 renameCatalogId = catalog.id
                                 renameCatalogTitle = catalog.title
@@ -5101,6 +5105,8 @@ private fun MobileSettingsSubPage(
                     focusedActionIndex = 0,
                     onAddCatalog = onAddCatalogClick,
                     onImportCatalogPack = onImportCatalogPackClick,
+                    builtInCollectionsEnabled = uiState.builtInCollectionsEnabled,
+                    onToggleBuiltInCollections = { viewModel.toggleBuiltInCollections() },
                     onRenameCatalog = onRenameCatalogClick,
                     onMoveCatalogUp = { viewModel.moveCatalogUp(it.id) },
                     onMoveCatalogDown = { viewModel.moveCatalogDown(it.id) },
@@ -8642,6 +8648,8 @@ private fun CatalogsSettings(
     focusedActionIndex: Int,
     onAddCatalog: () -> Unit,
     onImportCatalogPack: () -> Unit,
+    builtInCollectionsEnabled: Boolean,
+    onToggleBuiltInCollections: () -> Unit,
     onRenameCatalog: (CatalogConfig) -> Unit,
     onMoveCatalogUp: (CatalogConfig) -> Unit,
     onMoveCatalogDown: (CatalogConfig) -> Unit,
@@ -8671,12 +8679,13 @@ private fun CatalogsSettings(
             }
             MobileSettingsCategory(title = stringResource(R.string.settings_section_add_catalog)) {
                 MobileSettingsRow(icon = Icons.Default.Add, title = stringResource(R.string.add_catalog), subtitle = stringResource(R.string.add_catalog_desc), value = "", isFocused = false, showDivider = true, onClick = onAddCatalog)
-                MobileSettingsRow(icon = Icons.Default.Widgets, title = stringResource(R.string.settings_catalog_pack_import_title), subtitle = stringResource(R.string.settings_catalog_pack_import_desc), value = "", isFocused = false, showDivider = false, onClick = onImportCatalogPack)
+                MobileSettingsRow(icon = Icons.Default.Widgets, title = stringResource(R.string.settings_catalog_pack_import_title), subtitle = stringResource(R.string.settings_catalog_pack_import_desc), value = "", isFocused = false, showDivider = true, onClick = onImportCatalogPack)
+                MobileSettingsRow(icon = if (builtInCollectionsEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff, title = stringResource(R.string.settings_builtin_collections_title), subtitle = stringResource(R.string.settings_builtin_collections_desc), value = stringResource(if (builtInCollectionsEnabled) R.string.on else R.string.off), isFocused = false, showDivider = false, onClick = onToggleBuiltInCollections)
             }
             if (catalogs.isNotEmpty()) {
                 MobileSettingsCategory(title = stringResource(R.string.settings_section_my_catalogs)) {
                     catalogs.forEachIndexed { index, catalog ->
-                        val title = if (catalog.isPreinstalled) { when (catalog.kind) { CatalogKind.COLLECTION -> stringResource(R.string.settings_title_builtin_collection, catalog.title); CatalogKind.COLLECTION_RAIL -> stringResource(R.string.settings_title_builtin_rail, catalog.title); else -> stringResource(R.string.settings_title_builtin, catalog.title) } } else catalog.title
+                        val title = if (catalog.isPreinstalled && catalog.collectionRailKey == null) { when (catalog.kind) { CatalogKind.COLLECTION -> stringResource(R.string.settings_title_builtin_collection, catalog.title); CatalogKind.COLLECTION_RAIL -> stringResource(R.string.settings_title_builtin_rail, catalog.title); else -> stringResource(R.string.settings_title_builtin, catalog.title) } } else catalog.title
                         val currentPackId = catalog.packId
                         val prevPackId = if (index > 0) catalogs[index - 1].packId else null
                         val showPackHeader = currentPackId != null && currentPackId != prevPackId && catalog.isBulkDeletablePack
@@ -8685,7 +8694,7 @@ private fun CatalogsSettings(
                         val subtitle = run {
                             val baseSubtitle = when {
                                 catalog.kind == CatalogKind.COLLECTION_RAIL -> {
-                                    val group = catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: collectionFallback
+                                    val group = (if (catalog.collectionRailKey != null) catalog.packName else catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() }) ?: collectionFallback
                                     stringResource(R.string.settings_group_rail, group)
                                 }
                                 catalog.kind == CatalogKind.COLLECTION -> {
@@ -8805,8 +8814,10 @@ private fun CatalogsSettings(
             Spacer(modifier = Modifier.height(16.dp))
             SettingsRow(icon = Icons.Default.Widgets, title = stringResource(R.string.settings_catalog_pack_import_title), subtitle = stringResource(R.string.settings_catalog_pack_import_desc), value = stringResource(R.string.settings_catalog_pack_import_badge), isFocused = focusedIndex == 1, onClick = onImportCatalogPack, modifier = Modifier.settingsFocusSlot(1))
             Spacer(modifier = Modifier.height(16.dp))
+            SettingsRow(icon = if (builtInCollectionsEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff, title = stringResource(R.string.settings_builtin_collections_title), subtitle = stringResource(R.string.settings_builtin_collections_desc), value = stringResource(if (builtInCollectionsEnabled) R.string.on else R.string.off), isFocused = focusedIndex == 2, onClick = onToggleBuiltInCollections, modifier = Modifier.settingsFocusSlot(2))
+            Spacer(modifier = Modifier.height(16.dp))
             catalogs.forEachIndexed { index, catalog ->
-                val rowFocusIndex = index + 2; val isRowFocused = focusedIndex == rowFocusIndex
+                val rowFocusIndex = index + 3; val isRowFocused = focusedIndex == rowFocusIndex
                 val currentPackId = catalog.packId
                 val prevPackId = if (index > 0) catalogs[index - 1].packId else null
                 val showPackHeader = currentPackId != null && currentPackId != prevPackId && catalog.isBulkDeletablePack
@@ -8835,13 +8846,13 @@ private fun CatalogsSettings(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                val title = if (catalog.isPreinstalled) { when (catalog.kind) { CatalogKind.COLLECTION -> stringResource(R.string.settings_title_builtin_collection, catalog.title); CatalogKind.COLLECTION_RAIL -> stringResource(R.string.settings_title_builtin_rail, catalog.title); else -> stringResource(R.string.settings_title_builtin, catalog.title) } } else catalog.title
+                val title = if (catalog.isPreinstalled && catalog.collectionRailKey == null) { when (catalog.kind) { CatalogKind.COLLECTION -> stringResource(R.string.settings_title_builtin_collection, catalog.title); CatalogKind.COLLECTION_RAIL -> stringResource(R.string.settings_title_builtin_rail, catalog.title); else -> stringResource(R.string.settings_title_builtin, catalog.title) } } else catalog.title
                 val collectionFallback = stringResource(R.string.settings_collection_fallback)
                 val addonFallback = stringResource(R.string.settings_source_addon)
                 val subtitle = run {
                     val baseSubtitle = when {
                         catalog.kind == CatalogKind.COLLECTION_RAIL -> {
-                            val group = catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: collectionFallback
+                            val group = (if (catalog.collectionRailKey != null) catalog.packName else catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() }) ?: collectionFallback
                             stringResource(R.string.settings_group_rail, group)
                         }
                         catalog.kind == CatalogKind.COLLECTION -> {
