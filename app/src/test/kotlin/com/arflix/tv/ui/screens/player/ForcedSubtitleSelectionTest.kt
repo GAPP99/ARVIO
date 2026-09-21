@@ -1,9 +1,13 @@
 package com.arflix.tv.ui.screens.player
 
+import android.util.Log
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.model.Subtitle
 import io.mockk.mockk
+import io.mockk.every
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -26,6 +30,8 @@ class ForcedSubtitleSelectionTest {
 
     @Before fun setUp() {
         Dispatchers.setMain(Dispatchers.Unconfined)
+        mockkStatic(Log::class)
+        every { Log.i(any(), any()) } returns 0
         model = PlayerViewModel(
             mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
             mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
@@ -43,6 +49,7 @@ class ForcedSubtitleSelectionTest {
             store.clear()
             runBlocking { withTimeout(5_000) { job?.join() } }
         } finally {
+            unmockkStatic(Log::class)
             Dispatchers.resetMain()
         }
     }
