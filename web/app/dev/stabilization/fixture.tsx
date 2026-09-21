@@ -31,7 +31,7 @@ const posters = ["/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg", "/qJ2tW6WMUDux911r6m7haRef0
 const titles = ["Dune: Part Two", "The Dark Knight", "Interstellar", "The Shawshank Redemption"];
 const media: MediaItem[] = Array.from({ length: 24 }, (_, i) => ({ id: -i - 1, mediaType: "movie", title: titles[i % 4], year: "2024", image: `https://image.tmdb.org/t/p/w500${posters[i % 4]}`, backdrop: `https://image.tmdb.org/t/p/w780${posters[i % 4]}`, rating: "8.4", overview: "Controlled test data", activityAt: 100 - i }));
 
-export function StabilizationFixture({ testLiveUrl }: { testLiveUrl?: string } = {}) {
+export function StabilizationFixture({ testLiveUrl, useSourceUrls = false }: { testLiveUrl?: string; useSourceUrls?: boolean } = {}) {
   const [ready, setReady] = useState(false);
   useEffect(() => { setReady(true); installTvNav(); }, []);
   const [layoutBanner, setLayoutBanner] = useState(false);
@@ -51,7 +51,7 @@ export function StabilizationFixture({ testLiveUrl }: { testLiveUrl?: string } =
     setNowNext((old) => {
       const next = { ...old };
       for (const ch of rows) {
-        const entries = Array.from({ length: 5 }, (_, i) => ({ channelId: ch.id, title: programs[(Number(ch.number) + i) % programs.length], description: sportsArtworkFixture.metas[(Number(ch.number) + i) % programs.length].genres.join(" "), startUtcMillis: start + i * 3_600_000, endUtcMillis: start + (i + 1) * 3_600_000 }));
+        const entries = Array.from({ length: 5 }, (_, i) => ({ channelId: ch.id, title: programs[(Number(ch.number) + i) % programs.length], category: sportsArtworkFixture.metas[(Number(ch.number) + i) % programs.length].genres.join(" "), description: sportsArtworkFixture.metas[(Number(ch.number) + i) % programs.length].genres.join(" "), startUtcMillis: start + i * 3_600_000, endUtcMillis: start + (i + 1) * 3_600_000 }));
         next[ch.id] = { now: entries[0], next: entries[1], upcoming: entries.slice(1), recent: [] };
       }
       return next;
@@ -72,7 +72,7 @@ export function StabilizationFixture({ testLiveUrl }: { testLiveUrl?: string } =
     profiles: [], addons: sportsAddons, watchlist: media, continueWatching: media.slice(0, 4), traktConnected: true, simklConnected: true, mdblistConnected: false,
     openDetails: (item: MediaItem) => setToast(`Selected: ${item.title}`), openContextMenu: noop, isWatched: () => false,
     loadTrackerLibrary, loadTraktLists, loadTraktListItems: async () => media,
-    playChannel: (channel: IptvChannel) => { setPlayRequests(count => count + 1); setActiveChannel(channel); setActiveStream({ source: channel.name, addonName: "Live TV", quality: "Live", size: "", url: testLiveUrl || "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" }); }, recordChannelPlayback: noop, playCatchup: noop, setToast,
+    playChannel: (channel: IptvChannel) => { setPlayRequests(count => count + 1); setActiveChannel(channel); setActiveStream({ source: channel.name, addonName: "Live TV", quality: "Live", size: "", url: testLiveUrl || (useSourceUrls ? channel.streamUrl : "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"), behaviorHints: { proxyHeaders: { request: channel.requestHeaders } } }); }, recordChannelPlayback: noop, playCatchup: noop, setToast,
     trackingPreferences: { watchlistReadMode: "trakt", continueWatchingReadMode: "both", watchedReadMode: "both", writeToTrakt: true, writeToSimkl: true },
     settingsSyncState: "local", saveTrackingPreferences: noop, setSection: setPage, signOut: noop, refreshData: empty,
     homeServerRows: [], categories: [], catalogConfigs: [], selected: null, streams: [], activeStream, activeChannel, selectedEpisode: null,
