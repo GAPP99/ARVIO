@@ -70,7 +70,11 @@ class CatalogRepository @Inject constructor(
     private val invalidationBus: CloudSyncInvalidationBus
 ) {
     private val bundledPreinstalledCatalogsById by lazy(LazyThreadSafetyMode.NONE) {
-        MediaRepository.buildPreinstalledDefaults().associateBy { it.id }
+        // Imported collections change at runtime, so they must not be frozen into
+        // this snapshot (a stale copy would fight ensurePreinstalledDefaults).
+        MediaRepository.buildPreinstalledDefaults()
+            .filterNot { it.packId?.startsWith(CustomCollections.PACK_ID_PREFIX) == true }
+            .associateBy { it.id }
     }
 
     // Debounce guard: skip syncAddonCatalogs() when addon list hasn't changed.
@@ -378,7 +382,7 @@ class CatalogRepository @Inject constructor(
         val defaultIds = defaultPreinstalled.map { it.id }.toSet()
         val existing = getCatalogs().mapNotNull { cfg ->
             if ((cfg.kind == CatalogKind.COLLECTION || cfg.kind == CatalogKind.COLLECTION_RAIL) &&
-                !defaultIds.contains(cfg.id)
+                !defaultIds.contains(cfg.id) && !CustomCollections.isCustom(cfg)
             ) {
                 return@mapNotNull null
             }
@@ -818,6 +822,53 @@ class CatalogRepository @Inject constructor(
         return Result.success(finalManifest)
     }
 
+    /**
+     * Installs a collections document (Nuvio export format or ARVIO wrapper) from a
+     * URL or pasted JSON. Returns null when the input is not a collections document,
+     * so the caller can fall back to the regular catalog-pack flow.
+     */
+    suspend fun importCollections(input: String): Result<Pair<String, Int>>? {
+        val targetProfileId = activeProfileId()
+        val trimmed = input.trim()
+        val isRawJson = trimmed.startsWith("[") || trimmed.startsWith("{")
+        val url = if (isRawJson) null else CatalogUrlParser.normalize(trimmed)
+        val json = if (isRawJson) {
+            trimmed
+        } else {
+            fetchUrl(url ?: return null) ?: return if (url.endsWith(".json", ignoreCase = true)) {
+                Result.failure(CatalogException(R.string.catalog_pack_fetch_failed))
+            } else {
+                null
+            }
+        }
+        if (!CustomCollections.looksLikeCollections(json)) {
+            return if (isRawJson) Result.failure(CatalogException(R.string.catalog_collections_invalid)) else null
+        }
+        val result = CustomCollections.parse(json, url)
+        if (result.isFailure) return Result.failure(CatalogException(R.string.catalog_collections_invalid))
+        val rails = result.getOrThrow()
+        val imported = CustomCollections.catalogs(rails)
+        val current = getCatalogsForProfile(targetProfileId)
+        replaceCatalogsForProfile(targetProfileId, CustomCollections.merge(current, imported))
+        return Result.success(rails.first().packName to rails.size)
+    }
+
+    private fun builtInCollectionIds(): Set<String> = MediaRepository.buildPreinstalledDefaults()
+        .filter { it.kind == CatalogKind.COLLECTION_RAIL || it.kind == CatalogKind.COLLECTION }.map { it.id }.toSet()
+
+    suspend fun isBuiltInCollectionsEnabled(): Boolean =
+        !getHiddenPreinstalledCatalogIdsForActiveProfile().containsAll(builtInCollectionIds())
+
+    /** Shows or hides ARVIO's built-in collection rails (Services / Genres / Franchises). */
+    suspend fun setBuiltInCollectionsEnabled(enabled: Boolean) {
+        val ids = builtInCollectionIds()
+        val hidden = getHiddenPreinstalledCatalogIdsForActiveProfile().toSet()
+        setHiddenPreinstalledCatalogIdsForActiveProfile(
+            (if (enabled) hidden - ids else hidden + ids).toList()
+        )
+        ensurePreinstalledDefaults(MediaRepository.buildPreinstalledDefaults())
+    }
+
     suspend fun removeCatalogPack(packId: String): Result<Unit> {
         val current = getCatalogs().toMutableList()
         val beforeSize = current.size
@@ -1193,6 +1244,9 @@ class CatalogRepository @Inject constructor(
                 val collectionHeroVideoUrl = asTrimmedString(row["collectionHeroVideoUrl"])
                 val collectionTileShape = parseCollectionTileShapeCompat(asTrimmedString(row["collectionTileShape"]))
                 val collectionHideTitle = (row["collectionHideTitle"] as? Boolean) ?: false
+                val collectionRailKey = asTrimmedString(row["collectionRailKey"])
+                val packId = asTrimmedString(row["packId"])
+                val packName = asTrimmedString(row["packName"])
                 val collectionSources = try {
                     val jsonValue = gson.toJson(row["collectionSources"])
                     gson.fromJson<List<CollectionSourceConfig>>(
@@ -1249,7 +1303,10 @@ class CatalogRepository @Inject constructor(
                         collectionTileShape = collectionTileShape,
                         collectionHideTitle = collectionHideTitle,
                         collectionSources = collectionSources,
-                        requiredAddonUrls = requiredAddonUrls
+                        requiredAddonUrls = requiredAddonUrls,
+                        packId = packId,
+                        packName = packName,
+                        collectionRailKey = collectionRailKey
                     )
                 )
             }
