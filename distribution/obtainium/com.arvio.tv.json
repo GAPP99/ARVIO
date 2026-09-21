@@ -6,7 +6,7 @@
             "author": "ProdigyV21",
             "name": "ARVIO",
             "preferredApkIndex": null,
-            "additionalSettings": "{\"apkFilter\":\"ARVIO-.*-sideload-release\\\\.apk\",\"autoCheckForUpdates\":true,\"filterByStatus\":true,\"includePrereleases\":false,\"fallbackToOlderReleases\":true}"
+            "additionalSettings": "{\"apkFilterRegEx\":\"ARVIO-.*-sideload-release\\\\.apk\",\"includePrereleases\":false,\"fallbackToOlderReleases\":true}"
         }
     ]
 }
