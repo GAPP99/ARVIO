@@ -779,7 +779,7 @@ export async function pullCloudPayload(auth: AuthClient, profileId?: string | nu
       ...profileSettings,
       ...globalSettings,
       ...iptvSettings,
-      ...(arrayValue(profileCatalogs).length ? { catalogs: arrayValue(profileCatalogs) as AppSettings["catalogs"] } : legacyCatalogs.length ? { catalogs: legacyCatalogs } : {}),
+      ...(Array.isArray(profileCatalogs) ? { catalogs: profileCatalogs } : legacyCatalogs.length ? { catalogs: legacyCatalogs } : {}),
       ...(hiddenCatalogIds !== undefined ? { hiddenCatalogIds: arrayValue<string>(hiddenCatalogIds) } : legacyHiddenCatalogIds.length ? { hiddenCatalogIds: legacyHiddenCatalogIds } : {}),
       ...(hiddenHomeServerCatalogIds !== undefined ? { hiddenHomeServerCatalogIds: arrayValue<string>(hiddenHomeServerCatalogIds) } : {})
     },

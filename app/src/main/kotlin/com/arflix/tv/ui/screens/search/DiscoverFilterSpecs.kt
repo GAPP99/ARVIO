@@ -123,7 +123,10 @@ private fun typeChip(state: SearchUiState, actions: DiscoverFilterActions): Disc
         isSet = false,
         segments = TYPES.map { typeLabel(it) },
         selectedSegment = current,
-        onActivate = { actions.onSelectType(TYPES[(current + 1) % TYPES.size]) }
+        onActivate = { actions.onSelectType(TYPES[(current + 1) % TYPES.size]) },
+        onSelectSegment = { index ->
+            if (index in TYPES.indices) actions.onSelectType(TYPES[index])
+        }
     )
 }
 

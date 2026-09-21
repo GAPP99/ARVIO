@@ -35,16 +35,12 @@
   <br />
   <br />
 
-  <a href="https://web.arvio.tv">
-    <img src="https://img.shields.io/badge/ARVIO-Web%20App-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="ARVIO Web App" />
-  </a>
+  <a href="https://web.arvio.tv"><img src="https://img.shields.io/badge/ARVIO-Web%20App-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="ARVIO Web App" /></a>
 
   <br />
   <br />
 
- <a href="https://trendshift.io/repositories/28671?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-28671" target="_blank" rel="noopener noreferrer">
-    <img src="https://trendshift.io/api/badge/trendshift/repositories/28671/weekly?language=Kotlin" alt="ProdigyV21/ARVIO | Trendshift" width="250" height="55" />
-  </a>
+  <a href="https://trendshift.io/repositories/28671?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-28671" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/28671/weekly?language=Kotlin" alt="ProdigyV21/ARVIO | Trendshift" width="250" height="55" /></a>
 
 
 </div>
@@ -98,9 +94,23 @@ It is not intended as an advertising page, download landing page, or content dis
 
 ## Availability
 
-ARVIO is available on Google Play:
+ARVIO is available across official app stores, direct GitHub releases, and Obtainium:
 
-[<img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" width="160">](https://play.google.com/store/apps/details?id=com.arvio.tv)
+<p align="left">
+  <a href="https://play.google.com/store/apps/details?id=com.arvio.tv"><img src="assets/badges/badge_google_play.png" alt="Get it on Google Play" width="160"></a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/ProdigyV21/ARVIO"><img src="assets/badges/badge_obtainium.png" alt="Get it on Obtainium" width="160"></a>
+  <a href="https://github.com/ProdigyV21/ARVIO/releases/latest"><img src="assets/badges/badge_github.png" alt="Get it on GitHub" width="160"></a>
+</p>
+
+### Obtainium (Recommended for Sideloading)
+Install and automatically receive updates directly from GitHub Releases using [Obtainium](https://github.com/ImranR98/Obtainium):
+
+- **1-Click Add:** Click the **Get it on Obtainium** badge above or open [`obtainium://add/https://github.com/ProdigyV21/ARVIO`](obtainium://add/https://github.com/ProdigyV21/ARVIO) on your Android device.
+- **Manual App Source URL:** `https://github.com/ProdigyV21/ARVIO`
+- See [Obtainium Setup Guide](docs/distribution/OBTAINIUM.md) for pre-configured JSON import and APK filtering details.
+
+### Direct GitHub Releases
+Signed APKs (`ARVIO-v*-sideload-release.apk`) and checksums (`SHA256SUMS.txt`) are published on [GitHub Releases](https://github.com/ProdigyV21/ARVIO/releases/latest).
 
 
 
@@ -115,29 +125,49 @@ If ARVIO helps you and you want to support development, donations are appreciate
 
 ## Screenshots
 
+ARVIO 2.0 across TV, phones, tablets and the web. Select an image to view it in full, or explore the [complete screenshot gallery](https://arvio.tv/#screens).
+
+### Android TV
+
 | Home | Details |
-|------|---------|
-| ![Home screen](screenshots/home_v190.png) | ![Details screen](screenshots/details_v190.png) |
+|---|---|
+| ![ARVIO 2.0 tv · Home](netlify-arvio-tv-site/assets/screenshots-v2/tv/01-home.webp) | ![ARVIO 2.0 tv · Details](netlify-arvio-tv-site/assets/screenshots-v2/tv/02-details.webp) |
 
-| Live TV | Collections |
-|---------|-------------|
-| ![Live TV screen](screenshots/live_tv_v1991.png) | ![Collections screen](screenshots/collections_v1991.png) |
+| Library | Homeserver |
+|---|---|
+| ![ARVIO 2.0 tv · Library](netlify-arvio-tv-site/assets/screenshots-v2/tv/03-library.webp) | ![ARVIO 2.0 tv · Homeserver](netlify-arvio-tv-site/assets/screenshots-v2/tv/04-homeserver.webp) |
 
-| Mobile | Profiles |
-|--------|----------|
-| ![Mobile screen](screenshots/mobile_home.webp) | ![Profiles screen](screenshots/profiles_v1991.png) |
+| Live TV | Sports |
+|---|---|
+| ![ARVIO 2.0 tv · Live TV](netlify-arvio-tv-site/assets/screenshots-v2/tv/05-tv.webp) | ![ARVIO 2.0 tv · Sports](netlify-arvio-tv-site/assets/screenshots-v2/tv/06-sports.webp) |
+
+### Mobile
+
+| Home | Library | Live TV |
+|---|---|---|
+| ![ARVIO 2.0 mobile · Home](netlify-arvio-tv-site/assets/screenshots-v2/phone/01-home.webp) | ![ARVIO 2.0 mobile · Library](netlify-arvio-tv-site/assets/screenshots-v2/phone/03-library.webp) | ![ARVIO 2.0 mobile · Live TV](netlify-arvio-tv-site/assets/screenshots-v2/phone/05-tv.webp) |
+
+### Tablet · Landscape
+
+| Home | Service collections |
+|---|---|
+| ![ARVIO 2.0 tablet · Home](netlify-arvio-tv-site/assets/screenshots-v2/tablet/01-home.webp) | ![ARVIO 2.0 tablet · Service collections](netlify-arvio-tv-site/assets/screenshots-v2/tablet/07-services.webp) |
+
+Phone and tablet captures use demonstration libraries and channels.
 
 ### ARVIO Web — iPhone, iPad & any browser
 
-The same ARVIO experience in the browser at [web.arvio.tv](https://web.arvio.tv) — for the devices an APK can't reach. Profiles, watchlist and progress sync with the app.
+Use ARVIO in your browser at [web.arvio.tv](https://web.arvio.tv), with optional ARVIO Cloud sync for profiles, watchlists and progress. You can also [self-host the web app](web/README.md). The captures below show the desktop browser layout.
 
-| Web · Home (iPad) | Web · Details (iPad) |
-|-------------------|----------------------|
-| ![ARVIO Web home on iPad](screenshots/ipad_home.webp) | ![ARVIO Web details on iPad](screenshots/ipad_details.webp) |
+| Home | Details |
+|---|---|
+| ![ARVIO 2.0 web · Home](netlify-arvio-tv-site/assets/screenshots-v2/web/01-home.webp) | ![ARVIO 2.0 web · Details](netlify-arvio-tv-site/assets/screenshots-v2/web/02-details.webp) |
 
-| Web · Live TV guide (iPad) | Web · Catalogs (iPad) |
-|----------------------------|-----------------------|
-| ![ARVIO Web live TV on iPad](screenshots/ipad_live_tv.webp) | ![ARVIO Web catalogs on iPad](screenshots/ipad_catalogs.webp) |
+| Library | Service collections |
+|---|---|
+| ![ARVIO 2.0 web · Library](netlify-arvio-tv-site/assets/screenshots-v2/web/03-library.webp) | ![ARVIO 2.0 web · Service collections](netlify-arvio-tv-site/assets/screenshots-v2/web/07-services.webp) |
+
+Screenshots show connected sources and example setups. ARVIO includes no media or subscriptions.
 
 ## Content And Source Policy
 

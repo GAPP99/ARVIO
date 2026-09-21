@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -181,6 +182,11 @@ internal fun DiscoverFilterPanel(
     val openDropdown = spec.dropdownWithKey(openDropdownKey)
     val lines = panelLines(spec, openDropdown)
     val listState = rememberLazyListState()
+    val maxContentHeight = if (isTouchDevice) {
+        (LocalConfiguration.current.screenHeightDp.dp * 0.45f).coerceIn(280.dp, 380.dp)
+    } else {
+        PANEL_MAX_HEIGHT
+    }
     // Keyed on numbers only: a spec carries lambdas and is a new object on every recomposition,
     // so keying the scroll on it would restart the animation on every frame.
     LaunchedEffect(spec.id, spec.shapes, focus, openDropdownKey, dropdownFocusIndex) {
@@ -200,7 +206,7 @@ internal fun DiscoverFilterPanel(
         LazyColumn(
             state = listState,
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().heightIn(max = PANEL_MAX_HEIGHT).padding(top = 10.dp)
+            modifier = Modifier.fillMaxWidth().heightIn(max = maxContentHeight).padding(top = 10.dp)
         ) {
             items(lines, key = { it.key }) { line ->
                 when (line) {

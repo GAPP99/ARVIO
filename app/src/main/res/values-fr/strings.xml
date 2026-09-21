@@ -67,6 +67,8 @@
     <string name="secondary_subtitle_desc">Langue de sous-titres de secours quand la principale est indisponible</string>
     <string name="filter_subtitles">Filtrer les sous-titres par langue</string>
     <string name="filter_subtitles_desc">N’affiche que les sous-titres dans votre langue préférée</string>
+    <string name="use_forced_subtitles">Sous-titres forcés</string>
+    <string name="use_forced_subtitles_desc">Préfère les sous-titres forcés lorsque la langue audio correspond à celle des sous-titres ; s’il n’y en a aucun, rien n’est sélectionné</string>
 
     <!-- Playback -->
     <string name="auto_play_next">Lecture auto. du suivant</string>
@@ -988,6 +990,7 @@
     <string name="profile_updated">Profil mis à jour</string>
     <string name="profile_deleted">Profil supprimé</string>
     <string name="profile_pin_set_success">Code PIN du profil défini</string>
+    <string name="profile_pin_removed_success">Code PIN du profil supprimé</string>
     <string name="tv_failed_load_iptv">Échec du chargement de l’IPTV</string>
     <string name="tv_link_failed_start">Échec du démarrage de l’authentification TV</string>
     <string name="tv_link_failed_poll">Échec de la vérification du statut d’authentification TV</string>

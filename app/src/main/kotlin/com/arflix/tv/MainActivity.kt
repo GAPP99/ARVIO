@@ -4,6 +4,7 @@ import android.content.Context
 import com.arflix.tv.util.AppLogger
 import android.content.res.Configuration
 import android.graphics.drawable.ColorDrawable
+import android.os.Build
 import android.os.Bundle
 import android.view.ViewTreeObserver
 import android.view.WindowManager
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import com.arflix.tv.ui.components.LocalBottomBarInset
+import com.arflix.tv.ui.components.LocalBottomBarHeight
 import com.arflix.tv.ui.components.mobileContentInsets
 import com.arflix.tv.ui.components.currentBottomBarSpec
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -279,6 +281,11 @@ class MainActivity : ComponentActivity() {
                 statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
                 navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
             )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced = false
+                window.isStatusBarContrastEnforced = false
+            }
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
             // Clear any FLAG_FULLSCREEN the Leanback theme may have set
             @Suppress("DEPRECATION")
             window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
@@ -709,6 +716,11 @@ fun ArflixApp(
             if (win != null) {
                 @Suppress("DEPRECATION")
                 win.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    win.isNavigationBarContrastEnforced = false
+                    win.isStatusBarContrastEnforced = false
+                }
+                win.navigationBarColor = android.graphics.Color.TRANSPARENT
                 WindowInsetsControllerCompat(win, win.decorView).apply {
                     systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
                     show(WindowInsetsCompat.Type.systemBars())
@@ -728,15 +740,38 @@ fun ArflixApp(
     var settleJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val hazeState = remember { HazeState() }
 
-    LaunchedEffect(currentBackStackEntry, isSettingsSubPage, isTvSubScreen) {
-        settleJob?.cancel()
-        settleJob = null
-        if (showBottomBar && bottomBarOffsetPx > 0f) {
-            bottomBarOffsetPx = 0f
+    val isScrollAwayRoute = isMobile && showBottomBar
+
+    val mainScreenBottomBarOffsets = remember { mutableMapOf<String, Float>() }
+    val currentMainRoute = remember(currentRoute) {
+        when (currentRoute?.substringBefore('?')) {
+            Screen.Home.route, Screen.Search.route, Screen.Watchlist.route, "tv", "settings" ->
+                currentRoute.substringBefore('?')
+            else -> null
         }
     }
 
-    val barInset = if (showBottomBar) {
+    // Keep the active main screen's bottom bar state updated as the user scrolls
+    LaunchedEffect(bottomBarOffsetPx) {
+        if (showBottomBar && currentMainRoute != null) {
+            mainScreenBottomBarOffsets[currentMainRoute] = bottomBarOffsetPx
+        }
+    }
+
+    // Restore the bottom bar's state when returning to a main screen from a subpage or subscreen
+    LaunchedEffect(currentRoute, isSettingsSubPage, isTvSubScreen, showBottomBar) {
+        settleJob?.cancel()
+        settleJob = null
+        if (showBottomBar && currentMainRoute != null) {
+            val saved = mainScreenBottomBarOffsets[currentMainRoute] ?: 0f
+            bottomBarOffsetPx = if (measuredBarHeightPx > 0f) {
+                if (saved > measuredBarHeightPx * 0.5f) measuredBarHeightPx else 0f
+            } else saved
+        }
+    }
+
+    val barInset = if (showBottomBar) navigationInset else 0.dp
+    val fullBarHeight = if (showBottomBar) {
         maxOf(measuredBarHeight, (barSpec.itemHeightDp ?: 52).dp + navigationInset)
     } else 0.dp
 
@@ -762,16 +797,34 @@ fun ArflixApp(
                 val maxOffset = measuredBarHeightPx
                 if (maxOffset <= 0f) return Offset.Zero
 
-                val delta = available.y
-
-                if (source == NestedScrollSource.Drag) {
+                // When dragging downward (swiping down, available.y > 0) to scroll back up,
+                // bring the bottom bar back immediately if it is partially or fully hidden.
+                if (source == NestedScrollSource.Drag && available.y > 0f && bottomBarOffsetPx > 0f) {
                     settleJob?.cancel()
                     settleJob = null
-
-                    val newOffset = (bottomBarOffsetPx - delta).coerceIn(0f, maxOffset)
+                    val newOffset = (bottomBarOffsetPx - available.y).coerceIn(0f, maxOffset)
                     bottomBarOffsetPx = newOffset
+                }
 
-                    // Follow the finger without racing a snap animation during the drag.
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                val maxOffset = measuredBarHeightPx
+                if (maxOffset <= 0f) return Offset.Zero
+
+                // When dragging upward (swiping up, consumed.y < 0) and the child ACTUALLY scrolled,
+                // hide the bottom bar. If child content has nowhere to scroll (e.g. short content),
+                // consumed.y is 0, so the bar stays docked at 0f!
+                if (source == NestedScrollSource.Drag && consumed.y < 0f) {
+                    settleJob?.cancel()
+                    settleJob = null
+                    val newOffset = (bottomBarOffsetPx - consumed.y).coerceIn(0f, maxOffset)
+                    bottomBarOffsetPx = newOffset
                 }
 
                 return Offset.Zero
@@ -780,6 +833,9 @@ fun ArflixApp(
             override suspend fun onPreFling(available: Velocity): Velocity {
                 val maxOffset = measuredBarHeightPx
                 if (maxOffset <= 0f) return Velocity.Zero
+
+                // If the bottom bar never moved (e.g. short/static content), do NOT fling to hide it!
+                if (bottomBarOffsetPx <= 0f) return Velocity.Zero
 
                 val halfThreshold = maxOffset * 0.5f
                 val targetOffset = when {
@@ -823,12 +879,15 @@ fun ArflixApp(
                 else -> Modifier
             })
     ) {
-        CompositionLocalProvider(LocalBottomBarInset provides if (showBottomBar) barInset else 0.dp) {
+        CompositionLocalProvider(
+            LocalBottomBarInset provides if (showBottomBar) barInset else 0.dp,
+            LocalBottomBarHeight provides fullBarHeight
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (isMobile) Modifier.haze(hazeState) else Modifier)
-                    .then(if (showBottomBar) Modifier.nestedScroll(nestedScrollConnection) else Modifier)
+                    .then(if (isScrollAwayRoute) Modifier.nestedScroll(nestedScrollConnection) else Modifier)
             ) {
                 AppNavigation(
                     navController = navController,
@@ -881,6 +940,8 @@ fun ArflixApp(
             AppBottomBar(
                 currentRoute = currentRoute,
                 onNavigate = { route ->
+                    mainScreenBottomBarOffsets[route] = 0f
+                    bottomBarOffsetPx = 0f
                     navController.navigate(route) {
                         popUpTo("home") { inclusive = false }
                         launchSingleTop = true

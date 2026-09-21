@@ -7,6 +7,33 @@ const ts = require('typescript');
 const { load } = require('./load.cjs');
 
 const flush = () => new Promise(setImmediate);
+
+test('live sources needing browser-controlled headers use the relay first', () => {
+  const needsRelay = extracted('components/player/PlayerOverlay.tsx', node =>
+    ts.isFunctionDeclaration(node) && node.name?.text === 'needsBrowserHeaderRelay' ? node : undefined, {});
+  assert.equal(needsRelay({ Referer: 'https://addon.example/' }), true);
+  assert.equal(needsRelay({ 'user-agent': 'custom' }), true);
+  assert.equal(needsRelay({ Authorization: 'token' }), false);
+  assert.equal(needsRelay(), false);
+  const source = fs.readFileSync(path.join(__dirname, '../components/player/PlayerOverlay.tsx'), 'utf8');
+  assert.match(source, /if \(needsBrowserHeaderRelay\(headers\)\) attempts\.unshift\(workerUrl\)/);
+});
+
+test('live manifest fallbacks preserve add-on authentication and referer headers', () => {
+  for (const name of ['directManifestUrl', 'workerManifestUrl']) {
+    let forwarded;
+    const build = extracted('components/player/PlayerOverlay.tsx', node =>
+      ts.isFunctionDeclaration(node) && node.name?.text === name ? node : undefined, {
+        URL, liveTvProxyHeaders: () => ({ Accept: '*/*', 'User-Agent': 'default' }),
+        proxiedUrl: (url, headers) => { forwarded = headers; return `https://app.example/api/proxy?url=${encodeURIComponent(url)}`; }
+      });
+    const result = new URL(build('https://media.example/live.m3u8', { Authorization: 'test-token', Referer: 'https://addon.example/', 'User-Agent': 'addon-player' }));
+    assert.equal(forwarded.Authorization, 'test-token');
+    assert.equal(forwarded.Referer, 'https://addon.example/');
+    assert.equal(forwarded['User-Agent'], 'addon-player');
+    assert.equal(result.searchParams.get('rewrite'), name === 'directManifestUrl' ? 'direct' : 'worker');
+  }
+});
 const capabilities = { mse: true, nativeHls: false, h264: true, aac: true, hevc: false,
   hevc10: false, dolbyVision: false, av1: false, vp9: false, ac3: false, eac3: false, opus: false, flac: false };
 const server = { id: 'server', type: 'jellyfin', name: 'Library', enabled: true,
