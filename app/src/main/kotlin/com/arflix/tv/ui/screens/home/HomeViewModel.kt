@@ -4003,18 +4003,20 @@ class HomeViewModel @Inject constructor(
      * This is the critical fix for the "addon added on phone but not on TV" symptom:
      * when the TV comes back from background, the WebSocket may be dead, so we do
      * an explicit pull to catch any account_sync_state changes that were missed.
-     * Throttled to at most once per 10 seconds to avoid excessive pulls on rapid
+     * Throttled to at most once per 30 seconds to avoid excessive pulls on rapid
      * activity transitions (e.g., player back → home → details → home).
      */
     @Volatile
     private var lastCloudPullTimestamp = 0L
-    private val cloudPullThrottleMs = 10_000L
+    private val cloudPullThrottleMs = 30_000L
+    private var cloudPullJob: Job? = null
 
     fun pullCloudStateOnResume() {
-        val now = System.currentTimeMillis()
-        if (now - lastCloudPullTimestamp < cloudPullThrottleMs) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (cloudPullJob?.isActive == true) return
+        if (lastCloudPullTimestamp != 0L && now - lastCloudPullTimestamp < cloudPullThrottleMs) return
         lastCloudPullTimestamp = now
-        viewModelScope.launch(Dispatchers.IO) {
+        cloudPullJob = viewModelScope.launch(Dispatchers.IO) {
             // Give the local Home/CW snapshots first access to IO and the main
             // thread. Cloud payloads can exceed 1 MB and used to starve startup.
             if (_uiState.value.categories.isEmpty() || isStartupSettling()) {
@@ -4048,6 +4050,7 @@ class HomeViewModel @Inject constructor(
                     restartContinueWatchingFetch()
                 }
             }.onFailure {
+                if (it is CancellationException) throw it
                 android.util.Log.w("HomeViewModel", "ON_RESUME cloud pull failed: ${it.message}")
             }
         }
