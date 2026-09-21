@@ -2324,10 +2324,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun initializeCatalogs() {
-        _uiState.value = _uiState.value.copy(
-            builtInCollectionsEnabled = catalogRepository.isBuiltInCollectionsEnabled()
-        )
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                builtInCollectionsEnabled = catalogRepository.isBuiltInCollectionsEnabled()
+            )
             runCatching {
                 catalogRepository.ensurePreinstalledDefaults(mediaRepository.getDefaultCatalogConfigs())
             }
@@ -2347,6 +2347,7 @@ class SettingsViewModel @Inject constructor(
             val collectionsResult = catalogRepository.importCollections(url)
             if (collectionsResult != null) {
                 collectionsResult.onSuccess { (name, railCount) ->
+                    syncLocalStateToCloud(silent = true)
                     _uiState.value = _uiState.value.copy(
                         isPackLoading = false,
                         toastMessage = SettingsMessage.Res(
@@ -2429,6 +2430,7 @@ class SettingsViewModel @Inject constructor(
             val enabled = !catalogRepository.isBuiltInCollectionsEnabled()
             catalogRepository.setBuiltInCollectionsEnabled(enabled)
             _uiState.value = _uiState.value.copy(builtInCollectionsEnabled = enabled)
+            syncLocalStateToCloud(silent = true)
         }
     }
 

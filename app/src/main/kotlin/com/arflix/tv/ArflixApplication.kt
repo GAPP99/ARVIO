@@ -93,8 +93,6 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         com.arflix.tv.network.initializeNetworkPlatform(this)
         super.onCreate()
         instance = this
-        // Imported collections must be in memory before the first catalog list is built.
-        com.arflix.tv.data.repository.CustomCollections.init(this)
 
         // Initialize global DNS provider and user agent from DataStore before network calls.
         appScope.launch(Dispatchers.IO) {

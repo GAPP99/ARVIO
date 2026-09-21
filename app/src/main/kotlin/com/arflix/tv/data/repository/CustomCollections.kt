@@ -1,17 +1,16 @@
 package com.arflix.tv.data.repository
 
-import android.content.Context
-import android.content.SharedPreferences
+import com.arflix.tv.data.model.CatalogConfig
+import com.arflix.tv.data.model.CatalogKind
+import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.data.model.CollectionGroupKind
 import com.arflix.tv.data.model.CollectionSourceConfig
 import com.arflix.tv.data.model.CollectionSourceKind
 import com.arflix.tv.data.model.CollectionTileShape
-import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.google.gson.reflect.TypeToken
 import java.security.MessageDigest
 import java.util.Locale
 
@@ -25,117 +24,75 @@ internal data class CustomCollectionRail(
 )
 
 /**
- * User-installed collections, stored per device.
+ * Stateless collections importer. CatalogRepository persists the resulting catalogs per profile.
  *
  * Accepts the Nuvio collections export format (a JSON array of collections, each
  * with `folders` and `sources`), a single collection object, or a wrapper
  * `{ "name": "...", "collections": [ ... ] }`. Each imported document becomes a
  * "pack" that can be removed as a whole from Settings → Catalogs.
  *
- * State is loaded synchronously from SharedPreferences in [init] (called from
- * `ArflixApplication.onCreate`) because `MediaRepository.buildPreinstalledDefaults`
- * — which merges these into the catalog list — is not a suspend function.
+ * The resulting catalogs use the existing catalog cloud-sync format, not a second local store.
  */
 internal object CustomCollections {
-    private const val PREFS_NAME = "arvio_custom_collections"
-    private const val KEY_SOURCES = "sources_v1"
-    private const val KEY_BUILT_IN_ENABLED = "built_in_collections_enabled"
     const val PACK_ID_PREFIX = "usercol_"
 
-    @androidx.annotation.Keep
-    private data class StoredSource(
-        val packId: String,
-        val name: String,
-        val url: String?,
-        val json: String
-    )
-
-    private val gson = Gson()
-
-    @Volatile private var prefs: SharedPreferences? = null
-    @Volatile private var sources: List<StoredSource> = emptyList()
-    @Volatile private var railsCache: List<CustomCollectionRail> = emptyList()
-
-    @Volatile
-    var builtInEnabled: Boolean = true
-        private set
-
-    fun init(context: Context) {
-        if (prefs != null) return
-        val p = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs = p
-        builtInEnabled = p.getBoolean(KEY_BUILT_IN_ENABLED, true)
-        sources = runCatching {
-            gson.fromJson<List<StoredSource>>(
-                p.getString(KEY_SOURCES, null) ?: "[]",
-                object : TypeToken<List<StoredSource>>() {}.type
-            ).orEmpty()
-        }.getOrDefault(emptyList())
-        rebuild()
-    }
-
-    fun rails(): List<CustomCollectionRail> = railsCache
-
-    fun entries(): List<CollectionTemplateEntry> = railsCache.flatMap { it.entries }
-
-    fun hasRail(key: String): Boolean = railsCache.any { it.key == key && it.entries.isNotEmpty() }
-
-    fun isCustomPack(packId: String?): Boolean =
-        packId != null && sources.any { it.packId == packId }
-
-    fun setBuiltInEnabled(enabled: Boolean) {
-        builtInEnabled = enabled
-        prefs?.edit()?.putBoolean(KEY_BUILT_IN_ENABLED, enabled)?.apply()
-    }
+    fun isCustom(config: CatalogConfig): Boolean =
+        config.packId?.startsWith(PACK_ID_PREFIX) == true &&
+            !config.collectionRailKey.isNullOrBlank() && !config.isPreinstalled
 
     /** True when [json] parses as a collections document (as opposed to a catalog pack manifest). */
     fun looksLikeCollections(json: String): Boolean =
         runCatching { collectionObjects(JsonParser.parseString(json)).isNotEmpty() }.getOrDefault(false)
 
     /**
-     * Installs (or re-installs, when the same URL / content was imported before)
-     * a collections document. Returns the pack name and the number of rails added.
+     * Parses a document without changing profile settings or built-in defaults.
      */
-    fun install(json: String, url: String?): Result<Pair<String, Int>> {
-        val root = runCatching { JsonParser.parseString(json) }.getOrNull()
-            ?: return Result.failure(IllegalArgumentException("Invalid JSON"))
+    fun parse(json: String, url: String?): Result<List<CustomCollectionRail>> = runCatching {
+        require(json.length <= 2_000_000) { "Collections document is too large" }
+        val root = JsonParser.parseString(json)
         val collections = collectionObjects(root)
-        if (collections.isEmpty()) {
-            return Result.failure(IllegalArgumentException("No collections found"))
-        }
-        val packId = PACK_ID_PREFIX + sha256Short(url?.trim()?.lowercase(Locale.US) ?: json)
+        require(collections.isNotEmpty() && collections.size <= 100) { "Invalid collections count" }
+        val packId = PACK_ID_PREFIX + sha256Short(url?.trim() ?: json)
         val name = (root as? JsonObject)?.str("name")
             ?: collections.singleOrNull()?.str("title")
             ?: url?.let { runCatching { java.net.URI(it).host }.getOrNull() }
             ?: "Imported collections"
-        val rails = parseRails(collections, packId, name)
-        if (rails.none { it.entries.isNotEmpty() }) {
-            return Result.failure(IllegalArgumentException("No supported folders/sources found"))
+        val rails = parseRails(collections, packId, name).filter { it.entries.isNotEmpty() }
+        require(rails.isNotEmpty()) { "No supported folders/sources found" }
+        require(rails.sumOf { it.entries.size } <= 500) { "Too many folders" }
+        require(rails.distinctBy { it.key }.size == rails.size) { "Duplicate collection IDs" }
+        require(rails.flatMap { it.entries }.distinctBy { it.id }.size == rails.sumOf { it.entries.size }) { "Duplicate folder IDs" }
+        rails
+    }
+
+    fun catalogs(rails: List<CustomCollectionRail>): List<CatalogConfig> = rails.flatMap { rail ->
+        listOf(CatalogConfig(
+            id = "collection_rail_${rail.key}", title = rail.title,
+            sourceType = CatalogSourceType.PREINSTALLED, isPreinstalled = false,
+            kind = CatalogKind.COLLECTION_RAIL, collectionGroup = CollectionGroupKind.NETWORK,
+            collectionRailKey = rail.key, packId = rail.packId, packName = rail.packName
+        )) + rail.entries.map { entry ->
+            CatalogConfig(
+                id = entry.id, title = entry.title, sourceType = CatalogSourceType.PREINSTALLED,
+                isPreinstalled = false, kind = CatalogKind.COLLECTION, collectionGroup = entry.group,
+                collectionRailKey = rail.key, packId = rail.packId, packName = rail.packName,
+                collectionDescription = entry.description, collectionCoverImageUrl = entry.coverImageUrl,
+                collectionFocusGifUrl = entry.focusGifUrl, collectionHeroImageUrl = entry.heroImageUrl,
+                collectionHeroVideoUrl = entry.heroVideoUrl, collectionClearLogoUrl = entry.clearLogoUrl,
+                collectionTileShape = entry.tileShape, collectionHideTitle = entry.hideTitle,
+                collectionSources = entry.sources
+            )
         }
-        val stored = StoredSource(packId = packId, name = name, url = url, json = json)
-        sources = sources.filterNot { it.packId == packId } + stored
-        persist()
-        return Result.success(name to rails.size)
     }
 
-    fun remove(packId: String): Boolean {
-        if (sources.none { it.packId == packId }) return false
-        sources = sources.filterNot { it.packId == packId }
-        persist()
-        return true
-    }
-
-    private fun persist() {
-        prefs?.edit()?.putString(KEY_SOURCES, gson.toJson(sources))?.apply()
-        rebuild()
-    }
-
-    private fun rebuild() {
-        railsCache = sources.flatMap { source ->
-            runCatching {
-                parseRails(collectionObjects(JsonParser.parseString(source.json)), source.packId, source.name)
-            }.getOrDefault(emptyList())
-        }.filter { it.entries.isNotEmpty() }
+    fun merge(current: List<CatalogConfig>, imported: List<CatalogConfig>): List<CatalogConfig> {
+        val packId = imported.firstOrNull()?.packId ?: return current
+        val pending = imported.associateByTo(LinkedHashMap()) { it.id }
+        val kept = current.mapNotNull { existing ->
+            if (existing.packId != packId) existing
+            else pending.remove(existing.id)?.copy(title = existing.title)
+        }
+        return kept + pending.values
     }
 
     // ── Parsing ─────────────────────────────────────────────────────────
@@ -226,7 +183,8 @@ internal object CustomCollections {
                         mediaType = type,
                         addonId = source.str("addonId"),
                         addonCatalogType = type,
-                        addonCatalogId = catalogId
+                        addonCatalogId = catalogId,
+                        addonGenre = source.str("genre")
                     )
                 )
             }
@@ -246,11 +204,24 @@ internal object CustomCollections {
 
     private fun parseTmdbSource(source: JsonObject): List<CollectionSourceConfig> {
         val sourceType = source.str("tmdbSourceType")?.uppercase(Locale.US) ?: return emptyList()
-        val tmdbId = source.get("tmdbId")?.takeIf { it.isJsonPrimitive }?.asInt
-        val isTv = source.str("mediaType")?.uppercase(Locale.US) == "TV"
+        val tmdbId = source.get("tmdbId")?.takeUnless { it.isJsonNull }?.let {
+            require(it.isJsonPrimitive) { "Invalid TMDB ID" }
+            val id = it.asString.toIntOrNull()
+            require(id != null && id > 0) { "Invalid TMDB ID" }
+            id
+        }
+        val isTv = sourceType == "NETWORK" || source.str("mediaType")?.uppercase(Locale.US) in setOf("TV", "SERIES", "SHOW")
         val media = if (isTv) "tv" else "movie"
         val sortBy = source.str("sortBy")?.takeUnless { it == "original" }
         return when (sourceType) {
+            "PERSON", "DIRECTOR" -> {
+                require((source.get("filters") as? JsonObject)?.entrySet().orEmpty().none { !it.value.isJsonNull && it.value.asString.isNotBlank() }) {
+                    "Additional filters on person/director collections are not supported"
+                }
+                tmdbId?.let { listOf(CollectionSourceConfig(kind = CollectionSourceKind.TMDB_PERSON,
+                    tmdbPersonId = it, tmdbCreditRole = if (sourceType == "DIRECTOR") "Director" else "Cast",
+                    mediaType = media, sortBy = sortBy)) }.orEmpty()
+            }
             "COLLECTION" -> tmdbId?.let {
                 listOf(CollectionSourceConfig(kind = CollectionSourceKind.TMDB_COLLECTION, tmdbCollectionId = it))
             }.orEmpty()

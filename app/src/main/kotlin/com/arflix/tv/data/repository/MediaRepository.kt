@@ -241,9 +241,13 @@ class MediaRepository @Inject constructor(
                 append(':')
                 append(source.addonCatalogId.orEmpty())
                 append(':')
+                append(source.addonGenre.orEmpty())
+                append(':')
                 append(source.tmdbGenreId ?: -1)
                 append(':')
                 append(source.tmdbPersonId ?: -1)
+                append(':')
+                append(source.tmdbCreditRole.orEmpty())
                 append(':')
                 append(source.tmdbCollectionId ?: -1)
                 append(':')
@@ -1611,48 +1615,6 @@ class MediaRepository @Inject constructor(
                 )
             }
 
-            // User-imported collections: one rail per imported collection, placed
-            // ahead of the built-in rails so the user's own choice leads.
-            val customRails = CustomCollections.rails()
-            val customCollectionRails = customRails.map { rail ->
-                CatalogConfig(
-                    id = "collection_rail_${rail.key}",
-                    title = rail.title,
-                    sourceType = CatalogSourceType.PREINSTALLED,
-                    isPreinstalled = true,
-                    kind = CatalogKind.COLLECTION_RAIL,
-                    collectionGroup = CollectionGroupKind.NETWORK,
-                    collectionRailKey = rail.key,
-                    packId = rail.packId,
-                    packName = rail.packName
-                )
-            }
-            val customCollections = customRails.flatMap { it.entries }.map { entry ->
-                val cover = entry.coverImageUrl.takeIf { it.isNotBlank() }
-                CatalogConfig(
-                    id = entry.id,
-                    title = entry.title,
-                    sourceType = CatalogSourceType.PREINSTALLED,
-                    isPreinstalled = true,
-                    kind = CatalogKind.COLLECTION,
-                    collectionGroup = entry.group,
-                    collectionDescription = entry.description,
-                    collectionCoverImageUrl = cover,
-                    collectionFocusGifUrl = entry.focusGifUrl ?: cover,
-                    collectionHeroImageUrl = entry.heroImageUrl ?: cover,
-                    collectionHeroGifUrl = entry.heroImageUrl ?: cover,
-                    collectionHeroVideoUrl = entry.heroVideoUrl,
-                    collectionClearLogoUrl = entry.clearLogoUrl,
-                    collectionTileShape = entry.tileShape,
-                    collectionHideTitle = entry.hideTitle,
-                    collectionSources = entry.sources,
-                    requiredAddonUrls = emptyList(),
-                    packId = entry.packId,
-                    packName = entry.packName,
-                    collectionRailKey = entry.railKey
-                )
-            }
-
             val templateCollections = CollectionTemplateManifest.entries.filter { it.railKey == null }.map { entry ->
                 val legacy = resolveLegacyCollection(entry.title)
                 val legacyStaticCover = legacy?.collectionCoverImageUrl?.takeUnless {
@@ -1706,8 +1668,7 @@ class MediaRepository @Inject constructor(
 
             val pinnedLeadCatalogs = topLevelCatalogs.take(3)
             val trailingCatalogs = topLevelCatalogs.drop(3)
-            return pinnedLeadCatalogs + customCollectionRails + customCollections +
-                collectionRails + templateCollections + trailingCatalogs
+            return pinnedLeadCatalogs + collectionRails + templateCollections + trailingCatalogs
         }
     }
 
@@ -2335,9 +2296,13 @@ class MediaRepository @Inject constructor(
         var page = 1
         var totalPages = 1
         while (refs.size < limit && page <= totalPages && page <= 20) {
-            val response = runCatching {
+            val response = try {
                 tmdbApi.getPublicList(listId, apiKey, language = contentLanguage, page = page)
-            }.getOrNull() ?: break
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                break
+            }
             response.items.forEach { item ->
                 if (item.id <= 0) return@forEach
                 val type = if (item.mediaType.equals("tv", ignoreCase = true)) MediaType.TV else MediaType.MOVIE
@@ -2508,7 +2473,8 @@ class MediaRepository @Inject constructor(
                     catalogId = catalogId
                 ),
                 offset = offset,
-                limit = limit
+                limit = limit,
+                genre = source.addonGenre
             )
         }.getOrNull() ?: emptyList()
 
@@ -2556,6 +2522,21 @@ class MediaRepository @Inject constructor(
     ): List<Pair<MediaType, Int>> {
         val personId = source.tmdbPersonId ?: return emptyList()
         val sortBy = source.sortBy ?: "popularity.desc"
+        if (source.tmdbCreditRole != null) {
+            val credits = tmdbApi.getPersonDetails(personId, apiKey, language = contentLanguage).combinedCredits
+                ?: return emptyList()
+            val items = if (source.tmdbCreditRole == "Director") credits.crew.filter { it.job == "Director" } else credits.cast
+            val type = if (source.mediaType in setOf("tv", "series", "show")) MediaType.TV else MediaType.MOVIE
+            val matching = items.filter { it.id > 0 && !it.adult && it.mediaType == if (type == MediaType.TV) "tv" else "movie" }.distinctBy { it.id }
+            val sorted = when (sortBy.substringBefore('.')) {
+                "primary_release_date", "first_air_date", "release_date" -> matching.sortedBy { it.releaseDate ?: it.firstAirDate.orEmpty() }
+                "vote_average" -> matching.sortedBy { it.voteAverage }
+                "vote_count" -> matching.sortedBy { it.voteCount }
+                "title", "original_title" -> matching.sortedBy { it.title ?: it.name.orEmpty() }
+                else -> matching.sortedBy { it.popularity }
+            }
+            return (if (sortBy.endsWith(".asc")) sorted else sorted.reversed()).take(limit).map { type to it.id }
+        }
         return when (source.mediaType?.lowercase(Locale.US)) {
             "movie" -> loadPagedTmdbDiscoverRefs(
                 mediaType = MediaType.MOVIE,
@@ -2607,7 +2588,8 @@ class MediaRepository @Inject constructor(
     private suspend fun loadPagedAddonCollectionRefs(
         descriptor: AddonCatalogDescriptor,
         offset: Int,
-        limit: Int
+        limit: Int,
+        genre: String? = null
     ): List<Pair<MediaType, Int>> {
         if (limit <= 0) return emptyList()
         val accumulated = LinkedHashSet<Pair<MediaType, Int>>()
@@ -2620,7 +2602,8 @@ class MediaRepository @Inject constructor(
                     addonId = descriptor.addonId,
                     catalogType = descriptor.catalogType,
                     catalogId = descriptor.catalogId,
-                    skip = probeOffset
+                    skip = probeOffset,
+                    genre = genre
                 )
             }.getOrNull() ?: break
             val metas = response.metas ?: response.items ?: emptyList()

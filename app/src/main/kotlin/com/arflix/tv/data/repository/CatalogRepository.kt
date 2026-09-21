@@ -382,7 +382,7 @@ class CatalogRepository @Inject constructor(
         val defaultIds = defaultPreinstalled.map { it.id }.toSet()
         val existing = getCatalogs().mapNotNull { cfg ->
             if ((cfg.kind == CatalogKind.COLLECTION || cfg.kind == CatalogKind.COLLECTION_RAIL) &&
-                !defaultIds.contains(cfg.id)
+                !defaultIds.contains(cfg.id) && !CustomCollections.isCustom(cfg)
             ) {
                 return@mapNotNull null
             }
@@ -828,6 +828,7 @@ class CatalogRepository @Inject constructor(
      * so the caller can fall back to the regular catalog-pack flow.
      */
     suspend fun importCollections(input: String): Result<Pair<String, Int>>? {
+        val targetProfileId = activeProfileId()
         val trimmed = input.trim()
         val isRawJson = trimmed.startsWith("[") || trimmed.startsWith("{")
         val url = if (isRawJson) null else CatalogUrlParser.normalize(trimmed)
@@ -843,26 +844,32 @@ class CatalogRepository @Inject constructor(
         if (!CustomCollections.looksLikeCollections(json)) {
             return if (isRawJson) Result.failure(CatalogException(R.string.catalog_collections_invalid)) else null
         }
-        val result = CustomCollections.install(json, url)
+        val result = CustomCollections.parse(json, url)
         if (result.isFailure) return Result.failure(CatalogException(R.string.catalog_collections_invalid))
-        ensurePreinstalledDefaults(MediaRepository.buildPreinstalledDefaults())
-        return result
+        val rails = result.getOrThrow()
+        val imported = CustomCollections.catalogs(rails)
+        val current = getCatalogsForProfile(targetProfileId)
+        replaceCatalogsForProfile(targetProfileId, CustomCollections.merge(current, imported))
+        return Result.success(rails.first().packName to rails.size)
     }
 
-    fun isBuiltInCollectionsEnabled(): Boolean = CustomCollections.builtInEnabled
+    private fun builtInCollectionIds(): Set<String> = MediaRepository.buildPreinstalledDefaults()
+        .filter { it.kind == CatalogKind.COLLECTION_RAIL || it.kind == CatalogKind.COLLECTION }.map { it.id }.toSet()
+
+    suspend fun isBuiltInCollectionsEnabled(): Boolean =
+        !getHiddenPreinstalledCatalogIdsForActiveProfile().containsAll(builtInCollectionIds())
 
     /** Shows or hides ARVIO's built-in collection rails (Services / Genres / Franchises). */
     suspend fun setBuiltInCollectionsEnabled(enabled: Boolean) {
-        CustomCollections.setBuiltInEnabled(enabled)
+        val ids = builtInCollectionIds()
+        val hidden = getHiddenPreinstalledCatalogIdsForActiveProfile().toSet()
+        setHiddenPreinstalledCatalogIdsForActiveProfile(
+            (if (enabled) hidden - ids else hidden + ids).toList()
+        )
         ensurePreinstalledDefaults(MediaRepository.buildPreinstalledDefaults())
     }
 
     suspend fun removeCatalogPack(packId: String): Result<Unit> {
-        if (CustomCollections.isCustomPack(packId)) {
-            CustomCollections.remove(packId)
-            ensurePreinstalledDefaults(MediaRepository.buildPreinstalledDefaults())
-            return Result.success(Unit)
-        }
         val current = getCatalogs().toMutableList()
         val beforeSize = current.size
         current.removeAll { it.packId == packId }

@@ -1328,7 +1328,8 @@ class StreamRepository @Inject constructor(
         addonId: String,
         catalogType: String,
         catalogId: String,
-        skip: Int = 0
+        skip: Int = 0,
+        genre: String? = null
     ): StremioCatalogResponse = withContext(Dispatchers.IO) {
         val addon = installedAddons.first().firstOrNull { it.id == addonId }
             ?: throw IllegalArgumentException("Addon not found")
@@ -1345,7 +1346,8 @@ class StreamRepository @Inject constructor(
                 catalogType = typeCandidate,
                 catalogId = catalogId,
                 skip = skip,
-                queryBase = queryBase
+                queryBase = queryBase,
+                genre = genre
             )
             for (url in urls) {
                 val response = try {

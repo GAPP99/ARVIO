@@ -4,7 +4,6 @@ import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.data.model.CollectionSourceKind
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -41,20 +40,14 @@ class CustomCollectionsTest {
         ]
     """.trimIndent()
 
-    @After
-    fun tearDown() {
-        CustomCollections.rails().map { it.packId }.distinct().forEach { CustomCollections.remove(it) }
-        CustomCollections.setBuiltInEnabled(true)
-    }
-
     @Test
     fun `installs a Nuvio export as one rail per collection`() {
         assertTrue(CustomCollections.looksLikeCollections(nuvioExport))
-        val result = CustomCollections.install(nuvioExport, url = "https://example.com/collections.json")
+        val result = CustomCollections.parse(nuvioExport, url = "https://example.com/collections.json")
         assertTrue(result.isSuccess)
-        assertEquals(2, result.getOrThrow().second)
+        assertEquals(2, result.getOrThrow().size)
 
-        val rails = CustomCollections.rails()
+        val rails = result.getOrThrow()
         assertEquals(listOf("Studios", "Lists"), rails.map { it.title })
         assertEquals(3, rails[0].entries.size)
         // Folders whose sources are all unsupported are skipped.
@@ -76,37 +69,72 @@ class CustomCollectionsTest {
     }
 
     @Test
-    fun `imported collections are valid and can replace the built-in ones`() {
-        CustomCollections.install(nuvioExport, url = null)
-        val rail = CustomCollections.rails().first()
-        val tile = rail.entries.first()
-
-        assertTrue(CollectionTemplateManifest.isValidCollectionConfig(railConfig(rail.key)))
-        assertTrue(CollectionTemplateManifest.isValidCollectionConfig(tileConfig(tile.id)))
-
-        CustomCollections.setBuiltInEnabled(false)
-        assertTrue(CollectionTemplateManifest.railOrder.isEmpty())
-        assertTrue(CollectionTemplateManifest.entries.all { it.railKey != null })
-        assertTrue(CollectionTemplateManifest.isValidCollectionConfig(tileConfig(tile.id)))
-
-        val defaults = MediaRepository.buildPreinstalledDefaults()
-        assertTrue(defaults.any { it.collectionRailKey == rail.key && it.kind == CatalogKind.COLLECTION_RAIL })
-        assertFalse(defaults.any { it.kind == CatalogKind.COLLECTION_RAIL && it.collectionRailKey == null })
+    fun `cloud restored catalogs are valid without a device local registry`() {
+        val configs = CustomCollections.catalogs(CustomCollections.parse(nuvioExport, null).getOrThrow())
+        val gson = com.google.gson.Gson()
+        val restored = gson.fromJson(gson.toJson(configs), Array<CatalogConfig>::class.java).toList()
+        assertEquals(configs, restored)
+        assertTrue(restored.all(CollectionTemplateManifest::isValidCollectionConfig))
+        assertTrue(restored.none { it.isPreinstalled })
+        assertTrue(MediaRepository.buildPreinstalledDefaults().none(CustomCollections::isCustom))
     }
 
     @Test
-    fun `removing the pack removes its rails`() {
-        CustomCollections.install(nuvioExport, url = null)
-        val packId = CustomCollections.rails().first().packId
-        assertTrue(CustomCollections.isCustomPack(packId))
-        assertTrue(CustomCollections.remove(packId))
-        assertTrue(CustomCollections.rails().isEmpty())
+    fun `separate imports do not change built in defaults or each other`() {
+        val before = MediaRepository.buildPreinstalledDefaults()
+        val first = CustomCollections.parse(nuvioExport, "https://example.com/A.json").getOrThrow()
+        val second = CustomCollections.parse(nuvioExport, "https://example.com/a.json").getOrThrow()
+        assertFalse(first.first().packId == second.first().packId)
+        assertEquals(before, MediaRepository.buildPreinstalledDefaults())
     }
 
     @Test
     fun `rejects documents that are not collections`() {
         assertFalse(CustomCollections.looksLikeCollections("""{"id":"pack","name":"x","catalogs":[]}"""))
-        assertTrue(CustomCollections.install("not json", null).isFailure)
+        assertTrue(CustomCollections.parse("not json", null).isFailure)
+        assertTrue(CustomCollections.parse(nuvioExport.replace("\"tmdbId\": 3", "\"tmdbId\": \"invalid\""), null).isFailure)
+        assertTrue(CustomCollections.parse(nuvioExport.replace("\"tmdbId\": 3", "\"tmdbId\": -1"), null).isFailure)
+    }
+
+    @Test
+    fun `reimport preserves position and renamed titles without duplicating catalogs`() {
+        val imported = CustomCollections.catalogs(CustomCollections.parse(nuvioExport, null).getOrThrow())
+        val other = CatalogConfig(id = "other", title = "Other", sourceType = CatalogSourceType.ADDON)
+        val current = listOf(other) + imported.reversed().map { it.copy(title = "Renamed ${it.id}") }
+        val merged = CustomCollections.merge(current, imported)
+        assertEquals(current, merged)
+        assertEquals(current, CustomCollections.merge(merged, imported))
+        assertEquals(listOf(other), merged.filterNot { it.packId == imported.first().packId })
+    }
+
+    @Test
+    fun `URL import identifiers match the web format`() {
+        val rails = CustomCollections.parse(nuvioExport, "https://example.com/collections.json").getOrThrow()
+        val expected = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("https://example.com/collections.json".toByteArray()).take(6)
+            .joinToString("") { "%02x".format(it) }
+        assertEquals("custom_usercol_${expected}_studios", rails.first().key)
+    }
+
+    @Test
+    fun `addon genre remains encoded in first and subsequent page requests`() {
+        val document = """{"title":"Genres","folders":[{"title":"Science Fiction","sources":[{"provider":"addon","type":"movie","catalogId":"top","genre":"Science Fiction"}]}]}"""
+        val source = CustomCollections.parse(document, null).getOrThrow().single().entries.single().sources.single()
+        assertEquals("Science Fiction", source.addonGenre)
+        assertEquals(listOf("https://addon/catalog/movie/top/genre=Science%20Fiction.json?token=x"),
+            buildCatalogRequestUrls("https://addon", "movie", "top", 0, "token=x", source.addonGenre))
+        assertEquals(listOf("https://addon/catalog/movie/top/genre=Science%20Fiction&skip=20.json"),
+            buildCatalogRequestUrls("https://addon", "movie", "top", 20, null, source.addonGenre))
+    }
+
+    @Test
+    fun `person and director sources use credits rather than unsupported TV discovery filters`() {
+        val document = """{"title":"People","folders":[{"title":"Director","sources":[{"provider":"tmdb","tmdbSourceType":"DIRECTOR","tmdbId":123,"mediaType":"TV"}]}]}"""
+        val source = CustomCollections.parse(document, null).getOrThrow().single().entries.single().sources.single()
+        assertEquals(CollectionSourceKind.TMDB_PERSON, source.kind)
+        assertEquals("Director", source.tmdbCreditRole)
+        assertEquals("tv", source.mediaType)
+        assertEquals(123, source.tmdbPersonId)
     }
 
     private fun railConfig(key: String) = CatalogConfig(

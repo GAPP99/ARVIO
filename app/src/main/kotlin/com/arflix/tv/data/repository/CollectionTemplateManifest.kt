@@ -57,14 +57,13 @@ internal object CollectionTemplateManifest {
         CollectionGroupKind.FRANCHISE
     )
 
-    /** Built-in rails, or none when the user switched the built-in collections off. */
+    /** Profile visibility is applied by CatalogRepository, not this shared manifest. */
     val railOrder: List<CollectionGroupKind>
-        get() = if (CustomCollections.builtInEnabled) builtInRailOrder else emptyList()
+        get() = builtInRailOrder
 
-    /** Built-in entries (when enabled) followed by the user's imported collections. */
+    /** Imported entries live in profile catalogs instead of these shared defaults. */
     val entries: List<CollectionTemplateEntry>
-        get() = (if (CustomCollections.builtInEnabled) builtInEntries else emptyList()) +
-            CustomCollections.entries()
+        get() = builtInEntries
 
     private val builtInEntries: List<CollectionTemplateEntry> = listOf(
         entry(
@@ -967,8 +966,7 @@ internal object CollectionTemplateManifest {
 
     fun entryForCatalog(catalogId: String?): CollectionTemplateEntry? {
         val id = catalogId ?: return null
-        return (if (CustomCollections.builtInEnabled) builtInEntriesById[id] else null)
-            ?: CustomCollections.entries().firstOrNull { it.id == id }
+        return builtInEntriesById[id]
     }
 
     fun listMetadataFor(catalogId: String?): List<CollectionSourceListMetadata> =
@@ -986,14 +984,15 @@ internal object CollectionTemplateManifest {
     }
 
     fun hasEntriesFor(group: CollectionGroupKind): Boolean =
-        CustomCollections.builtInEnabled && builtInEntries.any { it.group == group }
+        builtInEntries.any { it.group == group }
 
     fun isValidCollectionConfig(config: CatalogConfig): Boolean = when (config.kind) {
-        CatalogKind.COLLECTION -> entryForCatalog(config.id) != null
+        CatalogKind.COLLECTION -> entryForCatalog(config.id) != null ||
+            (CustomCollections.isCustom(config) && config.collectionSources.isNotEmpty())
         CatalogKind.COLLECTION_RAIL -> {
             val railKey = config.collectionRailKey
             if (railKey != null) {
-                CustomCollections.hasRail(railKey)
+                CustomCollections.isCustom(config)
             } else {
                 val group = config.collectionGroup ?: return false
                 group in railOrder && hasEntriesFor(group)
