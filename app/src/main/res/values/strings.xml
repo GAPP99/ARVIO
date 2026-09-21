@@ -1144,6 +1144,15 @@
     <string name="player_match_remembered_offset">Matched: %1$s (remembered) (auto-offset %2$s)</string>
     <string name="player_match_exact_release_name">Matched: %1$s (exact release name)</string>
     <string name="player_match_sync_unverified">Selected %1$s (sync unverified)</string>
+    <!-- Reference taken from the container's own subtitle index (Matroska Cues), not from a
+         decoded track or from audio. Distinct from "built-in" and "hearing" so the match toast
+         never claims a hearing scan that did not run. -->
+    <string name="player_match_source_index">container index</string>
+    <!-- Shown when the scan could not verify anything but a subtitle in the preferred language is
+         on screen anyway. Saying "no subtitle found" there is false: one was chosen and is
+         playing; only the verification failed. -->
+    <string name="player_match_kept_unverified">Keeping %1$s — sync could not be verified</string>
+    <string name="player_match_kept_unverified_score">Keeping %1$s — sync unconfirmed (best %2$d%%)</string>
     <string name="player_match_scored">Matched: %1$s · %2$d%% (%3$s)</string>
     <string name="player_match_scored_offset">Matched: %1$s · %2$d%% (%3$s) (auto-offset %4$s)</string>
     <!-- Marks a subtitle row whose timing auto-match corrected: it is no longer the file as the
