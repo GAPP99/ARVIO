@@ -266,7 +266,7 @@ private fun VideoCard(
         modifier = modifier
             .then(
                 when {
-                    compact -> Modifier.aspectRatio(16f / 9f)
+                    compact -> Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                     landscapeSpec != null -> Modifier.size(
                         landscapeSpec.videoWidthDp.dp,
                         landscapeSpec.videoHeightDp.dp,
@@ -313,6 +313,7 @@ private fun VideoCard(
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
+                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         if (playerActive) {
                             this.player = exoPlayer
                         }
@@ -329,6 +330,11 @@ private fun VideoCard(
                         if (view.player != null) {
                             view.player = null
                         }
+                    }
+                },
+                onRelease = { view ->
+                    if (view.player === exoPlayer) {
+                        view.player = null
                     }
                 },
                 modifier = Modifier

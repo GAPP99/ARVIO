@@ -3,6 +3,9 @@ import androidx.compose.material.icons.filled.Storage
 
 import androidx.activity.compose.BackHandler
 import com.arflix.tv.ui.components.LocalBottomBarInset
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import com.arflix.tv.ui.motion.*
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -4442,7 +4445,7 @@ private fun MobileSettingsMainPage(
             start = 24.dp,
             end = 24.dp,
             top = 8.dp,
-            bottom = 24.dp + LocalBottomBarInset.current
+            bottom = 16.dp + LocalBottomBarInset.current
         ),
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
@@ -4667,7 +4670,7 @@ private fun MobileSettingsSubPage(
             onMoveDown = { viewModel.moveIptvGroupDown(categoriesPlaylistId, it) },
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 8.dp + LocalBottomBarInset.current)
+                .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 0.dp)
         )
         return
     }
@@ -4676,7 +4679,12 @@ private fun MobileSettingsSubPage(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(horizontal = 24.dp, vertical = 8.dp),
+            .padding(
+                start = 24.dp,
+                end = 24.dp,
+                top = 8.dp,
+                bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            ),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         when (page) {
@@ -5195,7 +5203,6 @@ private fun MobileSettingsSubPage(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(LocalBottomBarInset.current))
     }
 
     if (showStalkerRename) {
@@ -11996,6 +12003,9 @@ private fun MobileIptvCategoryReorderList(
             // gesture belongs to the row, and the only scrolling a move needs is the
             // one the list does by itself at its edges.
             userScrollEnabled = reorderState.draggedKey == null,
+            contentPadding = PaddingValues(
+                bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)

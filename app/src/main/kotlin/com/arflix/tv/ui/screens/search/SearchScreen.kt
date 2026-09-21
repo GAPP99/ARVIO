@@ -1,6 +1,8 @@
 package com.arflix.tv.ui.screens.search
 
 import com.arflix.tv.ui.components.LocalBottomBarInset
+import com.arflix.tv.ui.components.LocalBottomBarHeight
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import kotlinx.coroutines.CancellationException
 import androidx.activity.compose.BackHandler
 import android.content.res.Configuration
@@ -917,6 +919,18 @@ fun SearchScreen(
         // bottom edge where a thumb reaches it, instead of to the chip it belongs to.
         if (isTouchDevice) {
             openPanelSpec?.let { spec ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            openDropdown = null
+                            openPanel = null
+                        }
+                )
                 DiscoverFilterPanel(
                     spec = spec,
                     focus = null,
@@ -927,7 +941,11 @@ fun SearchScreen(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .padding(bottom = 12.dp + LocalBottomBarInset.current),
+                        .padding(bottom = 12.dp + LocalBottomBarHeight.current)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {},
                     onOpenDropdown = { field ->
                         openDropdown = if (openDropdown == field.key) null else field.key
                     },
@@ -1108,7 +1126,7 @@ private fun RowsLayer(
             state = listState,
             contentPadding = PaddingValues(
                 top = if (isTouchDevice) 4.dp else focusBleedPadding / 2,
-                bottom = if (isTouchDevice) 24.dp + LocalBottomBarInset.current else maxHeight * 0.6f
+                bottom = if (isTouchDevice) 16.dp + LocalBottomBarInset.current else maxHeight * 0.6f
             ),
             modifier = Modifier.fillMaxSize().arvioDpadFocusGroup(),
             verticalArrangement = Arrangement.spacedBy(if (isTouchDevice) 20.dp else 0.dp)

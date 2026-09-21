@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -70,6 +71,7 @@ internal data class DiscoverChip(
      */
     val segments: List<String>? = null,
     val selectedSegment: Int = 0,
+    val onSelectSegment: ((Int) -> Unit)? = null,
     val onActivate: () -> Unit
 )
 
@@ -247,10 +249,14 @@ internal fun SegmentedTypeControl(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
-            .semantics(mergeDescendants = true) {
-                role = Role.Tab
-                if (!isTouchDevice) onClick { chip.onActivate(); true }
-            }
+            .then(
+                if (!isTouchDevice) {
+                    Modifier.semantics(mergeDescendants = true) {
+                        role = Role.Tab
+                        onClick { chip.onActivate(); true }
+                    }
+                } else Modifier
+            )
             .padding(vertical = 2.dp)
             .graphicsLayer { if (isVisuallyFocused) { scaleX = 1.05f; scaleY = 1.05f } }
             .height(CHIP_HEIGHT)
@@ -260,16 +266,23 @@ internal fun SegmentedTypeControl(
                 if (isVisuallyFocused) accent else Color.White.copy(alpha = 0.18f),
                 shape
             )
-            .then(if (isTouchDevice) Modifier.clickable { chip.onActivate() } else Modifier)
             .padding(3.dp)
     ) {
         segments.forEachIndexed { index, label ->
             val selected = index == chip.selectedSegment
             Box(
                 modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
                     .background(
                         if (selected) Color.White.copy(alpha = 0.92f) else Color.Transparent,
                         RoundedCornerShape(6.dp)
+                    )
+                    .then(
+                        if (isTouchDevice) {
+                            Modifier.clickable {
+                                chip.onSelectSegment?.invoke(index) ?: chip.onActivate()
+                            }
+                        } else Modifier
                     )
                     .padding(horizontal = 13.dp, vertical = 6.dp)
             ) {

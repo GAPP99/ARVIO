@@ -990,6 +990,7 @@
     <string name="profile_updated">Profil mis à jour</string>
     <string name="profile_deleted">Profil supprimé</string>
     <string name="profile_pin_set_success">Code PIN du profil défini</string>
+    <string name="profile_pin_removed_success">Code PIN du profil supprimé</string>
     <string name="tv_failed_load_iptv">Échec du chargement de l’IPTV</string>
     <string name="tv_link_failed_start">Échec du démarrage de l’authentification TV</string>
     <string name="tv_link_failed_poll">Échec de la vérification du statut d’authentification TV</string>
