@@ -26,6 +26,9 @@ import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogPackManifest
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.model.QualityFilterConfig
+import com.arflix.tv.data.model.StreamIntegrationConfig
+import com.arflix.tv.data.model.StreamIntegrationType
+import com.arflix.tv.data.model.StreamProviderItem
 import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.CatalogDiscoveryRepository
@@ -46,7 +49,12 @@ import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.MediaRepository
 import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.data.repository.ProfileRepository
+import com.arflix.tv.data.model.StreamSearchMode
+import com.arflix.tv.data.repository.StreamIntegrationRepository
 import com.arflix.tv.data.repository.StreamRepository
+import com.arflix.tv.core.plugin.PluginManager
+import com.arflix.tv.data.telegram.TelegramAuthState
+import com.arflix.tv.data.telegram.TelegramRepository
 import com.arflix.tv.data.repository.TvDeviceAuthRepository
 import com.arflix.tv.data.repository.TvDeviceAuthSession
 import com.arflix.tv.data.repository.TvDeviceAuthStatusType
@@ -303,7 +311,13 @@ data class SettingsUiState(
     val subtitleAiModel: SubtitleAiModel = SubtitleAiModel.GROQ_LLAMA_70B,
     val subtitleRemoveHearingImpaired: Boolean = true,
     val aiKeyServerState: AiKeyServerState = AiKeyServerState(),
-    val smoothScrolling: Boolean = true
+    val smoothScrolling: Boolean = true,
+    // Stream Integrations
+    val streamIntegrations: List<StreamIntegrationConfig> = emptyList(),
+    val streamProviderItems: List<StreamProviderItem> = emptyList(),
+    val streamSearchMode: StreamSearchMode = StreamSearchMode.PARALLEL,
+    val pluginsCount: Int = 0,
+    val isTelegramConnected: Boolean = false
 )
 
 @HiltViewModel
@@ -332,7 +346,10 @@ class SettingsViewModel @Inject constructor(
     private val syncProviderStore: com.arflix.tv.data.repository.sync.SyncProviderStore,
     private val watchHistoryRepository: com.arflix.tv.data.repository.WatchHistoryRepository,
     private val simklAuthManager: com.arflix.tv.data.repository.simkl.SimklAuthManager,
-    private val simklSyncService: com.arflix.tv.data.repository.simkl.SimklSyncService
+    private val simklSyncService: com.arflix.tv.data.repository.simkl.SimklSyncService,
+    private val streamIntegrationRepository: StreamIntegrationRepository,
+    private val pluginManager: PluginManager,
+    private val telegramRepository: TelegramRepository
 ) : ViewModel() {
     private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
         return catalogs.filter { config ->
@@ -490,6 +507,7 @@ class SettingsViewModel @Inject constructor(
         observeIptvGroupPrefs()
         initializeCatalogs()
         observeCatalogs()
+        observeStreamIntegrations()
         initializeUpdaterState()
         checkForAppUpdates(force = false, showNoUpdateFeedback = false)
     }
@@ -930,6 +948,34 @@ class SettingsViewModel @Inject constructor(
                     homeServerConnection = connections.firstOrNull(),
                     homeServerConnections = connections
                 )
+            }
+        }
+    }
+
+    private fun observeStreamIntegrations() {
+        viewModelScope.launch {
+            streamIntegrationRepository.observeConfigs().collect { configs ->
+                _uiState.value = _uiState.value.copy(streamIntegrations = configs)
+            }
+        }
+        viewModelScope.launch {
+            streamIntegrationRepository.observeProviderItems().collect { items ->
+                _uiState.value = _uiState.value.copy(streamProviderItems = items)
+            }
+        }
+        viewModelScope.launch {
+            streamIntegrationRepository.observeSearchMode().collect { mode ->
+                _uiState.value = _uiState.value.copy(streamSearchMode = mode)
+            }
+        }
+        viewModelScope.launch {
+            pluginManager.scrapers.collect { scrapers ->
+                _uiState.value = _uiState.value.copy(pluginsCount = scrapers.count { it.enabled })
+            }
+        }
+        viewModelScope.launch {
+            telegramRepository.authState.collect { authState ->
+                _uiState.value = _uiState.value.copy(isTelegramConnected = authState is TelegramAuthState.Ready)
             }
         }
     }
@@ -2095,6 +2141,69 @@ class SettingsViewModel @Inject constructor(
 
     // ========== Addon Management ==========
 
+    fun moveStreamIntegrationUp(type: StreamIntegrationType) {
+        viewModelScope.launch {
+            streamIntegrationRepository.moveIntegrationUp(type)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun moveStreamIntegrationDown(type: StreamIntegrationType) {
+        viewModelScope.launch {
+            streamIntegrationRepository.moveIntegrationDown(type)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun toggleStreamIntegration(type: StreamIntegrationType) {
+        viewModelScope.launch {
+            streamIntegrationRepository.toggleIntegration(type)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun moveStreamProviderUp(id: String) {
+        viewModelScope.launch {
+            streamIntegrationRepository.moveProviderItemUp(id)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun moveStreamProviderDown(id: String) {
+        viewModelScope.launch {
+            streamIntegrationRepository.moveProviderItemDown(id)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun toggleStreamProvider(id: String) {
+        viewModelScope.launch {
+            streamIntegrationRepository.toggleProviderItem(id)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun setStreamSearchMode(mode: StreamSearchMode) {
+        viewModelScope.launch {
+            streamIntegrationRepository.setSearchMode(mode)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    @Deprecated("Addon ordering is now managed via StreamIntegrationsScreen.")
+    fun moveAddonUp(addonId: String) {
+        viewModelScope.launch {
+            streamRepository.moveAddonUp(addonId)
+        }
+    }
+
+    @Deprecated("Addon ordering is now managed via StreamIntegrationsScreen.")
+    fun moveAddonDown(addonId: String) {
+        viewModelScope.launch {
+            streamRepository.moveAddonDown(addonId)
+        }
+    }
+
     fun toggleAddon(addonId: String) {
         viewModelScope.launch {
             streamRepository.toggleAddon(addonId)
@@ -2102,31 +2211,6 @@ class SettingsViewModel @Inject constructor(
             runCatching {
                 catalogRepository.syncAddonCatalogs(addonsAfterToggle)
             }
-            syncLocalStateToCloud(silent = true)
-        }
-    }
-
-    fun moveAddonUp(addonId: String) {
-        moveAddon(addonId, moveUp = true)
-    }
-
-    fun moveAddonDown(addonId: String) {
-        moveAddon(addonId, moveUp = false)
-    }
-
-    private fun moveAddon(addonId: String, moveUp: Boolean) {
-        viewModelScope.launch {
-            val moved = if (moveUp) {
-                streamRepository.moveAddonUp(addonId)
-            } else {
-                streamRepository.moveAddonDown(addonId)
-            }
-            if (!moved) return@launch
-            val addonsAfterMove = streamRepository.installedAddons.first()
-            runCatching {
-                catalogRepository.syncAddonCatalogs(addonsAfterMove)
-            }
-            _uiState.value = _uiState.value.copy(addons = addonsAfterMove)
             syncLocalStateToCloud(silent = true)
         }
     }

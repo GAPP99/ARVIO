@@ -27,8 +27,13 @@ import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.data.repository.SkipInterval
 import com.arflix.tv.data.repository.SkipIntroRepository
 import com.arflix.tv.data.repository.StreamRepository
+import com.arflix.tv.data.model.StreamIntegrationType
+import com.arflix.tv.data.model.StreamSearchMode
+import com.arflix.tv.data.repository.StreamIntegrationRepository
 import com.arflix.tv.data.repository.toStreamSource
 import com.arflix.tv.core.plugin.PluginManager
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.withTimeoutOrNull
 import com.arflix.tv.ui.screens.details.minQualityThreshold
 import com.arflix.tv.ui.screens.details.qualityScoreForAutoPlay
 import com.arflix.tv.data.repository.isHubCloudPageUrl
@@ -283,7 +288,8 @@ class PlayerViewModel @Inject constructor(
     private val tmdbApi: TmdbApi,
     private val skipIntroRepository: SkipIntroRepository,
     private val playbackTelemetryRepository: PlaybackTelemetryRepository,
-    private val pluginManager: PluginManager
+    private val pluginManager: PluginManager,
+    private val streamIntegrationRepository: StreamIntegrationRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -748,9 +754,7 @@ class PlayerViewModel @Inject constructor(
                 ?.toIntOrNull()?.coerceIn(0, 15) ?: 0
             val installedAddons = streamRepository.installedAddons.first()
             currentInstalledAddons = installedAddons
-            val orderedAddonIds = installedAddons
-                .filter { it.isVodStreamingAddon() }
-                .map { it.id }
+            val orderedAddonIds = streamIntegrationRepository.getUnifiedSourceOrderedIds().first()
             currentAddonOrderedIds = orderedAddonIds
             val preferredSub = prefs[defaultSubtitleKey()]?.trim().orEmpty()
                 .let { if (isSubtitleDisabledPreference(it)) "" else it }
@@ -939,28 +943,32 @@ class PlayerViewModel @Inject constructor(
                 // Load IPTV and home-server sources from cache in parallel so the
                 // source picker in the player shows alternatives immediately.
                 homeServerAppendJob?.cancel()
-                homeServerAppendJob = launch {
-                    runCatching {
-                        appendHomeServerSourcesInBackground(
-                            mediaType = mediaType,
-                            imdbId = currentImdbId,
-                            seasonNumber = seasonNumber,
-                            episodeNumber = episodeNumber,
-                            timeoutMs = 20_000L
-                        )
-                    }.onFailure(childFailed("homeServerAppend"))
+                if (streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.HOME_SERVER)) {
+                    homeServerAppendJob = launch {
+                        runCatching {
+                            appendHomeServerSourcesInBackground(
+                                mediaType = mediaType,
+                                imdbId = currentImdbId,
+                                seasonNumber = seasonNumber,
+                                episodeNumber = episodeNumber,
+                                timeoutMs = 20_000L
+                            )
+                        }.onFailure(childFailed("homeServerAppend"))
+                    }
                 }
                 vodAppendJob?.cancel()
-                vodAppendJob = launch {
-                    runCatching {
-                        appendVodSourceInBackground(
-                            mediaType = mediaType,
-                            imdbId = currentImdbId,
-                            seasonNumber = seasonNumber,
-                            episodeNumber = episodeNumber,
-                            timeoutMs = 15_000L
-                        )
-                    }.onFailure(childFailed("vodAppend"))
+                if (streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.IPTV_VOD)) {
+                    vodAppendJob = launch {
+                        runCatching {
+                            appendVodSourceInBackground(
+                                mediaType = mediaType,
+                                imdbId = currentImdbId,
+                                seasonNumber = seasonNumber,
+                                episodeNumber = episodeNumber,
+                                timeoutMs = 15_000L
+                            )
+                        }.onFailure(childFailed("vodAppend"))
+                    }
                 }
                 // Fetch metadata in background
                 launch {
@@ -1109,27 +1117,36 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
                 // Start VOD append in background - single fast attempt, no retries blocking UI
-                homeServerAppendJob?.cancel()
-                homeServerAppendJob = launch {
-                    appendHomeServerSourcesInBackground(
-                        mediaType = mediaType,
-                        imdbId = imdbId,
-                        seasonNumber = seasonNumber,
-                        episodeNumber = episodeNumber,
-                        timeoutMs = 20_000L
-                    )
-                }
-                vodAppendJob?.cancel()
-                vodAppendJob = launch {
-                    // VOD runs in parallel with addon streams — catalog is disk-cached
-                    // so lookups are usually fast. Give enough time for series info calls.
-                    appendVodSourceInBackground(
-                        mediaType = mediaType,
-                        imdbId = imdbId,
-                        seasonNumber = seasonNumber,
-                        episodeNumber = episodeNumber,
-                        timeoutMs = 15_000L
-                    )
+                val searchMode = streamIntegrationRepository.getSearchMode()
+                val isSequential = searchMode == StreamSearchMode.SEQUENTIAL
+
+                if (!isSequential) {
+                    homeServerAppendJob?.cancel()
+                    if (streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.HOME_SERVER)) {
+                        homeServerAppendJob = launch {
+                            appendHomeServerSourcesInBackground(
+                                mediaType = mediaType,
+                                imdbId = imdbId,
+                                seasonNumber = seasonNumber,
+                                episodeNumber = episodeNumber,
+                                timeoutMs = 20_000L
+                            )
+                        }
+                    }
+                    vodAppendJob?.cancel()
+                    if (streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.IPTV_VOD)) {
+                        vodAppendJob = launch {
+                            // VOD runs in parallel with addon streams — catalog is disk-cached
+                            // so lookups are usually fast. Give enough time for series info calls.
+                            appendVodSourceInBackground(
+                                mediaType = mediaType,
+                                imdbId = imdbId,
+                                seasonNumber = seasonNumber,
+                                episodeNumber = episodeNumber,
+                                timeoutMs = 15_000L
+                            )
+                        }
+                    }
                 }
 
                 // Get saved position for resume playback
@@ -1155,6 +1172,209 @@ class PlayerViewModel @Inject constructor(
                 )
 
                 val preferredLanguage = _uiState.value.preferredAudioLanguage.ifBlank { resolvePreferredAudioLanguage() }
+
+                if (isSequential) {
+                    val providers = streamIntegrationRepository.observeProviderItems().first().filter { it.isEnabled }
+                    val total = providers.size.coerceAtLeast(1)
+                    var index = 0
+                    val sequentialCandidates = SequentialStreamCandidates(autoPlayMinimumQuality, autoPlayLimits)
+
+                    for (providerItem in providers) {
+                        index++
+                        val progressFraction = (index.toFloat() / total.toFloat()).coerceIn(0f, 0.99f)
+                        _uiState.value = _uiState.value.copy(
+                            streamProgress = progressFraction,
+                            streamLoadPhase = PlayerMessage.Res(
+                                R.string.player_phase_searching_sources,
+                                listOf(index - 1, total)
+                            )
+                        )
+
+                        val rawCandidates: List<StreamSource> = when (providerItem.type) {
+                            StreamIntegrationType.HOME_SERVER -> {
+                                val lookupTitle = currentItemTitle.ifBlank { currentTitle }
+                                if (mediaType == MediaType.MOVIE) {
+                                    streamRepository.resolveMovieHomeServerSources(
+                                        imdbId = imdbId,
+                                        title = lookupTitle,
+                                        year = null,
+                                        tmdbId = currentMediaId,
+                                        timeoutMs = 3_500L,
+                                        providerId = providerItem.id
+                                    )
+                                } else {
+                                    streamRepository.resolveEpisodeHomeServerSources(
+                                        imdbId = imdbId,
+                                        season = seasonNumber ?: 1,
+                                        episode = episodeNumber ?: 1,
+                                        title = lookupTitle,
+                                        tmdbId = currentMediaId,
+                                        tvdbId = currentTvdbId,
+                                        timeoutMs = 3_500L,
+                                        providerId = providerItem.id
+                                    )
+                                }
+                            }
+                            StreamIntegrationType.STREMIO_ADDONS -> {
+                                val allAddons = streamRepository.installedAddonsForSourceResolution()
+                                val targetAddon = allAddons.firstOrNull { it.id == providerItem.id }
+                                    ?: allAddons.firstOrNull { it.id.equals(providerItem.id, ignoreCase = true) }
+                                    ?: allAddons.firstOrNull { providerItem.id == "stremio:${it.id}" || providerItem.rawProviderKeys.contains(it.id) }
+                                if (targetAddon != null) {
+                                    streamRepository.resolveAddonStreams(
+                                        addon = targetAddon,
+                                        mediaType = mediaType,
+                                        imdbId = effectiveStreamId.orEmpty(),
+                                        title = currentItemTitle,
+                                        year = null,
+                                        season = seasonNumber,
+                                        episode = episodeNumber,
+                                        tmdbId = mediaId,
+                                        tvdbId = currentTvdbId,
+                                        genreIds = currentGenreIds,
+                                        originalLanguage = currentOriginalLanguage,
+                                        animeQueryOverride = animeQueryOverride,
+                                        airDate = currentAirDate,
+                                        timeoutMs = 3_500L
+                                    )
+                                } else emptyList()
+                            }
+                            StreamIntegrationType.TELEGRAM -> {
+                                streamRepository.resolveTelegramStreams(
+                                    mediaType = mediaType,
+                                    title = currentItemTitle,
+                                    year = null,
+                                    season = seasonNumber,
+                                    episode = episodeNumber,
+                                    imdbId = effectiveStreamId,
+                                    timeoutMs = 3_500L
+                                )
+                            }
+                            StreamIntegrationType.PLUGINS -> {
+                                if (streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.PLUGINS)) {
+                                    val pluginStreams = mutableListOf<StreamSource>()
+                                    withTimeoutOrNull(3_500L) {
+                                        try {
+                                            pluginManager.executeScrapersStreaming(
+                                                tmdbId = mediaId.toString(),
+                                                mediaType = if (mediaType == MediaType.MOVIE) "movie" else "tv",
+                                                season = seasonNumber,
+                                                episode = episodeNumber,
+                                                allowedProviderIds = setOf(providerItem.id)
+                                            ).collect { (_, results) ->
+                                                if (results != null) {
+                                                    pluginStreams.addAll(results.map { it.toStreamSource() })
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            if (e is kotlinx.coroutines.CancellationException) throw e
+                                        }
+                                    }
+                                    pluginStreams
+                                } else emptyList()
+                            }
+                            StreamIntegrationType.IPTV_VOD -> {
+                                val lookupTitle = currentItemTitle
+                                    .ifBlank { currentTitle }
+                                    .ifBlank { mediaRepository.getCachedItem(mediaType, currentMediaId)?.title.orEmpty() }
+                                val lookupOriginalTitle = mediaRepository.getCachedItem(mediaType, currentMediaId)?.originalTitle
+                                if (mediaType == MediaType.MOVIE) {
+                                    streamRepository.resolveMovieVodSources(
+                                        imdbId = imdbId,
+                                        title = lookupTitle,
+                                        year = null,
+                                        tmdbId = currentMediaId,
+                                        timeoutMs = 3_500L,
+                                        originalTitle = lookupOriginalTitle,
+                                        providerId = providerItem.id
+                                    )
+                                } else {
+                                    streamRepository.resolveEpisodeVodSources(
+                                        imdbId = imdbId,
+                                        season = seasonNumber ?: 1,
+                                        episode = episodeNumber ?: 1,
+                                        title = lookupTitle,
+                                        tmdbId = currentMediaId,
+                                        tvdbId = currentTvdbId,
+                                        timeoutMs = 3_500L,
+                                        originalTitle = lookupOriginalTitle,
+                                        providerId = providerItem.id
+                                    )
+                                }
+                            }
+                        }
+
+                        val validCandidates = rawCandidates.filter { stream ->
+                            val u = stream.url?.trim().orEmpty()
+                            u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
+                        }
+                        val filteredCandidates = streamRepository.applyQualityRegexFilters(validCandidates)
+                        if (sequentialCandidates.accept(filteredCandidates)) break
+                    }
+
+                    val foundStreams = sortStreamsByQualityAndSize(sequentialCandidates.streams, preferredLanguage)
+                    if (foundStreams.isNotEmpty()) {
+                        val autoplayCandidates = eligiblePlayerAutoplayStreams(foundStreams, autoPlayMinimumQuality, autoPlayLimits)
+                        val targetSelection = autoplayCandidates.firstOrNull()
+                        primaryStreamResolutionFinal = true
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            isLoadingStreams = false,
+                            sourceSearchActive = false,
+                            streams = foundStreams,
+                            streamProgress = null,
+                            streamLoadPhase = null,
+                            error = if (targetSelection == null) PlayerMessage.Res(R.string.stream_no_sources_match) else null
+                        )
+                        prewarmTopStreams(foundStreams, preferredLanguage)
+                        if (targetSelection != null) {
+                            selectStream(targetSelection)
+                        }
+
+                        // Apply subtitle preference in background (non-blocking)
+                        subtitleRefreshJob?.cancel()
+                        subtitleRefreshJob = launch {
+                            val fetchedSubs = runCatching {
+                                streamRepository.fetchSubtitlesForSelectedStream(
+                                    mediaType = mediaType,
+                                    imdbId = effectiveStreamId,
+                                    season = seasonNumber,
+                                    episode = episodeNumber,
+                                    stream = null,
+                                    softDeadlineMs = subtitleFetchSoftDeadline(),
+                                    onPendingAddons = pendingSubtitleAddonsReporter()
+                                )
+                            }.getOrDefault(emptyList())
+
+                            val mergedSubs = filterSubsByPreferredLanguage(
+                                (_uiState.value.subtitles + fetchedSubs)
+                                    .filter { it.isEmbedded || it.url.isNotBlank() }
+                                    .distinctBy { if (it.isEmbedded) it.id else "${it.id}|${it.url}" }
+                            )
+
+                            _uiState.value = _uiState.value.copy(
+                                subtitles = mergedSubs,
+                                isLoadingSubtitles = false
+                            )
+                            preloadSubtitles(mergedSubs)
+                            scheduleSubtitleSelection(currentOriginalLanguage)
+                        }
+                        return@launch
+                    } else {
+                        primaryStreamResolutionFinal = true
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            isLoadingStreams = false,
+                            isLoadingSubtitles = false,
+                            sourceSearchActive = false,
+                            streams = emptyList(),
+                            streamProgress = null,
+                            streamLoadPhase = null,
+                            error = PlayerMessage.Res(R.string.player_error_no_streams_from_addons)
+                        )
+                        return@launch
+                    }
+                }
                 val progressiveFlow = if (mediaType == MediaType.MOVIE) {
                     streamRepository.resolveMovieStreamsProgressive(
                         imdbId = effectiveStreamId,
@@ -1193,17 +1413,24 @@ class PlayerViewModel @Inject constructor(
                 var sourceEmptyReported = false
 
                 var pluginSearchStarted = false
-                val playerSources = mergePlayerSourceDiscovery(
-                    addons = progressiveFlow,
-                    pluginBatches = pluginManager.executeScrapersStreaming(
+                val pluginsEnabled = streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.PLUGINS)
+                val pluginBatches = if (pluginsEnabled) {
+                    pluginManager.executeScrapersStreaming(
                         tmdbId = mediaId.toString(),
                         mediaType = if (mediaType == MediaType.MOVIE) "movie" else "tv",
                         season = seasonNumber,
-                        episode = episodeNumber
+                        episode = episodeNumber,
+                        allowedProviderIds = streamIntegrationRepository.enabledProviderIds(StreamIntegrationType.PLUGINS)
                     ).map { (_, results) ->
                         pluginSearchStarted = true
                         results.orEmpty().map { it.toStreamSource() }
-                    },
+                    }
+                } else {
+                    emptyFlow()
+                }
+                val playerSources = mergePlayerSourceDiscovery(
+                    addons = progressiveFlow,
+                    pluginBatches = pluginBatches,
                     onPluginFailure = { Log.w(TAG, "Player plugin source discovery failed", it) }
                 )
                 playerSources.collect { progressive ->
@@ -2184,9 +2411,9 @@ class PlayerViewModel @Inject constructor(
         } else {
             stream.addonId.ifBlank { stream.addonName }
         }
-        val directIndex = currentAddonOrderedIds.indexOfFirst { orderedId ->
-            orderedId == stream.addonId || orderedId == tabId
-        }
+        val tabIndex = currentAddonOrderedIds.indexOf(tabId)
+        if (tabIndex >= 0) return tabIndex
+        val directIndex = currentAddonOrderedIds.indexOf(stream.addonId)
         if (directIndex >= 0) return directIndex
         val fuzzyIndex = currentAddonOrderedIds.indexOfFirst { orderedId ->
             tabId.contains(orderedId) || orderedId.contains(tabId)
@@ -2446,6 +2673,7 @@ class PlayerViewModel @Inject constructor(
     ): List<StreamSource> {
         return streams.sortedWith(
             compareBy<StreamSource> { streamRepository.getPlaybackHostHealthPenalty(it) }
+                .thenBy { addonOrderIndex(it) }
                 .thenByDescending { qualityScoreForAutoPlay(it) }
                 .thenByDescending { parseSize(it.size) }
                 .thenBy { if (it.behaviorHints?.notWebReady == true) 1 else 0 }
