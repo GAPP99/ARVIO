@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="live_sports_source_count">Sources: %1$d</string>
+    <string name="live_sports_addon_sources">Broadcast listed by add-on</string>
+    <string name="live_sports_addon_retry">No sources returned. Select to retry.</string>
+    <string name="live_sports_external_source">Opens in browser</string>
     <string name="library_sort_release_newest">Release date: newest first</string>
     <string name="library_sort_release_oldest">Release date: oldest first</string>
     <string name="app_name">ARVIO</string>

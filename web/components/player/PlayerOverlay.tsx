@@ -124,16 +124,20 @@ function liveTvProxyHeaders() {
   };
 }
 
-function directManifestUrl(url: string) {
-  const target = new URL(proxiedUrl(url, liveTvProxyHeaders()));
+function needsBrowserHeaderRelay(headers?: Record<string, string>) {
+  return Object.keys(headers ?? {}).some(name => /^(referer|origin|user-agent|cookie|host)$/i.test(name));
+}
+
+function directManifestUrl(url: string, headers?: Record<string, string>) {
+  const target = new URL(proxiedUrl(url, { ...liveTvProxyHeaders(), ...headers }));
   target.searchParams.set("rewrite", "direct");
   return target.toString();
 }
 
-function workerManifestUrl(url: string) {
+function workerManifestUrl(url: string, headers?: Record<string, string>) {
   // Manifest via the app backend (reaches hosts that block Cloudflare),
   // segments via the configured resolver worker with its CORS/header handling.
-  const target = new URL(proxiedUrl(url, liveTvProxyHeaders()));
+  const target = new URL(proxiedUrl(url, { ...liveTvProxyHeaders(), ...headers }));
   target.searchParams.set("rewrite", "worker");
   return target.toString();
 }
@@ -901,18 +905,22 @@ function VideoPlayer({
       const hlsTwin = xtreamHlsVariant(stream.url);
       if (hlsTwin) attempts.push(hlsTwin);
       const workerUrl = resolverMediaUrl(stream.url, { ...liveTvProxyHeaders(), ...headers });
-      if (workerUrl) attempts.push(workerUrl);
+      if (workerUrl) {
+        // Browsers cannot set these source-required headers on direct requests.
+        if (needsBrowserHeaderRelay(headers)) attempts.unshift(workerUrl);
+        else attempts.push(workerUrl);
+      }
       if (hlsTwin) {
         const workerTwin = resolverMediaUrl(hlsTwin, { ...liveTvProxyHeaders(), ...headers });
         if (workerTwin) attempts.push(workerTwin);
-        attempts.push(workerManifestUrl(hlsTwin));
+        attempts.push(workerManifestUrl(hlsTwin, headers));
       }
       if (isLikelyHlsUrl(stream.url)) {
-        if (workerUrl) attempts.push(workerManifestUrl(stream.url));
-        attempts.push(directManifestUrl(stream.url));
+        if (workerUrl) attempts.push(workerManifestUrl(stream.url, headers));
+        attempts.push(directManifestUrl(stream.url, headers));
       }
       if (config.allowNetlifyMediaProxy) {
-        attempts.push(proxiedUrl(hlsTwin ?? stream.url, liveTvProxyHeaders()));
+        attempts.push(proxiedUrl(hlsTwin ?? stream.url, { ...liveTvProxyHeaders(), ...headers }));
       }
     }
     if (config.allowNetlifyMediaProxy && !headers && /^https?:\/\//i.test(stream.url)) {

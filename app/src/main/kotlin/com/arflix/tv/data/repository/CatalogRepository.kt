@@ -635,6 +635,8 @@ class CatalogRepository @Inject constructor(
         addon: Addon,
         catalog: AddonCatalog
     ): CatalogConfig? {
+        if (com.arflix.tv.data.model.SportsAddonCapabilities.isSportsLiveTvAddon(addon) &&
+            com.arflix.tv.data.model.SportsAddonCapabilities.isSportsCatalog(catalog)) return null
         val normalizedType = normalizeAddonCatalogType(catalog.type) ?: return null
         val catalogId = catalog.id.trim().takeIf { it.isNotBlank() } ?: return null
         val hasRequiredExtras = catalog.extra

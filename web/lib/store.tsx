@@ -1859,7 +1859,7 @@ export function AppProvider({
       description: channel.group,
       behaviorHints: { proxyHeaders: { request: channel.requestHeaders } }
     };
-    recordChannelPlayback(channel);
+    if (!channel.id?.startsWith("sports-addon:")) recordChannelPlayback(channel);
     if (openLiveExternally(stream, channel.name)) return;
     setActiveChannel(channel);
     setActiveStream(stream);
