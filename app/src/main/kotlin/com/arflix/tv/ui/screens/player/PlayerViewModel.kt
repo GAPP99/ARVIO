@@ -1735,7 +1735,9 @@ class PlayerViewModel @Inject constructor(
             }
             if (embeddedPref != null && _uiState.value.selectedSubtitle?.id != embeddedPref.id) {
                 cancelFindBestMatch("preferred-language embedded track appeared")
-                hasManualSubtitleSelection = true
+                // Forced mode must reconsider this automatic pick when the audio changes.
+                // Actual menu selections still set the manual-selection guard themselves.
+                hasManualSubtitleSelection = !_uiState.value.useForcedSubtitles
                 translationManager.isEnabled = false
                 aiSourceSubtitle = null
                 _uiState.value = _uiState.value.copy(
