@@ -81,16 +81,17 @@ internal fun resolveMobileHeroLayout(
         MobileHeroLayoutSpec(
             cardWidthDp = cardWidth,
             cardHeightDp = cardWidth / (16f / 9f),
-            carouselHorizontalPaddingDp = horizontalPadding,
+            carouselHorizontalPaddingDp = (width - cardWidth) / 2f,
             compactContent = true,
         )
     } else {
         val heightLimit = height * 0.72f
         val cardHeight = minOf(pageWidth / (3f / 4f), heightLimit)
+        val cardWidth = minOf(pageWidth, cardHeight * (3f / 4f))
         MobileHeroLayoutSpec(
-            cardWidthDp = minOf(pageWidth, cardHeight * (3f / 4f)),
+            cardWidthDp = cardWidth,
             cardHeightDp = cardHeight,
-            carouselHorizontalPaddingDp = horizontalPadding,
+            carouselHorizontalPaddingDp = (width - cardWidth) / 2f,
             compactContent = false,
         )
     }

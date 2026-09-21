@@ -6,6 +6,15 @@ import org.junit.Test
 class MobileHeroResponsiveLayoutTest {
 
     @Test
+    fun pagerSlotsMatchTheCardWidthWhenHeightCapped() {
+        listOf(800f to 308f, 1280f to 748f, 800f to 900f).forEach { (width, height) ->
+            val layout = resolveMobileHeroLayout(width, height)
+            assertThat(width - 2f * layout.carouselHorizontalPaddingDp)
+                .isWithin(0.01f).of(layout.cardWidthDp)
+        }
+    }
+
+    @Test
     fun portraitPhoneRetainsOriginalThreeByFourCard() {
         val layout = resolveMobileHeroLayout(360f, 800f)
 
