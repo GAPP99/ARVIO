@@ -158,6 +158,9 @@ class TraktRepository @Inject constructor(
         showWatchedCacheTime = 0L
         showCompletionCache.clear()
         tmdbToTraktIdCache.clear()
+        tmdbToTraktCachePopulatedAtMs = 0L
+        lastActivityFingerprint = null
+        lastActivityFingerprintProfileId = null
         cachedContinueWatching = emptyList()
         cachedContinueWatchingProfileId = null
         lastContinueWatchingFetch = 0L
@@ -1116,12 +1119,25 @@ class TraktRepository @Inject constructor(
     // Cache for TMDB to Trakt ID mapping (populated from watched shows)
     private val tmdbToTraktIdCache = mutableMapOf<Int, Int>()
 
+    /**
+     * When the id map was last filled from the watched-shows list.
+     *
+     * That list only contains shows with a watched episode, so a lookup for any
+     * other show can never be satisfied from it. Without this guard every such
+     * lookup re-downloaded the entire list before falling through to search —
+     * on a cold start that was over a hundred redundant requests, and the main
+     * reason Trakt started answering 429.
+     */
+    @Volatile
+    private var tmdbToTraktCachePopulatedAtMs = 0L
+
     // Cache for watched episodes per show (to avoid repeated API calls)
     private val showWatchedEpisodesCache = mutableMapOf<Int, Set<String>>()
     private var showWatchedCacheTime = 0L
     private val SHOW_CACHE_DURATION_MS = 5 * 60 * 1000L // 5 minutes
     private val showCompletionCache = mutableMapOf<Int, Pair<Boolean, Long>>()
     private val SHOW_COMPLETION_CACHE_MS = 10 * 60 * 1000L
+    private val TMDB_TRAKT_ID_CACHE_MS = 10 * 60 * 1000L
 
     /**
      * Get watched episodes for a specific show (by TMDB ID)
@@ -1337,8 +1353,12 @@ class TraktRepository @Inject constructor(
      */
     private suspend fun populateTmdbToTraktCache() {
         val auth = getAuthHeader() ?: return
+        // Refilling changes nothing for a show that was absent the first time,
+        // so a miss must not trigger the whole download again.
+        if (System.currentTimeMillis() - tmdbToTraktCachePopulatedAtMs < TMDB_TRAKT_ID_CACHE_MS) return
         try {
             val watchedShows = getAllWatchedShows(auth)
+            tmdbToTraktCachePopulatedAtMs = System.currentTimeMillis()
             watchedShows.forEach { item ->
                 val tmdbId = item.show.ids.tmdb
                 val traktId = item.show.ids.trakt
@@ -1458,6 +1478,92 @@ class TraktRepository @Inject constructor(
         return ContinueWatchingCandidate(item = item, lastActivityAt = startedAt)
     }
 
+    /**
+     * The timestamps Trakt reports for the data this row is built from, as one
+     * comparable string, or null when the call fails.
+     *
+     * Recorded only after a complete, successful resolve: marking it from a
+     * partial result would make the next refresh believe it is already up to
+     * date and leave the row wrong until something else invalidated it.
+     */
+    private suspend fun traktActivityFingerprint(auth: String): TraktActivitySignature? = runCatching {
+        val activities = traktApi.getLastActivities(auth, clientId, "2")
+        val overall = listOfNotNull(
+            activities.episodes?.pausedAt,
+            activities.episodes?.watchedAt,
+            activities.movies?.pausedAt,
+            activities.movies?.watchedAt,
+            activities.shows?.hiddenAt
+        ).joinToString("|")
+        TraktActivitySignature(
+            overall = overall.takeIf { it.isNotBlank() } ?: return@runCatching null,
+            // Up Next is derived from what has been *watched* and what is
+            // hidden. Pausing something moves the playback list but cannot move
+            // a next-episode pointer, so this deliberately leaves paused_at out:
+            // it is what lets a paused movie refresh the row without re-reading
+            // every show's progress.
+            upNext = listOfNotNull(
+                activities.episodes?.watchedAt,
+                activities.shows?.hiddenAt
+            ).joinToString("|")
+        )
+    }.getOrNull()
+
+    // ── Rate-limit circuit breaker ──
+    //
+    // Retrying into a 429 is how a throttled account stays throttled: each
+    // attempt costs a request and pushes the window out further. After a
+    // refusal the row is served from its snapshot for a cooling-off period that
+    // doubles with each consecutive failure, so a rate-limited account recovers
+    // instead of grinding.
+    @Volatile
+    private var traktCircuitOpenUntilMs = 0L
+    private val traktCircuitFailures = java.util.concurrent.atomic.AtomicInteger(0)
+    private val TRAKT_CIRCUIT_BASE_COOLDOWN_MS = 60_000L
+    private val TRAKT_CIRCUIT_MAX_COOLDOWN_MS = 30 * 60_000L
+
+    private fun isTraktCircuitOpen(): Boolean =
+        System.currentTimeMillis() < traktCircuitOpenUntilMs
+
+    private fun tripTraktCircuit(reason: String) {
+        val failures = traktCircuitFailures.incrementAndGet()
+        val cooldownMs = (TRAKT_CIRCUIT_BASE_COOLDOWN_MS shl (failures - 1).coerceAtMost(5))
+            .coerceAtMost(TRAKT_CIRCUIT_MAX_COOLDOWN_MS)
+        traktCircuitOpenUntilMs = System.currentTimeMillis() + cooldownMs
+        AppLogger.breadcrumb(
+            tag = "Trakt",
+            message = "circuit_open reason=$reason failures=$failures cooldown=${cooldownMs / 1000}s",
+            severity = "warning"
+        )
+    }
+
+    private fun resetTraktCircuit() {
+        traktCircuitFailures.set(0)
+        traktCircuitOpenUntilMs = 0L
+    }
+
+    /** True when the throwable is Trakt refusing us rather than failing. */
+    private fun isRateLimited(error: Throwable?): Boolean =
+        (error as? retrofit2.HttpException)?.code() == 429
+
+    private data class TraktActivitySignature(val overall: String, val upNext: String)
+
+    @Volatile
+    private var lastActivityFingerprint: String? = null
+
+    @Volatile
+    private var lastActivityFingerprintProfileId: String? = null
+
+    /** Up Next candidates from the last resolve, reusable while [upNext] is unchanged. */
+    @Volatile
+    private var cachedUpNextCandidates: List<ContinueWatchingCandidate> = emptyList()
+
+    @Volatile
+    private var cachedUpNextSignature: String? = null
+
+    @Volatile
+    private var cachedUpNextProfileId: String? = null
+
     private suspend fun getAllPlaybackProgress(auth: String): List<TraktPlaybackItem> {
         val all = mutableListOf<TraktPlaybackItem>()
         var page = 1
@@ -1576,6 +1682,58 @@ class TraktRepository @Inject constructor(
             return@coroutineScope cachedContinueWatching
         }
 
+        // Trakt is refusing us: serve what we have and do not spend a request
+        // confirming it. The window doubles per consecutive refusal, so this
+        // clears itself without ever hammering.
+        if (isTraktCircuitOpen()) {
+            val held = if (
+                cachedContinueWatchingProfileId == requestProfileId && cachedContinueWatching.isNotEmpty()
+            ) {
+                cachedContinueWatching
+            } else {
+                loadContinueWatchingCache()
+            }
+            if (held.isNotEmpty()) {
+                cachedContinueWatching = held
+                cachedContinueWatchingProfileId = requestProfileId
+                return@coroutineScope filterDismissedContinueWatchingItems(held)
+            }
+        }
+
+        // Ask Trakt what changed before asking it for everything.
+        //
+        // Resolving this row costs one request per watched show plus the
+        // playback, watched and hidden reads — around thirty on a typical
+        // account. sync/last_activities answers in one request whether any of
+        // that could have changed, so a refresh that finds the same timestamps
+        // can serve the snapshot it already has. Forcing bypasses the time
+        // window above, not this: "force" means do not trust the clock, and
+        // Trakt saying nothing moved is better evidence than the clock.
+        val activityFingerprint = traktActivityFingerprint(auth)
+        if (
+            activityFingerprint != null &&
+            activityFingerprint.overall == lastActivityFingerprint &&
+            lastActivityFingerprintProfileId == requestProfileId
+        ) {
+            val unchanged = if (
+                cachedContinueWatchingProfileId == requestProfileId && cachedContinueWatching.isNotEmpty()
+            ) {
+                cachedContinueWatching
+            } else {
+                loadContinueWatchingCache()
+            }
+            if (unchanged.isNotEmpty()) {
+                AppLogger.breadcrumb(
+                    tag = "Trakt",
+                    message = "cw_skipped_unchanged count=${unchanged.size}",
+                    severity = "info"
+                )
+                cachedContinueWatching = unchanged
+                cachedContinueWatchingProfileId = requestProfileId
+                return@coroutineScope filterDismissedContinueWatchingItems(unchanged)
+            }
+        }
+
         // Prevent duplicate fetches
         if (continueWatchingFetching && continueWatchingFetchingProfileId == requestProfileId) {
             while (continueWatchingFetching && continueWatchingFetchingProfileId == requestProfileId) { delay(50) }
@@ -1596,6 +1754,10 @@ class TraktRepository @Inject constructor(
             // plus recent watched-show progress. We cannot call Trakt's website
             // progress activity feed from API clients, so keep this bounded and
             // respect both hidden and reset progress sections.
+            // Set when Trakt refuses rather than fails, so this resolve can open
+            // the breaker instead of the next one retrying straight into it.
+            val rateLimited = java.util.concurrent.atomic.AtomicBoolean(false)
+
             // Helper: detect HTTP 401/403 from Retrofit exceptions
             fun isAuthError(e: Exception): Boolean {
                 val httpEx = e as? retrofit2.HttpException ?: return false
@@ -1616,6 +1778,7 @@ class TraktRepository @Inject constructor(
 
                         lastErr = e
                         val httpEx = e as? retrofit2.HttpException
+                        if (httpEx?.code() == 429) rateLimited.set(true)
                         val retryable = isAuthError(e) || httpEx?.code() == 429 || httpEx?.code() in 500..599
                         if (attempt < 2 && retryable) {
                             // Token may be expired – force-refresh and retry
@@ -1842,8 +2005,29 @@ class TraktRepository @Inject constructor(
                 // Trakt's progress endpoint is called once per watched show.
                 // Keep the first sync below the provider's burst threshold so
                 // rate limiting does not turn a complete list into one result.
+                // One request per watched show is by far the most expensive part
+                // of this resolve, and it only produces next-episode pointers —
+                // which cannot have moved unless something was watched or a show
+                // was hidden. When that signature is unchanged the previous
+                // answer is still correct, so pausing a movie no longer re-reads
+                // every show's progress.
+                val upNextSignature = activityFingerprint?.upNext
+                val reusableUpNext = cachedUpNextCandidates.takeIf {
+                    it.isNotEmpty() &&
+                        upNextSignature != null &&
+                        upNextSignature == cachedUpNextSignature &&
+                        cachedUpNextProfileId == requestProfileId
+                }
+                if (reusableUpNext != null) {
+                    AppLogger.breadcrumb(
+                        tag = "Trakt",
+                        message = "cw_upnext_reused count=${reusableUpNext.size}",
+                        severity = "info"
+                    )
+                }
+
                 val semaphore = Semaphore(4)
-                val watchedProgressCandidates = watchedShows.map { watched ->
+                val watchedProgressCandidates = reusableUpNext ?: watchedShows.map { watched ->
                     async {
                         semaphore.withPermit {
                             val show = watched.show
@@ -1917,6 +2101,15 @@ class TraktRepository @Inject constructor(
                     }
                 }.awaitAll().filterNotNull()
 
+                // Only cache a freshly fetched answer, and only a complete one:
+                // a partial fan-out would otherwise be replayed as if it were
+                // the whole picture until something watched-related changed.
+                if (reusableUpNext == null && upNextSignature != null && !snapshotIncomplete.get()) {
+                    cachedUpNextCandidates = watchedProgressCandidates
+                    cachedUpNextSignature = upNextSignature
+                    cachedUpNextProfileId = requestProfileId
+                }
+
                 watchedProgressCandidates.forEach { candidate ->
                     val exactKey = "${candidate.item.mediaType}:${candidate.item.id}:${candidate.item.season}:${candidate.item.episode}"
                     val showKey = "${candidate.item.mediaType}:${candidate.item.id}"
@@ -1943,6 +2136,7 @@ class TraktRepository @Inject constructor(
             // An incomplete response is not an authoritative replacement for the saved row.
             // Leave its fetch time untouched so a subsequent refresh can retry.
             if (!playbackFetched || !watchedProgressFetched || snapshotIncomplete.get()) {
+                if (rateLimited.get()) tripTraktCircuit("continue_watching")
                 if (currentProfileId() != requestProfileId) return@coroutineScope emptyList()
                 val saved = if (cachedContinueWatchingProfileId == requestProfileId && cachedContinueWatching.isNotEmpty()) {
                     cachedContinueWatching
@@ -1958,6 +2152,13 @@ class TraktRepository @Inject constructor(
                 if (currentProfileId() != requestProfileId) return@coroutineScope emptyList()
                 return@coroutineScope filterDismissedContinueWatchingItems(partial)
             }
+
+            // Past the completeness guard: every read succeeded, so the
+            // timestamps fetched at the top describe the data now being
+            // resolved and can be trusted to short-circuit the next refresh.
+            resetTraktCircuit()
+            lastActivityFingerprint = activityFingerprint?.overall
+            lastActivityFingerprintProfileId = requestProfileId
 
             // Filter out dismissed items
             val dismissed = loadDismissedContinueWatching()
