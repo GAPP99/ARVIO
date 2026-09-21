@@ -489,10 +489,10 @@ class MdbListRepository @Inject constructor(
 
     // ===== Continue Watching (paused sessions) =====
 
-    suspend fun getContinueWatching(): List<ContinueWatchingItem> = withContext(Dispatchers.IO) {
+    suspend fun getContinueWatching(forceRefresh: Boolean = false): List<ContinueWatchingItem> = withContext(Dispatchers.IO) {
         val k = key() ?: return@withContext emptyList()
         try {
-            api.getPlayback(k)
+            api.getPlayback(k, cacheControl = if (forceRefresh) "no-cache" else null)
                 .mapNotNull { mapPlaybackItem(it) }
                 .sortedByDescending { it.updatedAtMs }
                 // One card per title. A paused session is kept for every episode

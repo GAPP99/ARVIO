@@ -56,7 +56,7 @@ class MdbListRemoteProvider @Inject constructor(
     override suspend fun getWatchedEpisodes(): Set<String> = repository.getWatchedEpisodes()
 
     override suspend fun getContinueWatching(forceRefresh: Boolean): List<ContinueWatchingItem> =
-        repository.getContinueWatching()
+        repository.getContinueWatching(forceRefresh)
 
     override suspend fun dismissContinueWatching(
         mediaType: MediaType,
