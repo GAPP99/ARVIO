@@ -385,6 +385,19 @@ internal fun centeredScrollOffset(viewportSize: Int, itemSize: Int): Int =
     if (viewportSize <= 0 || itemSize <= 0 || itemSize >= viewportSize) 0
     else -((viewportSize - itemSize) / 2)
 
+/**
+ * Builds the Trakt activation URL that already carries the user code, e.g.
+ * `https://trakt.tv/activate/AB12CD34`. Trakt redirects such a link to its sign-in page and keeps
+ * the code in `callbackURL`, so the user never has to type it. Falls back to the plain
+ * verification URL when no code is available yet.
+ */
+internal fun traktActivationUrl(verificationUrl: String, userCode: String): String {
+    val base = verificationUrl.trim().trimEnd('/')
+    val code = userCode.trim()
+    if (base.isEmpty()) return ""
+    return if (code.isEmpty()) base else "$base/$code"
+}
+
 private fun openExternalUrl(context: Context, url: String) {
     runCatching {
         context.startActivity(
@@ -2791,6 +2804,14 @@ fun SettingsScreen(
             TraktActivationModal(
                 verificationUrl = traktCode.verificationUrl,
                 userCode = traktCode.userCode,
+                onOpenUrl = {
+                    openExternalUrl(
+                        context,
+                        traktActivationUrl(traktCode.verificationUrl, traktCode.userCode)
+                    )
+                },
+                openUrlLabel = stringResource(R.string.settings_open_trakt_page),
+                showCopyCode = false,
                 onDismiss = { viewModel.cancelTraktAuth() }
             )
         }
@@ -3909,10 +3930,13 @@ private fun TraktActivationModal(
     onDismiss: () -> Unit,
     title: String? = null,
     instruction: String? = null,
-    onOpenUrl: (() -> Unit)? = null
+    onOpenUrl: (() -> Unit)? = null,
+    openUrlLabel: String? = null,
+    showCopyCode: Boolean = true
 ) {
     val resolvedTitle = title ?: stringResource(R.string.settings_connect_trakt)
     val resolvedInstruction = instruction ?: stringResource(R.string.settings_trakt_instruction, verificationUrl)
+    val resolvedOpenUrlLabel = openUrlLabel ?: stringResource(R.string.settings_open_auth_page)
     val accentColor = resolveAccentColor(fallback = Pink)
     val accentContentColor = contrastingContentColor(accentColor)
     val focusRequester = remember { FocusRequester() }
@@ -4025,28 +4049,30 @@ private fun TraktActivationModal(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.settings_open_auth_page),
+                            text = resolvedOpenUrlLabel,
                             style = ArflixTypography.button,
                             color = accentContentColor
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    if (showCopyCode) {
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
-                            .clickable { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(userCode)) }
-                            .padding(vertical = 12.dp, horizontal = 18.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_copy_code),
-                            style = ArflixTypography.button,
-                            color = Color.White
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                                .clickable { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(userCode)) }
+                                .padding(vertical = 12.dp, horizontal = 18.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_copy_code),
+                                style = ArflixTypography.button,
+                                color = Color.White
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))

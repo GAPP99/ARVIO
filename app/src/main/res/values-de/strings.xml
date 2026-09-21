@@ -313,6 +313,7 @@
     <string name="settings_trakt_instruction">Gehe zu %1$s und gib diesen Code ein</string>
     <string name="settings_waiting_for_authorization">Warten auf Autorisierung</string>
     <string name="settings_open_auth_page">Authentifizierungsseite öffnen</string>
+    <string name="settings_open_trakt_page">Trakt-Seite öffnen</string>
     <string name="settings_copy_code">Code kopieren</string>
     <string name="settings_cat_playback_controls">Wiedergabe &amp; Steuerung</string>
     <string name="settings_cat_audio_subtitles">Audio &amp; Untertitel</string>
