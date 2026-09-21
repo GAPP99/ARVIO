@@ -288,7 +288,7 @@ private val tvGeneralSectionIds = setOf(
 private fun tvGeneralRowsForSection(section: String): List<Int> {
     return when (section) {
         "language" -> listOf(0, 3, 1, 2)
-        "subtitles" -> listOf(4, 5, 6, 7, 42, 8, 38, 39, 9)
+        "subtitles" -> listOf(4, 5, 6, 7, 42, 8, 38, 39, 9, 45)
         "ai_subtitles" -> listOf(28, 29, 30, 31, 32, 33)
         "playback" -> listOf(10, 11, 12, 43, 44, 13, 14, 34, 16, 15, 40, 27)
         "appearance" -> listOf(17, 18, 20, 21, 24, 23, 22, 41, 36)
@@ -384,6 +384,19 @@ internal fun heldGroupMoveTarget(focusedIndex: Int, firstGroupIndex: Int, groupC
 internal fun centeredScrollOffset(viewportSize: Int, itemSize: Int): Int =
     if (viewportSize <= 0 || itemSize <= 0 || itemSize >= viewportSize) 0
     else -((viewportSize - itemSize) / 2)
+
+/**
+ * Builds the Trakt activation URL that already carries the user code, e.g.
+ * `https://trakt.tv/activate/AB12CD34`. Trakt redirects such a link to its sign-in page and keeps
+ * the code in `callbackURL`, so the user never has to type it. Falls back to the plain
+ * verification URL when no code is available yet.
+ */
+internal fun traktActivationUrl(verificationUrl: String, userCode: String): String {
+    val base = verificationUrl.trim().trimEnd('/')
+    val code = userCode.trim()
+    if (base.isEmpty()) return ""
+    return if (code.isEmpty()) base else "$base/$code"
+}
 
 private fun openExternalUrl(context: Context, url: String) {
     runCatching {
@@ -1234,6 +1247,7 @@ fun SettingsScreen(
                                                 42 -> viewModel.cycleSubtitleFont()
                                                 8 -> viewModel.toggleSubtitleStylized()
                                                 9 -> viewModel.setFilterSubtitlesByLanguage(!uiState.filterSubtitlesByLanguage)
+                                                45 -> viewModel.setUseForcedSubtitles(!uiState.useForcedSubtitles)
                                                 10 -> viewModel.setAutoPlayNext(!uiState.autoPlayNext)
                                                 11 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
                                                 12 -> viewModel.cycleAutoPlayMinQuality()
@@ -1847,6 +1861,8 @@ fun SettingsScreen(
                             onSubtitleStylizedToggle = { viewModel.toggleSubtitleStylized() },
                             filterSubtitlesByLanguage = uiState.filterSubtitlesByLanguage,
                             onFilterSubtitlesByLanguageToggle = { viewModel.setFilterSubtitlesByLanguage(it) },
+                            useForcedSubtitles = uiState.useForcedSubtitles,
+                            onUseForcedSubtitlesToggle = { viewModel.setUseForcedSubtitles(it) },
                             qualityFilterValue = uiState.qualityFilterPresetLabel,
                             onQualityFiltersClick = { showQualityFiltersModal = true },
                             subtitleAiEnabled = uiState.subtitleAiEnabled,
@@ -2792,6 +2808,14 @@ fun SettingsScreen(
             TraktActivationModal(
                 verificationUrl = traktCode.verificationUrl,
                 userCode = traktCode.userCode,
+                onOpenUrl = {
+                    openExternalUrl(
+                        context,
+                        traktActivationUrl(traktCode.verificationUrl, traktCode.userCode)
+                    )
+                },
+                openUrlLabel = stringResource(R.string.settings_open_trakt_page),
+                showCopyCode = false,
                 onDismiss = { viewModel.cancelTraktAuth() }
             )
         }
@@ -3910,10 +3934,13 @@ private fun TraktActivationModal(
     onDismiss: () -> Unit,
     title: String? = null,
     instruction: String? = null,
-    onOpenUrl: (() -> Unit)? = null
+    onOpenUrl: (() -> Unit)? = null,
+    openUrlLabel: String? = null,
+    showCopyCode: Boolean = true
 ) {
     val resolvedTitle = title ?: stringResource(R.string.settings_connect_trakt)
     val resolvedInstruction = instruction ?: stringResource(R.string.settings_trakt_instruction, verificationUrl)
+    val resolvedOpenUrlLabel = openUrlLabel ?: stringResource(R.string.settings_open_auth_page)
     val accentColor = resolveAccentColor(fallback = Pink)
     val accentContentColor = contrastingContentColor(accentColor)
     val focusRequester = remember { FocusRequester() }
@@ -4026,28 +4053,30 @@ private fun TraktActivationModal(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.settings_open_auth_page),
+                            text = resolvedOpenUrlLabel,
                             style = ArflixTypography.button,
                             color = accentContentColor
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    if (showCopyCode) {
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
-                            .clickable { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(userCode)) }
-                            .padding(vertical = 12.dp, horizontal = 18.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_copy_code),
-                            style = ArflixTypography.button,
-                            color = Color.White
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                                .clickable { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(userCode)) }
+                                .padding(vertical = 12.dp, horizontal = 18.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_copy_code),
+                                style = ArflixTypography.button,
+                                color = Color.White
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -4879,8 +4908,18 @@ private fun MobileSettingsSubPage(
                         toggleChecked = uiState.filterSubtitlesByLanguage,
                         isToggle = true,
                         isFocused = false,
-                        showDivider = false,
                         onClick = { viewModel.setFilterSubtitlesByLanguage(!uiState.filterSubtitlesByLanguage) }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.Subtitles,
+                        title = stringResource(R.string.use_forced_subtitles),
+                        subtitle = stringResource(R.string.use_forced_subtitles_desc),
+                        value = stringResource(if (uiState.useForcedSubtitles) R.string.on else R.string.off),
+                        toggleChecked = uiState.useForcedSubtitles,
+                        isToggle = true,
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = { viewModel.setUseForcedSubtitles(!uiState.useForcedSubtitles) }
                     )
                 }
                 MobileSettingsCategory(title = stringResource(R.string.ai_subtitles_section)) {
@@ -6112,6 +6151,8 @@ private fun TvGeneralSettingsRows(
     onSubtitleStylizedToggle: () -> Unit = {},
     filterSubtitlesByLanguage: Boolean = true,
     onFilterSubtitlesByLanguageToggle: (Boolean) -> Unit = {},
+    useForcedSubtitles: Boolean = false,
+    onUseForcedSubtitlesToggle: (Boolean) -> Unit = {},
     onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
     onTrailerSoundEnabledToggle: (Boolean) -> Unit = {},
     trailerInCards: Boolean = true,
@@ -6187,6 +6228,7 @@ private fun TvGeneralSettingsRows(
                 42 -> SettingsRow(Icons.Default.Subtitles, stringResource(R.string.subtitle_font), stringResource(R.string.subtitle_font_desc), subtitleFont, focusedIndex == localIndex, onSubtitleFontClick, Modifier.settingsFocusSlot(localIndex))
                 8 -> SettingsToggleRow(stringResource(R.string.subtitle_stylized), stringResource(R.string.subtitle_stylized_desc), subtitleStylized, focusedIndex == localIndex, { onSubtitleStylizedToggle() }, Modifier.settingsFocusSlot(localIndex))
                 9 -> SettingsToggleRow(stringResource(R.string.filter_subtitles), stringResource(R.string.filter_subtitles_desc), filterSubtitlesByLanguage, focusedIndex == localIndex, onFilterSubtitlesByLanguageToggle, Modifier.settingsFocusSlot(localIndex))
+                45 -> SettingsToggleRow(stringResource(R.string.use_forced_subtitles), stringResource(R.string.use_forced_subtitles_desc), useForcedSubtitles, focusedIndex == localIndex, onUseForcedSubtitlesToggle, Modifier.settingsFocusSlot(localIndex))
                 10 -> SettingsToggleRow(stringResource(R.string.auto_play_next_title), stringResource(R.string.auto_play_desc), autoPlayNext, focusedIndex == localIndex, onAutoPlayToggle, Modifier.settingsFocusSlot(localIndex))
                 11 -> SettingsToggleRow(stringResource(R.string.autoplay), stringResource(R.string.autoplay_desc), autoPlaySingleSource, focusedIndex == localIndex, onAutoPlaySingleSourceToggle, Modifier.settingsFocusSlot(localIndex))
                 12 -> SettingsRow(Icons.Default.HighQuality, stringResource(R.string.auto_play_min_quality), stringResource(R.string.auto_play_quality_desc), autoPlayMinQuality, focusedIndex == localIndex, onAutoPlayMinQualityClick, Modifier.settingsFocusSlot(localIndex))
