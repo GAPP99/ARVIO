@@ -92,6 +92,12 @@ internal object MatroskaSubtitleIndex {
 
     internal data class IndexedTimeline(val tracks: List<IndexedTrack>)
 
+    internal fun sampleCues(cues: List<SubtitleSyncMatcher.TimedCue>, limit: Int): List<SubtitleSyncMatcher.TimedCue> {
+        require(limit >= 2)
+        if (cues.size <= limit) return cues
+        return List(limit) { index -> cues[(index.toLong() * (cues.size - 1) / (limit - 1)).toInt()] }
+    }
+
     /**
      * Parses the container's subtitle index, or returns null when this file cannot supply one.
      *

@@ -2,6 +2,7 @@ package com.arflix.tv.ui.screens.player.subtitles
 
 import com.arflix.tv.network.OkHttpProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -113,6 +114,7 @@ internal object MatroskaIndexSource {
 
         private val requests = AtomicInteger(0)
         private val bytes = AtomicLong(0L)
+        private var reservedBytes = 0L
         @Volatile private var rangeUnsupported = false
         @Volatile private var throttled = false
 
@@ -124,7 +126,8 @@ internal object MatroskaIndexSource {
         override suspend fun read(offset: Long, length: Int): ByteArray? {
             if (rangeUnsupported || throttled || length <= 0 || offset < 0) return null
             if (requests.get() >= MAX_REQUESTS) return null
-            if (bytes.get() + length > MAX_TOTAL_BYTES) return null
+            if (reservedBytes + length > MAX_TOTAL_BYTES) return null
+            reservedBytes += length
             requests.incrementAndGet()
 
             val request = Request.Builder()
@@ -138,9 +141,9 @@ internal object MatroskaIndexSource {
                 .build()
 
             return runCatching {
-                client.newCall(request).await().use { response ->
+                client.newCall(request).awaitBytes { response ->
                     when {
-                        response.code == 206 -> response.body?.bytes()
+                        response.code == 206 -> readRangeBody(response, offset, length)
                         // 200 means the server ignored the range and is about to stream the whole
                         // file. Reading it would download the movie to find a subtitle index, so
                         // the source disables itself and the scan falls back.
@@ -164,15 +167,21 @@ internal object MatroskaIndexSource {
                         }
                     }
                 }
-            }.getOrNull()?.also { bytes.addAndGet(it.size.toLong()) }
+            }.onFailure { if (it is CancellationException) throw it }
+                .getOrNull()?.also { bytes.addAndGet(it.size.toLong()) }
         }
 
         /** Cancellable [Call.execute]: a torn-down playback must not leave reads running. */
-        private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
+        private suspend fun Call.awaitBytes(read: (Response) -> ByteArray?): ByteArray? = suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { runCatching { cancel() } }
             enqueue(object : Callback {
                 override fun onResponse(call: Call, response: Response) {
-                    if (continuation.isActive) continuation.resume(response) else runCatching { response.close() }
+                    try {
+                        val result = response.use { if (continuation.isActive) read(it) else null }
+                        if (continuation.isActive) continuation.resume(result)
+                    } catch (error: Exception) {
+                        if (continuation.isActive) continuation.resumeWithException(error)
+                    }
                 }
 
                 override fun onFailure(call: Call, e: IOException) {
@@ -180,5 +189,21 @@ internal object MatroskaIndexSource {
                 }
             })
         }
+    }
+
+    /** Validate the returned offset and cap allocation even for dishonest/chunked responses. */
+    internal fun readRangeBody(response: Response, offset: Long, length: Int): ByteArray? {
+        val range = Regex("bytes (\\d+)-(\\d+)/(?:\\d+|\\*)")
+            .matchEntire(response.header("Content-Range").orEmpty()) ?: return null
+        val start = range.groupValues[1].toLongOrNull() ?: return null
+        val end = range.groupValues[2].toLongOrNull() ?: return null
+        if (start != offset || end < start || end - start >= length) return null
+        val expected = end - start + 1
+        val body = response.body ?: return null
+        if (body.contentLength() >= 0 && body.contentLength() != expected) return null
+        val source = body.source()
+        if (!source.request(expected)) return null
+        val result = source.readByteArray(expected)
+        return result.takeIf { source.exhausted() }
     }
 }

@@ -5382,9 +5382,8 @@ class PlayerViewModel @Inject constructor(
             return emptyList()
         }
 
-        val step = kotlin.math.max(1, track.cues.size / MATCH_INDEX_MAX_REFS)
-        val sampled = track.cues.filterIndexed { index, _ -> index % step == 0 }
-            .take(MATCH_INDEX_MAX_REFS)
+        val sampled = com.arflix.tv.ui.screens.player.subtitles.MatroskaSubtitleIndex
+            .sampleCues(track.cues, MATCH_INDEX_MAX_REFS)
         Log.i(
             "SubMatch",
             "reference from container index: track=${track.trackNumber} lang=${track.language ?: "-"} " +
