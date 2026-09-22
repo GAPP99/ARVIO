@@ -18,8 +18,9 @@ exports.handler = async (event) => {
   try {
     const result = await recordJourneyEvent(premiumFunnelStore(event), event, body);
     return reply(result.status, result.error ? { error: result.error } : { ok: true });
-  } catch {
-    // Analytics is never an access or payment dependency; no payload is logged.
+  } catch (error) {
+    // No URLs, IDs, tokens, payloads or exception messages enter the log.
+    console.error("premium-funnel-visit unavailable", { name: /^[A-Za-z][A-Za-z0-9]{0,60}$/.test(error?.name || "") ? error.name : "Error" });
     return reply(503, { error: "measurement_unavailable" });
   }
 };

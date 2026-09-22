@@ -53,7 +53,16 @@ async function recordJourneyEvent(store, event, body, now = new Date()) {
   if (!key || !JOURNEY_EVENTS.has(body?.event_name)) return { status: 400, error: "unsupported_event" };
   const date = now.toISOString().slice(0, 10);
   const blobKey = `journeys/date/${date}/${key}/${body.event_name}.json`;
-  const existing = await store.get(blobKey, { type: "json", consistency: "strong" });
+  let existing;
+  try {
+    existing = await store.get(blobKey, { type: "json", consistency: "strong" });
+  } catch (error) {
+    // Older Lambda/CLI contexts omit the uncached endpoint. Match the existing
+    // authenticated funnel compatibility read; the write is still atomic, so an
+    // eventually-consistent cache miss cannot duplicate the actual event.
+    if (!String(error?.message || "").includes("uncachedEdgeURL")) throw error;
+    existing = await store.get(blobKey, { type: "json" });
+  }
   if (existing) return { status: 200 };
   if (!await claimVisitBudget(store, event, blobKey, now)) return { status: 429, error: "rate_limited" };
   await store.setJSON(blobKey, {

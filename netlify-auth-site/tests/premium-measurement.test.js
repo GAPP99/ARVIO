@@ -192,3 +192,20 @@ test('arbitrary journey IDs cannot create more than one account attribution link
   assert.equal(store.data.size, 2);
   assert.equal(store.writes(), 2);
 });
+
+test('anonymous visits support Lambda contexts without uncachedEdgeURL while preserving atomic dedup', async () => {
+  const store = memoryStore();
+  const read = store.get;
+  store.get = async (key, options) => {
+    if (options?.consistency === 'strong') throw Error("Netlify Blobs has not been configured with an 'uncachedEdgeURL' property");
+    return read(key);
+  };
+  const event = { headers: { 'x-nf-client-connection-ip': '192.0.2.10' } };
+  const body = { event_name: 'premium_page_view', journey_id: journeyId, metadata: { source: 'discord' } };
+  assert.equal((await measurement.recordJourneyEvent(store, event, body)).status, 200);
+  const writes = store.writes();
+  assert.equal((await measurement.recordJourneyEvent(store, event, body)).status, 200);
+  assert.equal(store.writes(), writes);
+  store.get = async () => { throw Error('unrelated storage outage'); };
+  await assert.rejects(measurement.recordJourneyEvent(store, event, body), /unrelated storage outage/);
+});
