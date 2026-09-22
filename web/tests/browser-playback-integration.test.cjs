@@ -245,6 +245,7 @@ function conversionRecoveryHarness(overrides = {}) {
     require(name) {
       assert.equal(name, '@/lib/remux');
       return { probeAndPrepareRemux: async (...args) => {
+        state.probeArguments = args;
         options = args[3];
         return overrides.probe ? overrides.probe(options, prepared) : prepared;
       } };
@@ -262,6 +263,17 @@ function conversionRecoveryHarness(overrides = {}) {
     tick: () => { for (const [fn, kind] of [...timers]) if (kind === 'interval') fn(); },
     emit: event => video.dispatchEvent(new Event(event)) };
 }
+
+test('IPTV MKV repackaging tries the subscriber URL before the prepared relay', async () => {
+  const h = conversionRecoveryHarness({ stream: { addonId: 'iptv_xtream_vod',
+    url: 'https://relay.example/media', originalUrl: 'https://provider.example/episode.mkv' } });
+  const cleanup = h.setup(); await flush();
+  assert.equal(h.state.probeArguments[0], 'https://provider.example/episode.mkv');
+  assert.equal(h.state.probeArguments[1], undefined);
+  assert.equal(h.state.probeArguments[3].fallbackUrl, 'https://relay.example/media');
+  assert.equal(h.state.hops, 0);
+  cleanup();
+});
 
 test('remux start rejection requests conversion of the same file before hopping sources', async () => {
   const h = conversionRecoveryHarness({ autoSelect: true, prepared: { start: async () => { throw new Error('Decoder rejected sample'); } } });
