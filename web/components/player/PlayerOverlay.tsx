@@ -855,14 +855,17 @@ function VideoPlayer({
     const attempts: string[] = [stream.url];
     // Catch-up recordings come from the same IPTV panels as live channels, so
     // they get the live relay hops — but keep VOD controls (seekable).
-    const iptvRelay = liveTv || stream.addonName === "Catch-up";
+    const iptvVod = stream.addonId === "iptv_xtream_vod";
+    const iptvRelay = liveTv || stream.addonName === "Catch-up" || iptvVod;
     if (iptvRelay) {
-      const hlsTwin = xtreamHlsVariant(stream.url);
+      const hlsTwin = iptvVod ? null : xtreamHlsVariant(stream.url);
       if (hlsTwin) attempts.push(hlsTwin);
       const workerUrl = resolverMediaUrl(stream.url, { ...liveTvProxyHeaders(), ...headers });
       if (workerUrl) {
         // Browsers cannot set these source-required headers on direct requests.
-        if (needsBrowserHeaderRelay(headers)) attempts.unshift(workerUrl);
+        // IPTV VOD can be subscriber-IP restricted: preserve working native
+        // playback before trying a different network egress through the relay.
+        if (!iptvVod && needsBrowserHeaderRelay(headers)) attempts.unshift(workerUrl);
         else attempts.push(workerUrl);
       }
       if (hlsTwin) {

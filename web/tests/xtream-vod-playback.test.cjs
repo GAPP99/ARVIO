@@ -63,13 +63,16 @@ test('IPTV movies and episodes retain the catalogue player identity through brow
     for (const source of [...movies, ...episodes]) {
       assert.equal(source.behaviorHints.proxyHeaders.request['User-Agent'], headersFor(ua)['User-Agent']);
       const result = await prepare.prepareBrowserStream(source, {});
-      const relay = new URL(result.url);
+      assert.equal(result.url, source.url, 'IPTV keeps the subscriber-IP native path first');
+      assert.equal(result.remux, false);
+      assert.deepEqual(result.behaviorHints.proxyHeaders.request, headersFor(ua));
+      const repackaged = await prepare.prepareBrowserStream(source, {}, { forceRemux: true });
+      const relay = new URL(repackaged.url);
       assert.equal(relay.origin, 'https://relay.example');
       assert.equal(relay.searchParams.get('url'), source.url);
       assert.deepEqual(JSON.parse(atob(relay.searchParams.get('h'))), headersFor(ua));
-      assert.equal(result.originalUrl, source.url);
-      assert.equal(result.remux, false);
-      assert.equal(result.behaviorHints.proxyHeaders.request, undefined);
+      assert.equal(repackaged.originalUrl, source.url);
+      assert.equal(repackaged.behaviorHints.proxyHeaders.request, undefined);
     }
   }
   assert.ok(requests.length >= 3);

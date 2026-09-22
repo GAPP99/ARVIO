@@ -8,6 +8,27 @@ const { load } = require('./load.cjs');
 
 const flush = () => new Promise(setImmediate);
 
+test('IPTV VOD tries the subscriber URL before the header relay and never invents a live HLS twin', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../components/player/PlayerOverlay.tsx'), 'utf8');
+  const start = source.indexOf('const attempts: string[] = [stream.url];');
+  const end = source.indexOf('let attemptIndex = 0;', start);
+  assert.ok(start >= 0 && end > start);
+  const code = ts.transpileModule(`(() => { ${source.slice(start, end)} return uniqueAttempts; })()`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  let forwarded;
+  const attempts = vm.runInNewContext(code, {
+    stream: { url: 'https://provider.example/series/fixture/test-only/123.mp4', addonId: 'iptv_xtream_vod' },
+    liveTv: false, headers: { 'User-Agent': 'Configured player' }, config: { allowNetlifyMediaProxy: false },
+    xtreamHlsVariant: () => { throw new Error('VOD is not a live channel'); },
+    liveTvProxyHeaders: () => ({ 'User-Agent': 'Default player' }),
+    needsBrowserHeaderRelay: () => true,
+    resolverMediaUrl: (_url, headers) => { forwarded = headers; return 'https://relay.example/media'; },
+    isLikelyHlsUrl: () => false, Set
+  });
+  assert.deepEqual(Array.from(attempts), ['https://provider.example/series/fixture/test-only/123.mp4', 'https://relay.example/media']);
+  assert.equal(forwarded['User-Agent'], 'Configured player');
+});
+
 test('live sources needing browser-controlled headers use the relay first', () => {
   const needsRelay = extracted('components/player/PlayerOverlay.tsx', node =>
     ts.isFunctionDeclaration(node) && node.name?.text === 'needsBrowserHeaderRelay' ? node : undefined, {});
@@ -16,7 +37,7 @@ test('live sources needing browser-controlled headers use the relay first', () =
   assert.equal(needsRelay({ Authorization: 'token' }), false);
   assert.equal(needsRelay(), false);
   const source = fs.readFileSync(path.join(__dirname, '../components/player/PlayerOverlay.tsx'), 'utf8');
-  assert.match(source, /if \(needsBrowserHeaderRelay\(headers\)\) attempts\.unshift\(workerUrl\)/);
+  assert.match(source, /if \(!iptvVod && needsBrowserHeaderRelay\(headers\)\) attempts\.unshift\(workerUrl\)/);
 });
 
 test('live manifest fallbacks preserve add-on authentication and referer headers', () => {
