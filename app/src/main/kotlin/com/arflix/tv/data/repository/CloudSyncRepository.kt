@@ -1,4 +1,5 @@
 package com.arflix.tv.data.repository
+import com.arflix.tv.data.model.AnimeStructuringStyle
 import com.arflix.tv.data.model.AutoplayLimits
 
 import android.content.Context
@@ -293,6 +294,7 @@ class CloudSyncRepository @Inject constructor(
         val clockFormat: String = "24h",
         val showBudget: Boolean = true,
         val showEpisodeRatings: Boolean = false,
+        val animeEpisodeStructuring: String = AnimeStructuringStyle.BROADCAST.id,
         val iptvFavoritesOnHome: Boolean = true,
         val showLoadingStats: Boolean? = null,
         val spoilerBlurEnabled: Boolean = false,
@@ -318,6 +320,8 @@ class CloudSyncRepository @Inject constructor(
 
     private fun contentLanguageKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "content_language")
+    private fun animeEpisodeStructuringKeyFor(profileId: String) =
+        profileManager.profileStringKeyFor(profileId, com.arflix.tv.data.model.AnimeStructuringStyle.PREFERENCE_KEY)
     private fun trailerAutoPlayKeyFor(profileId: String) =
         profileManager.profileBooleanKeyFor(profileId, "trailer_auto_play")
     private fun trailerSoundEnabledKeyFor(profileId: String) =
@@ -658,6 +662,7 @@ class CloudSyncRepository @Inject constructor(
                         clockFormat = prefs[clockFormatKeyFor(profile.id)] ?: "24h",
                         showBudget = prefs[showBudgetKeyFor(profile.id)] ?: true,
                         showEpisodeRatings = prefs[showEpisodeRatingsKeyFor(profile.id)] ?: false,
+                        animeEpisodeStructuring = prefs[animeEpisodeStructuringKeyFor(profile.id)] ?: AnimeStructuringStyle.BROADCAST.id,
                         iptvFavoritesOnHome = prefs[iptvFavoritesOnHomeKeyFor(profile.id)] ?: true,
                         showLoadingStats = prefs[showLoadingStatsKeyFor(profile.id)] ?: true,
                         spoilerBlurEnabled = prefs[spoilerBlurKeyFor(profile.id)] ?: false,
@@ -1531,6 +1536,7 @@ class CloudSyncRepository @Inject constructor(
                         prefs[clockFormatKeyFor(profileId)] = state.clockFormat
                         prefs[showBudgetKeyFor(profileId)] = state.showBudget
                         prefs[showEpisodeRatingsKeyFor(profileId)] = state.showEpisodeRatings
+                        prefs[animeEpisodeStructuringKeyFor(profileId)] = state.animeEpisodeStructuring.ifBlank { AnimeStructuringStyle.BROADCAST.id }
                         prefs[iptvFavoritesOnHomeKeyFor(profileId)] = state.iptvFavoritesOnHome
                         state.showLoadingStats?.let { prefs[showLoadingStatsKeyFor(profileId)] = it }
                         prefs[spoilerBlurKeyFor(profileId)] = state.spoilerBlurEnabled

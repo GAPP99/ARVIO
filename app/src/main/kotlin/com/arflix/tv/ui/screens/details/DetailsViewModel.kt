@@ -3,10 +3,12 @@ package com.arflix.tv.ui.screens.details
 import android.content.Context
 import android.util.Log
 import com.arflix.tv.R
+import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.AddonType
+import com.arflix.tv.data.model.AnimeStructuringStyle
 import com.arflix.tv.data.model.CastMember
 import com.arflix.tv.data.model.Episode
 import com.arflix.tv.data.model.EpisodeIdentity
@@ -120,6 +122,8 @@ data class DetailsUiState(
     val playPositionMs: Long? = null,
     val autoPlaySingleSource: Boolean = true,
     val autoPlayMinQuality: String = "Any",
+    val animeStructuringStyle: AnimeStructuringStyle = AnimeStructuringStyle.BROADCAST,
+    val hasAlternateAnimeStructure: Boolean = false,
     // TMDB collection (franchise) info — populated for movies that belong to a collection
     val collectionId: Int? = null,
     val collectionName: String? = null,
@@ -237,6 +241,7 @@ class DetailsViewModel @Inject constructor(
     private var currentMediaType: MediaType = MediaType.MOVIE
     private var currentMediaId: Int = 0
     private var animeSeasonStructure: AnimeSeasonStructure? = null
+    private var availableAnimeStructure: AnimeSeasonStructure? = null
     // The episode the user last started playing from this screen, kept so that returning from the
     // player (which recreates the details screen) points the Continue button at that episode even
     // when the play was too brief to record a resume point. Scoped to a media id.
@@ -329,6 +334,7 @@ class DetailsViewModel @Inject constructor(
     private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
     private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
     private fun showEpisodeRatingsKey() = profileManager.profileBooleanKey("show_episode_ratings")
+    private fun animeStructuringStyleKey() = profileManager.profileStringKey(AnimeStructuringStyle.PREFERENCE_KEY)
 
     private fun isBlankRating(value: String): Boolean {
         return value.isBlank() || value == "0.0" || value == "0"
@@ -376,6 +382,7 @@ class DetailsViewModel @Inject constructor(
         currentMediaType = mediaType
         currentMediaId = mediaId
         animeSeasonStructure = null
+        availableAnimeStructure = null
         initialLoadComplete = false
         vodAppendJob?.cancel()
         homeServerAppendJob?.cancel()
@@ -393,6 +400,7 @@ class DetailsViewModel @Inject constructor(
                 val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
                 val showBudget = prefs[showBudgetKey()] ?: true
                 val showEpisodeRatings = prefs[showEpisodeRatingsKey()] ?: false
+                val animeStructuringStyle = AnimeStructuringStyle.fromId(prefs[animeStructuringStyleKey()])
 
                 val previousState = _uiState.value
                 val previousMatches = previousState.item?.id == mediaId &&
@@ -559,7 +567,9 @@ class DetailsViewModel @Inject constructor(
                     animeStructureDeferred?.await() ?: animeMapper.resolveAnimeSeasonStructure(mediaId)
                 } else null
 
-                animeSeasonStructure = structure
+                availableAnimeStructure = structure
+                val activeStructure = if (animeStructuringStyle == AnimeStructuringStyle.BROADCAST) structure else null
+                animeSeasonStructure = activeStructure
 
                 // Resolve TV show seasonal episodes directly without intermediate layout flash
                 val resolvedTotalSeasons: Int
@@ -567,21 +577,21 @@ class DetailsViewModel @Inject constructor(
                 val resolvedEpisodes: List<Episode>
                 val displayTarget: EpisodeIdentity?
 
-                if (structure != null) {
+                if (activeStructure != null) {
                     val canonicalTargetSeason = seasonToLoad
                     val canonicalTargetEpisode = initialEpisode ?: 1
-                    val target = structure.identityForTmdb(canonicalTargetSeason, canonicalTargetEpisode)
-                    val displaySeason = target?.displaySeason ?: seasonToLoad.coerceIn(1, structure.seasonCount)
-                    val episodes = loadAnimeDisplaySeason(mediaId, displaySeason, structure)
+                    val target = activeStructure.identityForTmdb(canonicalTargetSeason, canonicalTargetEpisode)
+                    val displaySeason = target?.displaySeason ?: seasonToLoad.coerceIn(1, activeStructure.seasonCount)
+                    val episodes = loadAnimeDisplaySeason(mediaId, displaySeason, activeStructure)
 
-                    resolvedTotalSeasons = structure.seasonCount
+                    resolvedTotalSeasons = activeStructure.seasonCount
                     resolvedCurrentSeason = displaySeason
                     resolvedEpisodes = episodes
                     displayTarget = target
 
                     // Pre-fetch all underlying TMDB seasons in background for 0ms season transitions
                     launch(Dispatchers.IO) {
-                        val neededTmdbSeasons = structure.seasons.values.flatten().map { it.tmdbSeason }.distinct()
+                        val neededTmdbSeasons = activeStructure.seasons.values.flatten().map { it.tmdbSeason }.distinct()
                         for (s in neededTmdbSeasons) {
                             if (isCurrentRequest() && mediaRepository.peekCachedSeasonEpisodes(mediaId, s) == null) {
                                 runCatching { mediaRepository.getSeasonEpisodes(mediaId, s) }
@@ -661,6 +671,8 @@ class DetailsViewModel @Inject constructor(
                 val baseState = _uiState.value.copy(
                     isLoading = false,
                     item = itemWithWatchedStatus,
+                    animeStructuringStyle = animeStructuringStyle,
+                    hasAlternateAnimeStructure = (availableAnimeStructure != null),
                     totalSeasons = resolvedTotalSeasons,
                     currentSeason = resolvedCurrentSeason,
                     episodes = resolvedEpisodes,

@@ -13,6 +13,7 @@ import com.arflix.tv.BuildConfig
 import com.arflix.tv.data.api.TmdbApi
 import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.AddonType
+import com.arflix.tv.data.model.AnimeStructuringStyle
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.EpisodeIdentity
 import com.arflix.tv.data.model.SportsAddonCapabilities
@@ -348,12 +349,26 @@ class PlayerViewModel @Inject constructor(
             currentOriginalLanguage.equals("ja", ignoreCase = true) &&
             currentGenreIds.contains(16)
 
+    private fun animeStructuringStyleKey() = profileManager.profileStringKey(AnimeStructuringStyle.PREFERENCE_KEY)
+
+    private suspend fun getAnimeStructuringStyle(): AnimeStructuringStyle {
+        return try {
+            val prefs = context.settingsDataStore.data.first()
+            AnimeStructuringStyle.fromId(prefs[animeStructuringStyleKey()])
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            AnimeStructuringStyle.BROADCAST
+        }
+    }
+
     suspend fun adjacentEpisodeIdentity(
         tmdbId: Int,
         current: EpisodeIdentity,
         forward: Boolean
     ): EpisodeIdentity? {
-        val structure = runCatching { animeMapper.resolveAnimeSeasonStructure(tmdbId) }.getOrNull()
+        val structure = if (getAnimeStructuringStyle() == AnimeStructuringStyle.BROADCAST) {
+            runCatching { animeMapper.resolveAnimeSeasonStructure(tmdbId) }.getOrNull()
+        } else null
         if (structure != null) {
             return if (forward) {
                 structure.nextAfterDisplay(current.displaySeason, current.displayEpisode)
@@ -1667,7 +1682,9 @@ class PlayerViewModel @Inject constructor(
      * Fetch media metadata in background (non-blocking)
      */
     private suspend fun loadPlayerSeasonEpisodes(mediaId: Int, displaySeason: Int): List<com.arflix.tv.data.model.Episode> {
-        val structure = if (isCurrentAnime()) animeMapper.resolveAnimeSeasonStructure(mediaId) else null
+        val structure = if (isCurrentAnime() && getAnimeStructuringStyle() == AnimeStructuringStyle.BROADCAST) {
+            animeMapper.resolveAnimeSeasonStructure(mediaId)
+        } else null
         val identities = structure?.seasons?.get(displaySeason)
             ?: return mediaRepository.getSeasonEpisodes(mediaId, displaySeason)
         val bySeason = identities.map { it.tmdbSeason }.distinct().associateWith { season ->

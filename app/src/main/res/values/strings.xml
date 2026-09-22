@@ -210,6 +210,16 @@
     <string name="show_episode_ratings_desc">Display episode ratings as a visual row below the episode list</string>
     <string name="spoiler_blur">Spoiler Blur</string>
     <string name="spoiler_blur_desc">Blur unwatched episode cards to avoid spoilers</string>
+    <string name="anime_episode_structuring">Anime Episode Ordering</string>
+    <string name="anime_episode_structuring_desc">Switch between Broadcast Order (cours) and Standard (TMDB) seasons</string>
+    <string name="anime_structuring_broadcast">Broadcast Order</string>
+    <string name="anime_structuring_standard">Standard (TMDB)</string>
+    <string name="anime_structuring_japanese">Broadcast Order</string>
+    <string name="anime_structuring_western">Standard (TMDB)</string>
+    <string name="anime_structuring_switch_to_western">Switch to Standard (TMDB)</string>
+    <string name="anime_structuring_switch_to_japanese">Switch to Broadcast Order</string>
+    <string name="anime_structuring_toggled_japanese">Switched to Broadcast Order</string>
+    <string name="anime_structuring_toggled_western">Switched to Standard (TMDB)</string>
     <string name="accent_color">Accent Color</string>
     <string name="accent_color_desc">Choose the accent color for focus rings, buttons, and selected items</string>
     <string name="show_loading_stats_desc">Display stream resolution progress</string>

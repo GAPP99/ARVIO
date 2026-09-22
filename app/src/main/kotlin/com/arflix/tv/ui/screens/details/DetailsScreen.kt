@@ -863,6 +863,9 @@ fun DetailsScreen(
                             if (focusedSection == FocusSection.EPISODES) {
                                 contextMenuEpisode = uiState.episodes.getOrNull(episodeIndex)
                                 showEpisodeContextMenu = true
+                            } else if (focusedSection == FocusSection.SEASONS) {
+                                contextMenuSeason = seasonIndex + 1
+                                showSeasonContextMenu = true
                             }
                             true
                         }
@@ -2406,6 +2409,7 @@ private fun DetailsContent(
                 configuration = configuration,
                 contentHasFocus = contentHasFocus,
                 onSeasonClick = onSeasonClick,
+                onSeasonLongClick = onSeasonLongClick,
                 onEpisodeClick = onEpisodeClick,
                 onCastClick = onCastClick,
                 onSimilarClick = onSimilarClick,
@@ -2448,6 +2452,7 @@ private fun DetailsTvRows(
     configuration: android.content.res.Configuration,
     contentHasFocus: Boolean,
     onSeasonClick: (Int) -> Unit,
+    onSeasonLongClick: ((Int) -> Unit)? = null,
     onEpisodeClick: (Int) -> Unit,
     onCastClick: (Int) -> Unit,
     onSimilarClick: (Int) -> Unit,
@@ -2568,7 +2573,8 @@ private fun DetailsTvRows(
                         seasonIndex = seasonIndex,
                         contentStartPadding = contentStartPadding,
                         contentOuterStartPadding = contentOuterStartPadding,
-                        onSeasonClick = onSeasonClick
+                        onSeasonClick = onSeasonClick,
+                        onSeasonLongClick = onSeasonLongClick
                     )
                 }
             }
@@ -2680,7 +2686,8 @@ private fun DetailsSeasonRail(
     seasonIndex: Int,
     contentStartPadding: Dp,
     contentOuterStartPadding: Dp,
-    onSeasonClick: (Int) -> Unit
+    onSeasonClick: (Int) -> Unit,
+    onSeasonLongClick: ((Int) -> Unit)? = null
 ) {
     val seasonRowState = rememberTvLazyListState()
     val seasonItems = remember(totalSeasons) { (1..totalSeasons).toList() }
@@ -2727,13 +2734,17 @@ private fun DetailsSeasonRail(
             val onClickForSeason = remember(index) {
                 { currentOnSeasonClick.value(index) }
             }
+            val onLongClickForSeason = remember(index, onSeasonLongClick) {
+                onSeasonLongClick?.let { callback -> { callback(index) } }
+            }
             SeasonButton(
                 season = season,
                 isSelected = season == currentSeason,
                 isFocused = focusSectionForUi == FocusSection.SEASONS && index == seasonFocusIndex,
                 watchedCount = currentSeasonProgress?.first ?: progress?.first ?: 0,
                 totalCount = currentSeasonProgress?.second ?: progress?.second ?: 0,
-                onClick = onClickForSeason
+                onClick = onClickForSeason,
+                onLongClick = onLongClickForSeason
             )
         }
     }
