@@ -109,6 +109,21 @@ test('relay is not a blanket CORS fallback and never silently discards unsupport
   assert.equal(result.behaviorHints.proxyHeaders.request.Referer, 'https://addon.example/');
 });
 
+test('DASH manifests remain direct because the configured relay does not rewrite MPD segment references', async () => {
+  const headers = { Referer: 'https://addon.example/', Authorization: 'Bearer fixture-only' };
+  const h = preparation({ resolverUrl: 'https://resolver.example' });
+  for (const source of [
+    { url: 'https://media.example/playback', transport: 'dash' },
+    { url: 'https://media.example/manifest.mpd?token=fixture', transport: undefined, media: undefined },
+    { url: 'https://media.example/playback', transport: undefined, media: { container: 'dash', videoCodec: 'h264', audioCodec: 'aac' } }
+  ]) {
+    const input = { ...file(), ...source, behaviorHints: { proxyHeaders: { request: headers } } };
+    const result = await h.prepareBrowserStream(input, settings);
+    assert.equal(result.url, input.url);
+    assert.deepEqual(result.behaviorHints.proxyHeaders.request, headers);
+  }
+});
+
 test('an already wrapped resolver URL is not recursively wrapped even if source enrichment restores headers', () => {
   const { declaredHeaderRelayUrl } = load('lib/resolver.ts', { './config': { config: { resolverUrl: 'https://resolver.example' } } });
   const headers = { Referer: 'https://addon.example/' };

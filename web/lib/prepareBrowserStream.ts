@@ -1,5 +1,5 @@
 import { cachedDebridDirectUrl, parseDebridStream, resolveDebridDirectUrl, resolveTranscodeStream } from "./debrid";
-import { playbackPlan, canProviderTranscode, canTryRemux, videoDecodableForDevice, recordBrowserPlaybackFailure } from "./streamCompatibility";
+import { playbackPlan, canProviderTranscode, canTryRemux, videoDecodableForDevice, recordBrowserPlaybackFailure, streamTransport, streamContainer } from "./streamCompatibility";
 import { prepareHomeServerPlayback } from "./homeServerPlayback";
 import { declaredHeaderRelayUrl } from "./resolver";
 import type { AppSettings, StreamSource } from "./types";
@@ -53,7 +53,12 @@ export async function prepareBrowserStream(stream: StreamSource, settings: AppSe
     if (!result.url) throw new Error(result.error ?? "The provider could not resolve this source");
     url = result.url;
   }
-  const relay = declaredHeaderRelayUrl(url, stream.behaviorHints?.proxyHeaders?.request);
+  const selected = { ...stream, url };
+  // The resolver rewrites HLS playlists, not MPD BaseURL/segment references.
+  // Wrapping a DASH manifest would redirect its relative requests to /media's
+  // origin and can also lose the source headers on its segments.
+  const dash = streamTransport(selected) === "dash" || /^(dash|mpd|mpeg-dash|application\/dash\+xml)$/i.test(streamContainer(selected));
+  const relay = dash ? null : declaredHeaderRelayUrl(url, stream.behaviorHints?.proxyHeaders?.request);
   if (relay) {
     // The selected addon's declared headers are forwarded by the configured
     // resolver, not by browser fetch/XHR. Headerless native MP4/HLS can now play

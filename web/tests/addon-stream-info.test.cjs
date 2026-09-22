@@ -9,6 +9,12 @@ test('community and donation webpages are never playback source candidates', () 
   }
 });
 
+test('the observed PenguPlay donation row is informational without excluding other provider URLs', () => {
+  assert.equal(info.isInformationalAddonStream({ source: '✨ | support the project!', description: 'PenguPlay - pengu.uk/donate (donating hides this message)', url: 'https://pengu.uk/donate' }), true);
+  assert.equal(info.isInformationalAddonStream({ source: 'Support the project', url: 'https://pengu.uk/stream?id=123' }), false);
+  assert.equal(info.isInformationalAddonStream({ source: 'Support the project', url: 'https://pengu.uk/donate/movie.mp4' }), false);
+});
+
 test('explicit no-result notices without media or pointing at diagnostic documents are excluded', () => {
   for (const entry of [
     { name: 'No streams found' },
