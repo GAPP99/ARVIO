@@ -34,10 +34,11 @@ Code and regression tests, aggregate baseline/report evidence, deployment refere
 - Selected sources that declare browser-controlled request headers now use the existing configured media relay. HLS and file playback retain their normal path; MKV can still be repackaged. DASH remains direct because the relay does not rewrite MPD manifests. Unknown custom headers are preserved rather than silently dropped.
 - Real production testing exposed repeated update reloads: the client build stamp was newer than its stale public manifest. The manifest now builds with the client, older stamps cannot trigger reloads, repeat attempts are guarded and open players defer updates.
 - Added privacy-limited first-party navigation attribution and server-only payment/access observations. Reports distinguish unknown attribution, renewals, account-days and provider errors.
-- Validation: 693 web tests and 97 backend tests passed; responsive setup and mock membership flows checked at 320/390/1024/1440px, including Spanish, Dutch and Arabic. Full player UI checks verified failed-source Retry, replacement with HLS, pause and seek. The final web CI run is linked below.
+- Validation: 694 web tests and 97 backend tests passed; responsive setup and mock membership flows checked at 320/390/1024/1440px, including Spanish, Dutch and Arabic. Full player UI checks verified failed-source Retry, replacement with HLS, pause and seek. The final web CI run is linked below.
 - Auth deployment: `6ab270d4d3fad4c876efa94c`. Production testing caught and fixed a Netlify Blob context compatibility issue in the public measurement endpoint; it now returns HTTP 200. The protected report confirmed the QA landing journey and one paid-access observation. Reports for 5/30/90 days returned in 2.2–2.7 seconds and reproduced the complete five-day baseline. Historical paid-access observation is unmeasured, not failed access.
 - Verified the deployed Spanish Premium page, the direct Ko-fi membership link and ARVIO-only journey handoff. The production report recorded one QA membership click, one web click and one connected account; no journey identifier is sent to Ko-fi.
 - After deployment, the previously failing PenguPlay 720p Cinejoy source played the actual *Sintel* film (1280px video, 14:49 duration). Pausing, skipping forward 30 seconds and resuming worked; video time advanced beyond 1:11 with enough buffered media. This confirms real addon playback in the production desktop browser, not just synthetic fixtures.
+- Final production source-list check: zero observed donation/no-result/community notices remained; 55 browser-playback candidates remained available. QA campaign traffic is excluded from the scheduled marketing analysis.
 - Follow-up reviews scheduled for 30 September and 7 October at 10:00 Amsterdam time, after seven/fourteen complete post-release days.
 
 ## Test limits
@@ -47,5 +48,6 @@ No real payment was charged. Synthetic playable MP4 and HLS verified the player 
 - `7b6b1edb5`: playback recovery, source setup, Premium measurement and update-loop fixes.
 - `0d414296e`: production measurement compatibility fix.
 - `0b78619bb` and `2b587b150`: selected-source header relay, DASH guard and remaining donation notice filtering.
-- Final web production build and verification: https://github.com/ProdigyV21/ARVIO/actions/runs/35726739884
+- `5387c074c`: exclude the observed HDHub donation webpage; final production build stamp `1790080287014` verified by CI and browser checks.
+- Final web production build and verification: https://github.com/ProdigyV21/ARVIO/actions/runs/35727524046
 - Aggregate evidence and private test logs remain under `artifacts/`, outside published site roots.
