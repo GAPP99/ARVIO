@@ -1,6 +1,7 @@
 import { cachedDebridDirectUrl, parseDebridStream, resolveDebridDirectUrl, resolveTranscodeStream } from "./debrid";
 import { playbackPlan, canProviderTranscode, canTryRemux, videoDecodableForDevice, recordBrowserPlaybackFailure } from "./streamCompatibility";
 import { prepareHomeServerPlayback } from "./homeServerPlayback";
+import { declaredHeaderRelayUrl } from "./resolver";
 import type { AppSettings, StreamSource } from "./types";
 
 export type PreparePlaybackOptions = { forceRemux?: boolean; forceTranscode?: boolean; signal?: AbortSignal };
@@ -42,7 +43,7 @@ export async function prepareBrowserStream(stream: StreamSource, settings: AppSe
   }
   // Remux can extract a verified HDR10 base, but cannot convert profile 5 colours.
   if (plan.route !== "here" && (!options.forceRemux || !videoDecodableForDevice(stream))) throw new Error(plan.detail || "This format requires an external player");
-  const remux = !!options.forceRemux || plan.method === "remux"
+  let remux = !!options.forceRemux || plan.method === "remux"
     || (Object.keys(stream.behaviorHints?.proxyHeaders?.request ?? {}).length > 0 && canTryRemux(stream));
   const cached = cachedDebridDirectUrl(stream.originalUrl ?? stream.url);
   let url = cached ?? stream.url;
@@ -51,6 +52,17 @@ export async function prepareBrowserStream(stream: StreamSource, settings: AppSe
     check();
     if (!result.url) throw new Error(result.error ?? "The provider could not resolve this source");
     url = result.url;
+  }
+  const relay = declaredHeaderRelayUrl(url, stream.behaviorHints?.proxyHeaders?.request);
+  if (relay) {
+    // The selected addon's declared headers are forwarded by the configured
+    // resolver, not by browser fetch/XHR. Headerless native MP4/HLS can now play
+    // normally; sources requiring repackaging still use the remux worker.
+    remux = !!options.forceRemux || plan.method === "remux";
+    return {
+      ...stream, url: relay, originalUrl: stream.originalUrl ?? stream.url, remux,
+      behaviorHints: { ...stream.behaviorHints, proxyHeaders: { ...stream.behaviorHints?.proxyHeaders, request: undefined } }
+    };
   }
   return { ...stream, url, originalUrl: stream.originalUrl ?? (url !== stream.url ? stream.url : undefined), remux };
 }

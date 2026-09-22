@@ -65,6 +65,7 @@ function preparation(overrides = {}) {
     ...load('lib/prepareBrowserStream.ts', {
       './debrid': debrid,
       './streamCompatibility': compatibility,
+      './resolver': load('lib/resolver.ts', { './config': { config: { resolverUrl: overrides.resolverUrl ?? '' } } }),
       './homeServerPlayback': { prepareHomeServerPlayback: async (...args) => {
         calls.push(args);
         return overrides.home ? overrides.home(...args) : preparedStream();
@@ -72,6 +73,50 @@ function preparation(overrides = {}) {
     }, { DOMException, Error })
   };
 }
+
+test('declared browser-controlled addon headers use only the configured resolver for MP4, HLS and remux', async () => {
+  for (const container of ['mp4', 'hls', 'mkv']) {
+    const h = preparation({ resolverUrl: 'https://resolver.example' });
+    const headers = { Referer: 'https://addon.example/', 'User-Agent': 'Fixture player', Authorization: 'Bearer fixture-only' };
+    const input = { ...file(), url: `https://media.example/source.${container === 'hls' ? 'm3u8' : container}`,
+      transport: container === 'hls' ? 'hls' : 'file', media: { container, videoCodec: 'h264', audioCodec: 'aac' },
+      behaviorHints: { proxyHeaders: { request: headers, response: { 'Cache-Control': 'no-store' } } } };
+    const result = await h.prepareBrowserStream(input, settings);
+    const relay = new URL(result.url);
+    assert.equal(relay.origin, 'https://resolver.example');
+    assert.equal(relay.pathname, '/media');
+    assert.equal(relay.searchParams.get('url'), input.url);
+    assert.deepEqual(JSON.parse(atob(relay.searchParams.get('h'))), headers, 'permitted Authorization is retained upstream too');
+    assert.equal(result.originalUrl, input.url);
+    assert.equal(result.behaviorHints.proxyHeaders.request, undefined, 'browser requests must not resend forbidden headers');
+    assert.equal(result.behaviorHints.proxyHeaders.response['Cache-Control'], 'no-store');
+    assert.equal(result.remux, container === 'mkv', 'headers alone do not require browser repackaging after relay');
+    assert.equal((await h.prepareBrowserStream(result, settings)).url, result.url, 'prepared streams are not wrapped recursively');
+  }
+});
+
+test('relay is not a blanket CORS fallback and never silently discards unsupported provider headers', async () => {
+  for (const headers of [undefined, { Authorization: 'Bearer fixture-only' }, { Referer: 'https://addon.example/', 'X-Provider-Token': 'fixture-only' }]) {
+    const h = preparation({ resolverUrl: 'https://resolver.example' });
+    const input = { ...file(), behaviorHints: headers ? { proxyHeaders: { request: headers } } : undefined };
+    const result = await h.prepareBrowserStream(input, settings);
+    assert.equal(result.url, input.url);
+    assert.deepEqual(result.behaviorHints?.proxyHeaders?.request, headers);
+  }
+  const input = { ...file(), behaviorHints: { proxyHeaders: { request: { Referer: 'https://addon.example/' } } } };
+  const result = await preparation().prepareBrowserStream(input, settings);
+  assert.equal(result.url, input.url, 'self-hosted installations without a resolver stay direct');
+  assert.equal(result.behaviorHints.proxyHeaders.request.Referer, 'https://addon.example/');
+});
+
+test('an already wrapped resolver URL is not recursively wrapped even if source enrichment restores headers', () => {
+  const { declaredHeaderRelayUrl } = load('lib/resolver.ts', { './config': { config: { resolverUrl: 'https://resolver.example' } } });
+  const headers = { Referer: 'https://addon.example/' };
+  const first = declaredHeaderRelayUrl('https://media.example/file.mp4', headers);
+  assert.ok(first);
+  assert.equal(declaredHeaderRelayUrl(first, headers), null);
+  assert.equal(declaredHeaderRelayUrl('file:///private/movie.mp4', headers), null);
+});
 
 // Execute the actual callback/effect rather than a manually copied version. This
 // intentionally excludes unrelated React rendering and other provider state.
