@@ -29,6 +29,7 @@ export function isInformationalAddonStream(stream: AddonStreamEntry): boolean {
   if (host === "discord.gg" || (host === "discord.com" || host === "discordapp.com") && /^\/(?:invite|channels)(?:\/|$)/i.test(url.pathname)) return true;
   if (["ko-fi.com", "buymeacoffee.com", "paypal.me", "patreon.com"].includes(host)) return true;
   if (host === "pengu.uk" && /^\/donate\/?$/.test(url.pathname)) return true;
+  if (host === "hdhub.thevolecitor.qzz.io" && url.pathname === "/donation.html") return true;
   if (host === "paypal.com" && /^\/(?:donate|paypalme|cgi-bin)(?:\/|$)/i.test(url.pathname)) return true;
   // Sports providers use Google's bare homepage as a no-match placeholder.
   // Require both that exact destination and an explicit diagnostic message.

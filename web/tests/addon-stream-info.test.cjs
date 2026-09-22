@@ -15,6 +15,12 @@ test('the observed PenguPlay donation row is informational without excluding oth
   assert.equal(info.isInformationalAddonStream({ source: 'Support the project', url: 'https://pengu.uk/donate/movie.mp4' }), false);
 });
 
+test('the observed HDHub donation page is informational without excluding the provider media', () => {
+  assert.equal(info.isInformationalAddonStream({ source: '🌟 Donation needed.', description: 'HDHub', url: 'https://hdhub.thevolecitor.qzz.io/donation.html' }), true);
+  assert.equal(info.isInformationalAddonStream({ source: 'Donation needed.', url: 'https://hdhub.thevolecitor.qzz.io/stream?id=123' }), false);
+  assert.equal(info.isInformationalAddonStream({ source: 'Donation needed.', url: 'https://hdhub.thevolecitor.qzz.io/movie.mp4' }), false);
+});
+
 test('explicit no-result notices without media or pointing at diagnostic documents are excluded', () => {
   for (const entry of [
     { name: 'No streams found' },
