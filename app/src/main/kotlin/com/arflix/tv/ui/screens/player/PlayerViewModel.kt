@@ -13,6 +13,7 @@ import com.arflix.tv.BuildConfig
 import com.arflix.tv.data.api.TmdbApi
 import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.AddonType
+import com.arflix.tv.data.model.AnimeStructuringStyle
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.EpisodeIdentity
 import com.arflix.tv.data.model.SportsAddonCapabilities
@@ -49,6 +50,7 @@ import com.arflix.tv.util.Constants
 import com.arflix.tv.util.EpisodeAvailability
 import com.arflix.tv.util.ForcedSubtitles
 import com.arflix.tv.util.fallbackAdjacentEpisodeIdentity
+import com.arflix.tv.util.adjacentTmdbEpisodeIdentity
 import com.arflix.tv.util.settingsDataStore
 import com.arflix.tv.util.weightedSubtitleScore
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -348,11 +350,33 @@ class PlayerViewModel @Inject constructor(
             currentOriginalLanguage.equals("ja", ignoreCase = true) &&
             currentGenreIds.contains(16)
 
+    private fun animeStructuringStyleKey() = profileManager.profileStringKey(AnimeStructuringStyle.PREFERENCE_KEY)
+
+    private suspend fun getAnimeStructuringStyle(): AnimeStructuringStyle {
+        return try {
+            val prefs = context.settingsDataStore.data.first()
+            AnimeStructuringStyle.fromId(prefs[animeStructuringStyleKey()])
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            AnimeStructuringStyle.BROADCAST
+        }
+    }
+
     suspend fun adjacentEpisodeIdentity(
         tmdbId: Int,
         current: EpisodeIdentity,
         forward: Boolean
     ): EpisodeIdentity? {
+        if (getAnimeStructuringStyle() == AnimeStructuringStyle.STANDARD) {
+            return adjacentTmdbEpisodeIdentity(
+                current = current,
+                forward = forward,
+                loadEpisodes = { mediaRepository.getSeasonEpisodes(tmdbId, it) },
+                loadSeasonNumbers = {
+                    tmdbApi.getTvDetails(tmdbId, Constants.TMDB_API_KEY).seasons.map { it.seasonNumber }
+                },
+            )
+        }
         val structure = runCatching { animeMapper.resolveAnimeSeasonStructure(tmdbId) }.getOrNull()
         if (structure != null) {
             return if (forward) {
@@ -1667,7 +1691,9 @@ class PlayerViewModel @Inject constructor(
      * Fetch media metadata in background (non-blocking)
      */
     private suspend fun loadPlayerSeasonEpisodes(mediaId: Int, displaySeason: Int): List<com.arflix.tv.data.model.Episode> {
-        val structure = if (isCurrentAnime()) animeMapper.resolveAnimeSeasonStructure(mediaId) else null
+        val structure = if (isCurrentAnime() && getAnimeStructuringStyle() == AnimeStructuringStyle.BROADCAST) {
+            animeMapper.resolveAnimeSeasonStructure(mediaId)
+        } else null
         val identities = structure?.seasons?.get(displaySeason)
             ?: return mediaRepository.getSeasonEpisodes(mediaId, displaySeason)
         val bySeason = identities.map { it.tmdbSeason }.distinct().associateWith { season ->
@@ -6364,8 +6390,9 @@ class PlayerViewModel @Inject constructor(
     private suspend fun persistNextEpisodeAfterCompletion() {
         val canonicalSeason = currentSeason ?: return
         val canonicalEpisode = currentEpisode ?: return
-        val displaySeason = currentDisplaySeason ?: canonicalSeason
-        val displayEpisode = currentDisplayEpisode ?: canonicalEpisode
+        val standardOrdering = getAnimeStructuringStyle() == AnimeStructuringStyle.STANDARD
+        val displaySeason = if (standardOrdering) canonicalSeason else currentDisplaySeason ?: canonicalSeason
+        val displayEpisode = if (standardOrdering) canonicalEpisode else currentDisplayEpisode ?: canonicalEpisode
 
         // Completion already removed this episode. Keep other saved progress until a
         // successor is available; saveLocalContinueWatching replaces the show entry.

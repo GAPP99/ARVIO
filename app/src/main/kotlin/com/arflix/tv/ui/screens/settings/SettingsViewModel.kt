@@ -1,4 +1,5 @@
 package com.arflix.tv.ui.screens.settings
+import com.arflix.tv.data.model.AnimeStructuringStyle
 import com.arflix.tv.data.model.AutoplayLimits
 
 import android.content.Context
@@ -186,6 +187,7 @@ data class SettingsUiState(
     val trailerInCards: Boolean = true,
     val showBudget: Boolean = true,
     val showEpisodeRatings: Boolean = false,
+    val animeStructuringStyle: AnimeStructuringStyle = AnimeStructuringStyle.BROADCAST,
     /** Pin the IPTV "Favorite TV" row to the top of the home screen. */
     val iptvFavoritesOnHome: Boolean = true,
     // Volume boost in decibels (0 = off, up to 15 dB). Applied via system LoudnessEnhancer
@@ -388,6 +390,7 @@ class SettingsViewModel @Inject constructor(
     private fun trailerInCardsKey() = profileManager.profileBooleanKey("trailer_in_cards")
     private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
     private fun showEpisodeRatingsKey() = profileManager.profileBooleanKey("show_episode_ratings")
+    private fun animeStructuringStyleKey() = profileManager.profileStringKey(AnimeStructuringStyle.PREFERENCE_KEY)
     private fun iptvFavoritesOnHomeKey() =
         profileManager.profileBooleanKey(com.arflix.tv.util.IPTV_FAVORITES_ON_HOME)
     private fun clockFormatKey() = profileManager.profileStringKey("clock_format")
@@ -597,6 +600,7 @@ class SettingsViewModel @Inject constructor(
             val spoilerBlurEnabled = prefs[spoilerBlurKey()] ?: false
             val showBudget = prefs[showBudgetKey()] ?: true
             val showEpisodeRatings = prefs[showEpisodeRatingsKey()] ?: false
+            val animeStructuringStyle = AnimeStructuringStyle.fromId(prefs[animeStructuringStyleKey()])
             val iptvFavoritesOnHome = prefs[iptvFavoritesOnHomeKey()] ?: true
             val clockFormat = prefs[clockFormatKey()] ?: "24h"
             // One-time migration: read old "focus_border_color" key if new "accent_color" is absent
@@ -711,6 +715,7 @@ class SettingsViewModel @Inject constructor(
                 trailerInCards = trailerInCards,
                 showBudget = showBudget,
                 showEpisodeRatings = showEpisodeRatings,
+                animeStructuringStyle = animeStructuringStyle,
                 iptvFavoritesOnHome = iptvFavoritesOnHome,
                 volumeBoostDb = volumeBoostDb,
                 showLoadingStats = showLoadingStats,
@@ -1707,6 +1712,20 @@ class SettingsViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(showEpisodeRatings = enabled)
             syncLocalStateToCloud(silent = true)
         }
+    }
+
+    fun setAnimeStructuringStyle(style: AnimeStructuringStyle) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[animeStructuringStyleKey()] = style.id }
+            _uiState.value = _uiState.value.copy(animeStructuringStyle = style)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun cycleAnimeStructuringStyle() {
+        val current = _uiState.value.animeStructuringStyle
+        val next = if (current == AnimeStructuringStyle.BROADCAST) AnimeStructuringStyle.STANDARD else AnimeStructuringStyle.BROADCAST
+        setAnimeStructuringStyle(next)
     }
 
     fun setSmoothScrolling(enabled: Boolean) {
