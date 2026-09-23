@@ -24,6 +24,7 @@ import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.data.api.TmdbApi
 import com.arflix.tv.data.api.TraktComment
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.ContinueWatchingMerge
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.MediaRepository
@@ -46,6 +47,8 @@ import com.arflix.tv.util.settingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -1775,10 +1778,14 @@ class DetailsViewModel @Inject constructor(
     }
 
     fun loadStreams(imdbId: String?, identity: EpisodeIdentity? = null) {
+        val requestId = ++loadStreamsRequestId
         loadStreamsJob?.cancel()
         focusedStreamPrewarmJob?.cancel()
         streamListPrewarmJob?.cancel()
         homeServerAppendJob?.cancel()
+        vodAppendJob?.cancel()
+        homeServerAppendJob = null
+        vodAppendJob = null
         // Reset synchronously so the modal opens in loading state immediately,
         // before the coroutine below gets a chance to run.
         _uiState.value = _uiState.value.copy(
@@ -1791,11 +1798,11 @@ class DetailsViewModel @Inject constructor(
             streamSearchStartTime = System.currentTimeMillis(),
             pluginScrapersLoading = false
         )
-        val requestId = ++loadStreamsRequestId
         val requestMediaType = currentMediaType
         val requestMediaId = currentMediaId
 
-        loadStreamsJob = viewModelScope.launch {
+        // Register the job before it can synchronously finish or launch providers.
+        loadStreamsJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
             fun isCurrentRequest(): Boolean {
                 return requestId == loadStreamsRequestId &&
                     currentMediaType == requestMediaType &&
@@ -1803,50 +1810,52 @@ class DetailsViewModel @Inject constructor(
             }
             if (!isCurrentRequest()) return@launch
 
-            // If the user clicked Play/Sources very fast (e.g. from Search), the background
-            // resolveExternalIds might still be running. Try to recover it from cache
-            // or wait for the UI state to be updated by the background fetch.
-            var currentImdbId = imdbId ?: _uiState.value.imdbId
-            if (currentImdbId.isNullOrBlank()) {
-                currentImdbId = mediaRepository.getCachedImdbId(requestMediaType, requestMediaId)
-            }
-            if (currentImdbId.isNullOrBlank()) {
-                withTimeoutOrNull(3500) {
-                    while (currentImdbId.isNullOrBlank() && isCurrentRequest()) {
-                        delay(200)
-                        currentImdbId = _uiState.value.imdbId
+            var resolvedImdbId: String? = null
+            try {
+                // If the user clicked Play/Sources very fast (e.g. from Search), the background
+                // resolveExternalIds might still be running. Try to recover it from cache
+                // or wait for the UI state to be updated by the background fetch.
+                var currentImdbId = imdbId ?: _uiState.value.imdbId
+                if (currentImdbId.isNullOrBlank()) {
+                    currentImdbId = mediaRepository.getCachedImdbId(requestMediaType, requestMediaId)
+                }
+                if (currentImdbId.isNullOrBlank()) {
+                    withTimeoutOrNull(3500) {
+                        while (currentImdbId.isNullOrBlank() && isCurrentRequest()) {
+                            delay(200)
+                            currentImdbId = _uiState.value.imdbId
+                        }
                     }
                 }
-            }
-            val resolvedImdbId = currentImdbId
-            val effectiveStreamId: String? = when {
-                !resolvedImdbId.isNullOrBlank() -> resolvedImdbId
-                requestMediaId > 0 -> "tmdb:$requestMediaId"
-                else -> null
-            }
+                resolvedImdbId = currentImdbId
+                val effectiveStreamId: String? = when {
+                    !resolvedImdbId.isNullOrBlank() -> resolvedImdbId
+                    requestMediaId > 0 -> "tmdb:$requestMediaId"
+                    else -> null
+                }
 
-            val unifiedOrderedIds = streamIntegrationRepository.getUnifiedSourceOrderedIds().first()
-            _uiState.value = _uiState.value.copy(
-                isLoadingStreams = true,
-                completedAddons = 0,
-                totalAddons = 0,
-                streams = emptyList(),
-                streamsEpisodeIdentity = identity,
-                subtitles = emptyList(),
-                addonOrderedIds = unifiedOrderedIds,
-                streamSearchStartTime = System.currentTimeMillis(),
-                pluginScrapersLoading = false
-            )
-
-            if (requestMediaType == MediaType.MOVIE) {
-                val title = _uiState.value.item?.title.orEmpty()
-                Log.d(
-                    TAG,
-                    "[MovieSources] loadStreams start requestId=$requestId mediaId=$requestMediaId imdbId=${resolvedImdbId ?: "null"} title=$title"
+                val unifiedOrderedIds = streamIntegrationRepository.getUnifiedSourceOrderedIds().first()
+                if (!isCurrentRequest()) return@launch
+                _uiState.value = _uiState.value.copy(
+                    isLoadingStreams = true,
+                    completedAddons = 0,
+                    totalAddons = 0,
+                    streams = emptyList(),
+                    streamsEpisodeIdentity = identity,
+                    subtitles = emptyList(),
+                    addonOrderedIds = unifiedOrderedIds,
+                    streamSearchStartTime = System.currentTimeMillis(),
+                    pluginScrapersLoading = false
                 )
-            }
 
-            try {
+                if (requestMediaType == MediaType.MOVIE) {
+                    val title = _uiState.value.item?.title.orEmpty()
+                    Log.d(
+                        TAG,
+                        "[MovieSources] loadStreams start requestId=$requestId mediaId=$requestMediaId imdbId=${resolvedImdbId ?: "null"} title=$title"
+                    )
+                }
+
                 // Get current item's genre IDs and language for anime detection
                 val item = _uiState.value.item
                 val genreIds = item?.genreIds ?: emptyList()
@@ -1856,35 +1865,54 @@ class DetailsViewModel @Inject constructor(
                 val animeQueryOverride = identity?.kitsuQuery
                 val homeServerEnabled = streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.HOME_SERVER)
                 val hasHomeServerConnections = homeServerEnabled && streamRepository.hasHomeServerConnections()
+                // Counted alongside the addons: an IPTV playlist or portal is a
+                // source of streams like any other, and leaving it out told every
+                // user whose only provider is IPTV to go install a streaming addon
+                // whenever a search came back empty. Only while IPTV VOD is switched
+                // on, though - switched off, ARVIO does not search there at all.
+                val vodEnabled = streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.IPTV_VOD)
+                val hasIptvVodProviders = vodEnabled && streamRepository.hasIptvVodProviders()
+                if (!isCurrentRequest()) return@launch
                 if (hasHomeServerConnections) {
                     homeServerAppendJob = viewModelScope.launch {
-                        appendHomeServerSourcesInBackground(
-                            imdbId = resolvedImdbId,
-                            season = canonicalSeason,
-                            episode = canonicalEpisode,
-                            timeoutMs = 20_000L,
-                            requestId = requestId,
-                            requestMediaType = requestMediaType,
-                            requestMediaId = requestMediaId
-                        )
+                        try {
+                            appendHomeServerSourcesInBackground(
+                                imdbId = resolvedImdbId,
+                                season = canonicalSeason,
+                                episode = canonicalEpisode,
+                                timeoutMs = 20_000L,
+                                requestId = requestId,
+                                requestMediaType = requestMediaType,
+                                requestMediaId = requestMediaId
+                            )
+                        } finally {
+                            if (isCurrentRequest()) {
+                                stopStreamSpinnerIfNothingLeft(ignoring = coroutineContext[Job])
+                            }
+                        }
                     }
                 }
                 vodAppendJob?.cancel()
-                val vodEnabled = streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.IPTV_VOD)
                 if (vodEnabled) {
                     vodAppendJob = viewModelScope.launch {
-                        // VOD lookups use disk-cached catalogs (near-instant on warm starts).
-                        // On rare true cold starts, catalog download can take 15-30s for large providers.
-                        val vodTimeout = if (currentMediaType == MediaType.MOVIE) 30_000L else 45_000L
-                        appendVodSourceInBackground(
-                            imdbId = resolvedImdbId,
-                            season = canonicalSeason,
-                            episode = canonicalEpisode,
-                            timeoutMs = vodTimeout,
-                            requestId = requestId,
-                            requestMediaType = requestMediaType,
-                            requestMediaId = requestMediaId
-                        )
+                        try {
+                            // VOD lookups use disk-cached catalogs (near-instant on warm starts).
+                            // On rare true cold starts, catalog download can take 15-30s for large providers.
+                            val vodTimeout = if (currentMediaType == MediaType.MOVIE) 30_000L else 45_000L
+                            appendVodSourceInBackground(
+                                imdbId = resolvedImdbId,
+                                season = canonicalSeason,
+                                episode = canonicalEpisode,
+                                timeoutMs = vodTimeout,
+                                requestId = requestId,
+                                requestMediaType = requestMediaType,
+                                requestMediaId = requestMediaId
+                            )
+                        } finally {
+                            if (isCurrentRequest()) {
+                                stopStreamSpinnerIfNothingLeft(ignoring = coroutineContext[Job])
+                            }
+                        }
                     }
                 }
 
@@ -1935,19 +1963,17 @@ class DetailsViewModel @Inject constructor(
                             }
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         Log.w(TAG, "[PluginScrapers] streaming execution failed: ${e.message}")
                     } finally {
+                        if (isCurrentRequest()) {
                         val current = _uiState.value
-                        val stillLoading = loadStreamsJob?.isActive == true ||
-                                           vodAppendJob?.isActive == true ||
-                                           homeServerAppendJob?.isActive == true
-                        val newLoading = current.isLoadingStreams && current.streams.isEmpty() && stillLoading
-
                         _uiState.value = current.copy(
                             pluginScrapersLoading = false,
-                            loadingPluginNames = emptySet(),
-                            isLoadingStreams = newLoading
+                            loadingPluginNames = emptySet()
                         )
+                        stopStreamSpinnerIfNothingLeft(ignoring = coroutineContext[Job])
+                        }
                     }
                 }
             }
@@ -1982,9 +2008,12 @@ class DetailsViewModel @Inject constructor(
                             isLoadingStreams = false,
                             streams = emptyList(),
                             subtitles = emptyList(),
-                            hasStreamingAddons = streamRepository.installedAddons.first()
-                                .count { it.isVodStreamingAddon() } > 0 ||
-                                hasHomeServerConnections
+                            hasStreamingAddons = hasAnyStreamProvider(
+                                streamingAddonCount = streamRepository.installedAddons.first()
+                                    .count { it.isVodStreamingAddon() },
+                                hasHomeServerConnections = hasHomeServerConnections,
+                                hasIptvVodProviders = hasIptvVodProviders
+                            )
                         )
                         return@launch
                     }
@@ -2010,12 +2039,16 @@ class DetailsViewModel @Inject constructor(
                             homeServerAppendJob?.isActive == true || vodAppendJob?.isActive == true
                         _uiState.value = _uiState.value.copy(
                             isLoadingStreams = mergedStreams.isEmpty() &&
-                                (!progressive.isFinal || hasHomeServerConnections || supplementalSourcesStillLoading || pluginScraperJob?.isActive == true),
+                                (!progressive.isFinal || supplementalSourcesStillLoading || pluginScraperJob?.isActive == true),
                             completedAddons = progressive.completedAddons,
                             totalAddons = progressive.totalAddons,
                             streams = mergedStreams,
                             subtitles = progressive.subtitles,
-                            hasStreamingAddons = addonCount > 0 || hasHomeServerConnections
+                            hasStreamingAddons = hasAnyStreamProvider(
+                                streamingAddonCount = addonCount,
+                                hasHomeServerConnections = hasHomeServerConnections,
+                                hasIptvVodProviders = hasIptvVodProviders
+                            )
                         )
                         prewarmVisibleStreams(mergedStreams)
                         if (progressive.isFinal) {
@@ -2032,9 +2065,12 @@ class DetailsViewModel @Inject constructor(
                             isLoadingStreams = false,
                             streams = emptyList(),
                             subtitles = emptyList(),
-                            hasStreamingAddons = streamRepository.installedAddons.first()
-                                .count { it.isVodStreamingAddon() } > 0 ||
-                                hasHomeServerConnections
+                            hasStreamingAddons = hasAnyStreamProvider(
+                                streamingAddonCount = streamRepository.installedAddons.first()
+                                    .count { it.isVodStreamingAddon() },
+                                hasHomeServerConnections = hasHomeServerConnections,
+                                hasIptvVodProviders = hasIptvVodProviders
+                            )
                         )
                         return@launch
                     }
@@ -2067,18 +2103,23 @@ class DetailsViewModel @Inject constructor(
                             homeServerAppendJob?.isActive == true || vodAppendJob?.isActive == true
                         _uiState.value = _uiState.value.copy(
                             isLoadingStreams = mergedStreams.isEmpty() &&
-                                (!progressive.isFinal || hasHomeServerConnections || supplementalSourcesStillLoading || pluginScraperJob?.isActive == true),
+                                (!progressive.isFinal || supplementalSourcesStillLoading || pluginScraperJob?.isActive == true),
                             completedAddons = progressive.completedAddons,
                             totalAddons = progressive.totalAddons,
                             streams = mergedStreams,
                             subtitles = progressive.subtitles,
-                            hasStreamingAddons = addonCount > 0 || hasHomeServerConnections
+                            hasStreamingAddons = hasAnyStreamProvider(
+                                streamingAddonCount = addonCount,
+                                hasHomeServerConnections = hasHomeServerConnections,
+                                hasIptvVodProviders = hasIptvVodProviders
+                            )
                         )
                         prewarmVisibleStreams(mergedStreams)
                     }
                     return@launch
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 if (!isCurrentRequest()) return@launch
                 if (requestMediaType == MediaType.MOVIE) {
                     Log.e(
@@ -2087,9 +2128,13 @@ class DetailsViewModel @Inject constructor(
                         e
                     )
                 }
-                _uiState.value = _uiState.value.copy(isLoadingStreams = false)
+            } finally {
+                if (isCurrentRequest()) {
+                    stopStreamSpinnerIfNothingLeft(ignoring = coroutineContext[Job])
+                }
             }
         }
+        loadStreamsJob?.start()
     }
 
     private suspend fun persistNextEpisodePointer(
@@ -2613,7 +2658,30 @@ class DetailsViewModel @Inject constructor(
                 null
             }
 
-            val resumeCandidate = remoteItem ?: localItem ?: localFallbackItem
+            // Which episode to resume is decided by whichever source saw the most
+            // recent activity; a tracker knows about other devices, the local
+            // store knows about a play the tracker write may have missed.
+            val localCandidates = listOfNotNull(localItem, localFallbackItem)
+            val resumeCandidate = (listOfNotNull(remoteItem) + localCandidates)
+                .maxByOrNull { it.updatedAtMs }
+
+            // Where to resume is a separate question. A tracker only stores a
+            // percentage — Trakt has no position field at all — and the duration
+            // behind that percentage is a generic catalogue runtime, not the file
+            // being played. Whenever the local store holds a real position for the
+            // same episode, that is the exact one and the percentage is only a
+            // fallback for titles this device has never played.
+            //
+            // Unless the tracker has moved well past it. Clients that are not
+            // ARVIO write a percentage and no position, so a position saved here
+            // by an older session can sit minutes behind what the tracker knows;
+            // preferring it then would rewind playback on every resume.
+            val exactSource = localCandidates.firstOrNull { local ->
+                local.resumePositionSeconds > 0L &&
+                    local.season == resumeCandidate?.season &&
+                    local.episode == resumeCandidate?.episode &&
+                    !(remoteItem != null && ContinueWatchingMerge.isLocalPositionStale(remoteItem, local))
+            }
             val localResume = if (resumeCandidate != null) {
                 buildResumeFromProgress(
                     mediaType = mediaType,
@@ -2621,8 +2689,12 @@ class DetailsViewModel @Inject constructor(
                     season = resumeCandidate.season,
                     episode = resumeCandidate.episode,
                     progress = resumeCandidate.progress / 100f,
-                    positionSeconds = resumeCandidate.resumePositionSeconds,
-                    durationSeconds = resumeCandidate.durationSeconds,
+                    positionSeconds = exactSource?.resumePositionSeconds
+                        ?: resumeCandidate.resumePositionSeconds,
+                    durationSeconds = maxOf(
+                        exactSource?.durationSeconds ?: 0L,
+                        resumeCandidate.durationSeconds
+                    ),
                     allowProgressDerivedResume = !resumeCandidate.isUpNext
                 ).dropIfWatchedEpisode()
             } else null
@@ -3023,9 +3095,6 @@ class DetailsViewModel @Inject constructor(
         }
         val validSources = sources.filter { !it.url.isNullOrBlank() }
         if (validSources.isEmpty()) {
-            if (_uiState.value.streams.isEmpty() && vodAppendJob?.isActive != true) {
-                _uiState.value = _uiState.value.copy(isLoadingStreams = false)
-            }
             return
         }
         val latest = _uiState.value.streams
@@ -3108,7 +3177,68 @@ class DetailsViewModel @Inject constructor(
         )
         prewarmVisibleStreams(mergedStreams)
     }
+
+    /**
+     * Ends the "searching sources" state once the last source job came back
+     * empty-handed.
+     *
+     * The caller passes itself as [ignoring]: a job is still marked active
+     * while its own last lines run, and it must not read itself as a reason to
+     * keep waiting.
+     */
+    private fun stopStreamSpinnerIfNothingLeft(ignoring: kotlinx.coroutines.Job?) {
+        val state = _uiState.value
+        val stop = shouldStopStreamSpinner(
+            isLoadingStreams = state.isLoadingStreams,
+            hasStreams = state.streams.isNotEmpty(),
+            pluginScrapersLoading = state.pluginScrapersLoading,
+            otherSourceJobsActive = hasOtherActiveStreamJobs(
+                listOf(loadStreamsJob, homeServerAppendJob, vodAppendJob), ignoring
+            )
+        )
+        if (!stop) return
+        _uiState.value = state.copy(isLoadingStreams = false)
+    }
 }
+
+/**
+ * Whether a source job that came back with nothing may switch the
+ * "searching sources" spinner off.
+ *
+ * It may not do so on its own account: the other supplemental job, the addon
+ * resolution and the plugin scrapers can all still be working, and a spinner
+ * taken away while sources are on their way reads as "nothing found". But
+ * someone has to do it - the IPTV path used to return silently, so a details
+ * screen whose only provider is IPTV kept its spinner for good once the
+ * provider answered with nothing, and the source picker never reached the
+ * empty state it was supposed to show.
+ */
+internal fun hasOtherActiveStreamJobs(jobs: List<Job?>, finishingJob: Job?): Boolean =
+    jobs.any { job -> job !== finishingJob && job?.isActive == true }
+
+internal fun shouldStopStreamSpinner(
+    isLoadingStreams: Boolean,
+    hasStreams: Boolean,
+    pluginScrapersLoading: Boolean,
+    otherSourceJobsActive: Boolean
+): Boolean = isLoadingStreams &&
+    !hasStreams &&
+    !pluginScrapersLoading &&
+    !otherSourceJobsActive
+
+/**
+ * Whether this setup has any source of streams at all.
+ *
+ * Decides one thing only: which empty state the source picker shows. An IPTV
+ * playlist or portal counts like an addon or a home server does - left out, as
+ * it was, every user whose only provider is IPTV was told to go install a
+ * streaming addon whenever a search came back empty.
+ */
+internal fun hasAnyStreamProvider(
+    streamingAddonCount: Int,
+    hasHomeServerConnections: Boolean,
+    hasIptvVodProviders: Boolean
+): Boolean = streamingAddonCount > 0 || hasHomeServerConnections || hasIptvVodProviders
 
 private object DetailsVMRegexes {
     val reviewWhitespaceRegex = Regex("\\s+")
