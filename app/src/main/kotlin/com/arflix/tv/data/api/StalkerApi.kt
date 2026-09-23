@@ -446,6 +446,54 @@ open class StalkerApi(
     }
 
     /**
+     * The portal's movie categories - the VOD counterpart of the
+     * `itv&action=get_genres` call [getChannels] makes for live TV, and the
+     * only place the names behind a [StalkerVodItem.categoryId] can be read.
+     *
+     * Returns null when the request failed or the portal does not implement
+     * the call, and an empty list when it answered without categories; callers
+     * cache the two very differently.
+     */
+    suspend fun getVodCategories(): List<StalkerCategory>? = fetchCategories("vod")
+
+    /** The series counterpart of [getVodCategories]. */
+    suspend fun getSeriesCategories(): List<StalkerCategory>? = fetchCategories("series")
+
+    /**
+     * Shared body of both category calls; [type] is `vod` or `series`.
+     *
+     * Success is measured on the parsed payload, never on the status code: a
+     * portal build without VOD support answers `get_categories` with an HTML
+     * page or a bare `{"js":""}` under a plain HTTP 200, and Gson rejects both
+     * shapes for the typed list below - which is exactly the "portal cannot do
+     * this" answer the caller needs.
+     */
+    private suspend fun fetchCategories(type: String): List<StalkerCategory>? {
+        return try {
+            coroutineContext.ensureActive()
+            val url = "$apiBase/server/load.php?type=$type&action=get_categories&JsHttpRequest=1-xml"
+            val response = doGet(url)
+            val parsed = gson.fromJson(response, StalkerGenreResponse::class.java)
+            val entries = parsed?.js ?: return null
+            val seen = HashSet<String>()
+            entries.mapNotNull { entry ->
+                val id = entry.id?.trim().orEmpty()
+                // "*" is the portal's own "all categories" pseudo entry. No
+                // catalog item ever carries it, so offering it as a checkbox
+                // would be a row that filters nothing.
+                if (id.isBlank() || id == ALL_CATEGORIES_ID) return@mapNotNull null
+                if (!seen.add(id)) return@mapNotNull null
+                StalkerCategory(id = id, title = entry.title?.trim()?.ifBlank { null } ?: id)
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+
+            System.err.println("[Stalker] $type get_categories failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
      * Ask the portal itself for movies matching [query] instead of downloading
      * the whole catalog first.
      *
@@ -713,6 +761,13 @@ open class StalkerApi(
     data class StalkerGenreResponse(val js: List<StalkerGenre>?)
     data class StalkerGenre(val id: String?, val title: String?)
 
+    /**
+     * One VOD or series category of a portal, as [getVodCategories] and
+     * [getSeriesCategories] hand it out: [id] is what a catalog entry carries
+     * in `category_id`, [title] is what the user sees.
+     */
+    data class StalkerCategory(val id: String, val title: String)
+
     data class StalkerChannelResponse(val js: StalkerChannelData?)
     data class StalkerChannelData(
         val data: List<StalkerChannel>?,
@@ -801,6 +856,12 @@ open class StalkerApi(
     )
 
     companion object {
+        /**
+         * The pseudo category every portal prepends to its category list. It
+         * stands for "all of them" and is never the `category_id` of an item.
+         */
+        const val ALL_CATEGORIES_ID = "*"
+
         /**
          * Search results are already narrow; a handful of pages is plenty and
          * keeps a single lookup from turning into a crawl.
