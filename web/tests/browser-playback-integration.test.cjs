@@ -222,6 +222,7 @@ function conversionRecoveryHarness(overrides = {}) {
     liveTv: overrides.liveTv ?? false, playbackRate: 1, config: { allowNetlifyMediaProxy: false },
     setError: (value) => state.errors.push(value), setErrorDetail: (value) => state.details.push(value),
     setBuffering: noop, setShowControls: noop, setActiveSubtitle: noop, setRemuxTracks: noop,
+    setPlayBlocked: value => { state.playBlocked = value; }, DOMException,
     setRemuxAudioIndex: noop, setTransportTracks: noop, defaultSubtitleIndex: () => -1,
     lastSavedRef: { current: 0 }, remuxAudioIndexRef: { current: -1 }, REMUX_STUCK_TICKS: 3,
     onToast: noop, canProviderTranscode: () => overrides.canConvert ?? true,
@@ -261,6 +262,8 @@ function conversionRecoveryHarness(overrides = {}) {
     error: message => options.onError(message), transportError: error => transport.onError(error),
     diagnostic: () => globals.failureDiagnosticRef.current,
     tick: () => { for (const [fn, kind] of [...timers]) if (kind === 'interval') fn(); },
+    timeouts: () => [...timers.values()].filter(kind => kind === 'timeout').length,
+    fireTimeouts: () => { for (const [fn, kind] of [...timers]) if (kind === 'timeout') { timers.delete(fn); fn(); } },
     emit: event => video.dispatchEvent(new Event(event)) };
 }
 
@@ -272,6 +275,37 @@ test('IPTV MKV repackaging tries the subscriber URL before the prepared relay', 
   assert.equal(h.state.probeArguments[1], undefined);
   assert.equal(h.state.probeArguments[3].fallbackUrl, 'https://relay.example/media');
   assert.equal(h.state.hops, 0);
+  cleanup();
+});
+
+test('autoplay permission does not mark a direct source dead; a Play tap restarts startup monitoring', async () => {
+  const h = conversionRecoveryHarness({ stream: { remux: false }, canConvert: false });
+  h.video.paused = true;
+  h.video.readyState = 0;
+  h.video.play = async () => { throw new DOMException('Tap required', 'NotAllowedError'); };
+  const cleanup = h.setup();
+  h.emit('loadedmetadata'); await flush();
+  assert.equal(h.state.playBlocked, true);
+  // Only the scheduled initial play request remains; its rejection must not
+  // advance sources, and both network watchdogs have been cancelled.
+  h.fireTimeouts(); await flush();
+  assert.equal(h.timeouts(), 0);
+  assert.equal(h.state.hops, 0);
+  assert.equal(h.state.errors.includes(true), false);
+  h.video.paused = false;
+  h.emit('play');
+  assert.equal(h.state.playBlocked, false);
+  assert.equal(h.timeouts(), 2);
+  cleanup();
+});
+
+test('remux autoplay rejection exposes Play without changing sources', async () => {
+  const h = conversionRecoveryHarness({ canConvert: false });
+  h.video.play = async () => { throw new DOMException('Tap required', 'NotAllowedError'); };
+  const cleanup = h.setup(); await flush();
+  assert.equal(h.state.playBlocked, true);
+  assert.equal(h.state.hops, 0);
+  assert.equal(h.state.errors.includes(true), false);
   cleanup();
 });
 
