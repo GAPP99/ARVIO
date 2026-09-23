@@ -313,6 +313,7 @@
     <string name="settings_trakt_instruction">Gehe zu %1$s und gib diesen Code ein</string>
     <string name="settings_waiting_for_authorization">Warten auf Autorisierung</string>
     <string name="settings_open_auth_page">Authentifizierungsseite öffnen</string>
+    <string name="settings_open_trakt_page">Trakt-Seite öffnen</string>
     <string name="settings_copy_code">Code kopieren</string>
     <string name="settings_cat_playback_controls">Wiedergabe &amp; Steuerung</string>
     <string name="settings_cat_audio_subtitles">Audio &amp; Untertitel</string>
@@ -741,6 +742,17 @@
     <string name="settings_iptv_hide_all">Alle ausblenden</string>
     <string name="settings_iptv_show_all_desc">Alle Kategorien dieser Quelle einblenden</string>
     <string name="settings_iptv_hide_all_desc">Alle Kategorien dieser Quelle ausblenden</string>
+    <string name="settings_iptv_tab_live">Live TV</string>
+    <string name="settings_iptv_tab_movies">Filme</string>
+    <string name="settings_iptv_tab_series">Serien</string>
+    <string name="settings_iptv_catalog_loading">Kategorien werden geladen…</string>
+    <string name="settings_iptv_catalog_not_loaded">Diese Kategorien kommen mit der nächsten Aktualisierung dieses Portals. Zum Abspielen werden sie nicht gebraucht — bis dahin wird in allen gesucht.</string>
+    <string name="settings_iptv_catalog_unsupported">Dieses Portal hat keine Kategorien gemeldet. Es ändert sich nichts: Es wird in allen gesucht.</string>
+    <string name="settings_iptv_catalog_all_searched">Alle Kategorien werden durchsucht</string>
+    <string name="settings_iptv_catalog_searched">Wird durchsucht</string>
+    <string name="settings_iptv_catalog_skipped">Nicht durchsucht</string>
+    <string name="settings_iptv_catalog_movies_desc">Kategorien, in denen dieses Portal durchsucht wird, wenn ein Film abgespielt wird</string>
+    <string name="settings_iptv_catalog_series_desc">Kategorien, in denen dieses Portal durchsucht wird, wenn eine Folge abgespielt wird</string>
     <string name="settings_stalker_categories">Stalker-Kategorien</string>
     <string name="settings_stalker_configured">Eingerichtet</string>
     <string name="settings_stalker_not_configured">Nicht eingerichtet</string>
@@ -928,6 +940,8 @@
     <string name="secondary_subtitle_desc">Ausweichsprache für Untertitel, wenn die Hauptsprache nicht verfügbar ist</string>
     <string name="filter_subtitles">Untertitel nach Sprache filtern</string>
     <string name="filter_subtitles_desc">Zeigt nur Untertitel in deiner bevorzugten Sprache</string>
+    <string name="use_forced_subtitles">Forced Subtitles</string>
+    <string name="use_forced_subtitles_desc">Untertitelt nur fremdsprachige Stellen: wählt eine forced-Spur in deiner Untertitelsprache, wenn die Tonspur dazu passt — gibt es keine, wird nichts gewählt</string>
     <string name="auto_play_next">Nächste automatisch abspielen</string>
     <string name="next_episode">Nächste Episode</string>
     <string name="loading">Wird geladen…</string>
