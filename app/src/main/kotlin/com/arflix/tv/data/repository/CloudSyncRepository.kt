@@ -483,10 +483,12 @@ class CloudSyncRepository @Inject constructor(
             }
         }
         keys.addAll(IptvCloudFields.keys(root))
+        keys.addAll(CatalogCloudFields.keys(root))
         return keys
     }
 
     private fun mergeFieldValue(root: JSONObject, key: String): Any? {
+        if (key.startsWith("c:")) return CatalogCloudFields.value(root, key)
         if (key.startsWith("i:")) return IptvCloudFields.value(root, key)
         if (key.startsWith("g:")) {
             val k = key.substring(2)
@@ -500,6 +502,10 @@ class CloudSyncRepository @Inject constructor(
     }
 
     private fun setMergeFieldValue(root: JSONObject, key: String, value: Any) {
+        if (key.startsWith("c:")) {
+            CatalogCloudFields.put(root, key, value)
+            return
+        }
         if (key.startsWith("g:")) {
             root.put(key.substring(2), value)
             return
@@ -543,6 +549,7 @@ class CloudSyncRepository @Inject constructor(
             tsMap = prefs[cloudSyncFieldTsKey]?.let(::JSONObject) ?: JSONObject()
             val baseMap = prefs[cloudSyncFieldBaseKey]?.let(::JSONObject) ?: JSONObject()
             IptvCloudFields.reconcileSnapshot(localRoot, tsMap, baseMap, capturedTimestamps)
+            CatalogCloudFields.reconcileSnapshot(localRoot, tsMap, baseMap, capturedTimestamps)
             var changed = false
             for (key in mergeKeysOf(localRoot)) {
                 val current = mergeFieldValue(localRoot, key)?.toString() ?: continue
@@ -583,7 +590,7 @@ class CloudSyncRepository @Inject constructor(
             val currentTs = it[cloudSyncFieldTsKey]?.let(::JSONObject) ?: JSONObject()
             val currentBase = it[cloudSyncFieldBaseKey]?.let(::JSONObject) ?: JSONObject()
             for (key in currentTs.keys()) {
-                if (key.startsWith("i:") && currentTs.optLong(key) > ts.optLong(key)) {
+                if ((key.startsWith("i:") || key.startsWith("c:")) && currentTs.optLong(key) > ts.optLong(key)) {
                     ts.put(key, currentTs.get(key))
                     if (currentBase.has(key)) base.put(key, currentBase.get(key))
                 }
@@ -1783,80 +1790,28 @@ class CloudSyncRepository @Inject constructor(
             AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_addons"))
         }
 
-        // ── Catalogs ──
+        // Catalog lists and their hidden IDs must be restored as one profile transaction.
         try {
-            root.optJSONObject("catalogsByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, CatalogConfig::class.java).type).type
-                val map: Map<String, List<CatalogConfig>> = gson.fromJson(json, type) ?: emptyMap()
-                map.forEach { (profileId, catalogs) ->
-                    catalogRepository.replaceCatalogsForProfile(profileId, catalogs)
+            val byProfile = linkedMapOf<String, MutableMap<String, String>>()
+            for (field in CatalogCloudFields.fields) {
+                val profiles = root.optJSONObject(field) ?: continue
+                for (id in profiles.keys()) {
+                    val value = profiles.optJSONArray(id) ?: continue
+                    byProfile.getOrPut(id) { linkedMapOf() }[field] = value.toString()
                 }
             }
-            root.optJSONArray("catalogs")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                if (!root.has("catalogsByProfile")) {
-                    val type = TypeToken.getParameterized(List::class.java, CatalogConfig::class.java).type
-                    val catalogs: List<CatalogConfig> = gson.fromJson(json, type) ?: emptyList()
-                    if (catalogs.isNotEmpty()) {
-                        catalogRepository.replaceCatalogsForProfile(activeProfileId, catalogs)
-                    }
+            for ((legacy, field) in mapOf("catalogs" to "catalogsByProfile", "hiddenPreinstalledCatalogs" to "hiddenPreinstalledByProfile")) {
+                if (!root.has(field)) root.optJSONArray(legacy)?.let {
+                    byProfile.getOrPut(activeProfileId) { linkedMapOf() }[field] = it.toString()
                 }
+            }
+            val timestamps = root.optJSONObject("fieldUpdatedAt") ?: JSONObject()
+            for ((id, fields) in byProfile) {
+                if (catalogRepository.applyCloudCatalogs(id, fields, timestamps)) preservedLocalSettings = true
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_catalogs"))
-        }
-
-        // ── Hidden preinstalled catalogs ──
-        try {
-            root.optJSONObject("hiddenPreinstalledByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, String::class.java).type).type
-                val map: Map<String, List<String>> = gson.fromJson(json, type) ?: emptyMap()
-                map.forEach { (profileId, hidden) ->
-                    catalogRepository.setHiddenPreinstalledCatalogIdsForProfile(profileId, hidden)
-                }
-            }
-            root.optJSONArray("hiddenPreinstalledCatalogs")?.toString()?.let { json ->
-                if (!root.has("hiddenPreinstalledByProfile")) {
-                    val hidden = if (json.isBlank()) {
-                        emptyList()
-                    } else {
-                        val type = TypeToken.getParameterized(List::class.java, String::class.java).type
-                        gson.fromJson<List<String>>(json, type) ?: emptyList()
-                    }
-                    catalogRepository.setHiddenPreinstalledCatalogIdsForProfile(activeProfileId, hidden)
-                }
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_hidden_preinstalled"))
-        }
-
-        // ── Hidden addon catalogs ──
-        try {
-            root.optJSONObject("hiddenAddonByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, String::class.java).type).type
-                val map: Map<String, List<String>> = gson.fromJson(json, type) ?: emptyMap()
-                map.forEach { (profileId, hidden) ->
-                    catalogRepository.setHiddenAddonCatalogIdsForProfile(profileId, hidden)
-                }
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_hidden_addons"))
-        }
-
-        // ── Hidden Home Server catalogs ──
-        try {
-            root.optJSONObject("hiddenHomeServerByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, String::class.java).type).type
-                val map: Map<String, List<String>> = gson.fromJson(json, type) ?: emptyMap()
-                map.forEach { (profileId, hidden) ->
-                    catalogRepository.setHiddenHomeServerCatalogIdsForProfile(profileId, hidden)
-                }
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_hidden_home_server"))
         }
 
         // ── IPTV config + favorites ──
