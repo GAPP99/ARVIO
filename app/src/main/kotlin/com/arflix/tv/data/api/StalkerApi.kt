@@ -859,6 +859,12 @@ open class StalkerApi(
 
     companion object {
         /**
+         * The pseudo category every portal prepends to its category list. It
+         * stands for "all of them" and is never the `category_id` of an item.
+         */
+        const val ALL_CATEGORIES_ID = "*"
+
+        /**
          * How long an unused connection may be kept for the next request.
          *
          * Measured against a real portal, three captures on three days: the
@@ -886,11 +892,6 @@ open class StalkerApi(
 
         /** OkHttp's own default; only the keep-alive above is ours. */
         private const val MAX_IDLE_CONNECTIONS = 5
-        /**
-         * The pseudo category every portal prepends to its category list. It
-         * stands for "all of them" and is never the `category_id` of an item.
-         */
-        const val ALL_CATEGORIES_ID = "*"
 
         /**
          * Search results are already narrow; a handful of pages is plenty and

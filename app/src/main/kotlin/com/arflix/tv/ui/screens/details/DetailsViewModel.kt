@@ -1863,9 +1863,15 @@ class DetailsViewModel @Inject constructor(
                 val canonicalSeason = identity?.tmdbSeason
                 val canonicalEpisode = identity?.tmdbEpisode
                 val animeQueryOverride = identity?.kitsuQuery
-                val hasIptvVodProviders = streamRepository.hasIptvVodProviders()
                 val homeServerEnabled = streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.HOME_SERVER)
                 val hasHomeServerConnections = homeServerEnabled && streamRepository.hasHomeServerConnections()
+                // Counted alongside the addons: an IPTV playlist or portal is a
+                // source of streams like any other, and leaving it out told every
+                // user whose only provider is IPTV to go install a streaming addon
+                // whenever a search came back empty. Only while IPTV VOD is switched
+                // on, though - switched off, ARVIO does not search there at all.
+                val vodEnabled = streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.IPTV_VOD)
+                val hasIptvVodProviders = vodEnabled && streamRepository.hasIptvVodProviders()
                 if (!isCurrentRequest()) return@launch
                 if (hasHomeServerConnections) {
                     homeServerAppendJob = viewModelScope.launch {
@@ -1887,7 +1893,6 @@ class DetailsViewModel @Inject constructor(
                     }
                 }
                 vodAppendJob?.cancel()
-                val vodEnabled = streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.IPTV_VOD)
                 if (vodEnabled) {
                     vodAppendJob = viewModelScope.launch {
                         try {
