@@ -544,8 +544,8 @@ class IptvRepository @Inject constructor(
     internal data class StalkerCategoryStoreEntry(
         val fingerprint: String = "",
         val fetchedAtMs: Long = 0L,
-        val movies: List<com.arflix.tv.data.api.StalkerApi.StalkerCategory> = emptyList(),
-        val series: List<com.arflix.tv.data.api.StalkerApi.StalkerCategory> = emptyList()
+        val movies: List<com.arflix.tv.data.api.StalkerApi.StalkerCategory>? = null,
+        val series: List<com.arflix.tv.data.api.StalkerApi.StalkerCategory>? = null
     )
 
     private data class StalkerCategoryStorePayload(
@@ -556,11 +556,8 @@ class IptvRepository @Inject constructor(
      * Category names per portal, filled by the ordinary channel load and read
      * by the settings screen.
      *
-     * Only the names need the portal: the `category_id` a filter matches on is
-     * already part of every search answer. So the names are fetched once, in
-     * the same session that fetches the channels, and kept next to the channel
-     * list they arrived with - the settings screen then opens without asking
-     * the portal anything at all, exactly as the live TV group list does.
+     * The channel load warms this store. Settings fetches a missing list in a
+     * fresh session, including for portals that do not import live channels.
      *
      * A portal that is absent from this map has not been loaded yet, which the
      * screen must not show as "this portal has no categories".
@@ -568,6 +565,7 @@ class IptvRepository @Inject constructor(
     @Volatile
     private var stalkerCategoryStore: Map<String, StalkerCategoryStoreEntry>? = null
     private val stalkerCategoryStoreLock = Any()
+    private val stalkerCategoryFetchMutex = Mutex()
 
     private data class StalkerSeasonsCacheKey(
         val portalId: String,
@@ -911,16 +909,12 @@ class IptvRepository @Inject constructor(
             val series = answer.seriesCategories
             if (movies == null && series == null) continue
             val portal = portalsById[answer.portalId] ?: continue
-            val previous = readStalkerCategoryStore()[answer.portalId]
             val fingerprint = stalkerPortalFingerprint(portal)
-            val stale = previous?.fingerprint != fingerprint
             categories[answer.portalId] = StalkerCategoryStoreEntry(
                 fingerprint = fingerprint,
                 fetchedAtMs = fetchedAt,
-                // One of the two calls can fail on its own. Keep the list that
-                // is still good rather than dropping both.
-                movies = movies ?: if (stale) emptyList() else previous?.movies.orEmpty(),
-                series = series ?: if (stale) emptyList() else previous?.series.orEmpty()
+                movies = movies,
+                series = series
             )
         }
         writeStalkerCategoryStore(categories)
@@ -6356,11 +6350,8 @@ class IptvRepository @Inject constructor(
     /**
      * The stored categories of one Stalker portal, for the settings screen.
      *
-     * Reads the device only - this never touches the network. The names are
-     * fetched by the ordinary channel load, inside the same portal session that
-     * fetches the channels, and kept on disk from there on. That is what makes
-     * this screen open instantly and work with no connection at all, the same
-     * way the live TV group list already does.
+     * Cached lists open without a network request. Missing lists use a fresh
+     * session rather than depending on live TV being enabled or already loaded.
      */
     suspend fun stalkerCategories(
         portalId: String,
@@ -6377,11 +6368,51 @@ class IptvRepository @Inject constructor(
             val portal = config.stalkerPortals.firstOrNull { it.id == trimmedId }
                 ?: return@withContext missing
             if (portal.portalUrl.isBlank() || portal.macAddress.isBlank()) return@withContext missing
-            stalkerCategorySnapshotOf(
-                stored = readStalkerCategoryStore()[portal.id],
-                fingerprint = stalkerPortalFingerprint(portal),
-                kind = kind
-            )
+            loadStalkerCategories(portal, kind)
+        }
+    }
+
+    internal suspend fun loadStalkerCategories(
+        portal: StalkerPortalEntry,
+        kind: StalkerCatalogKind,
+        fetchCategories: suspend (StalkerPortalEntry, StalkerCatalogKind) ->
+            List<com.arflix.tv.data.api.StalkerApi.StalkerCategory>? = { entry, requestedKind ->
+                val api = com.arflix.tv.data.api.StalkerApi(entry.portalUrl, entry.macAddress)
+                if (!api.handshake()) null else {
+                    api.getProfile()
+                    when (requestedKind) {
+                        StalkerCatalogKind.MOVIES -> api.getVodCategories()
+                        StalkerCatalogKind.SERIES -> api.getSeriesCategories()
+                    }
+                }
+            }
+    ): StalkerCategorySnapshot {
+        val profileId = profileManager.getProfileIdSync()
+        val fingerprint = stalkerPortalFingerprint(portal)
+        return stalkerCategoryFetchMutex.withLock {
+            if (profileManager.getProfileIdSync() != profileId) {
+                return@withLock StalkerCategorySnapshot(emptyList(), loaded = false)
+            }
+            val cached = stalkerCategorySnapshotOf(readStalkerCategoryStore()[portal.id], fingerprint, kind)
+            if (cached.loaded) return@withLock cached
+            val categories = try {
+                fetchCategories(portal, kind)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                null
+            }
+            if (profileManager.getProfileIdSync() != profileId) {
+                return@withLock StalkerCategorySnapshot(emptyList(), loaded = false)
+            }
+            if (categories != null) {
+                writeStalkerCategoryStore(mapOf(portal.id to StalkerCategoryStoreEntry(
+                    fingerprint = fingerprint,
+                    fetchedAtMs = System.currentTimeMillis(),
+                    movies = categories.takeIf { kind == StalkerCatalogKind.MOVIES },
+                    series = categories.takeIf { kind == StalkerCatalogKind.SERIES }
+                )))
+            }
+            stalkerCategorySnapshotOf(readStalkerCategoryStore()[portal.id], fingerprint, kind)
         }
     }
 
@@ -6400,13 +6431,11 @@ class IptvRepository @Inject constructor(
         if (stored == null || stored.fingerprint != fingerprint) {
             return StalkerCategorySnapshot(emptyList(), loaded = false)
         }
-        return StalkerCategorySnapshot(
-            categories = when (kind) {
-                StalkerCatalogKind.MOVIES -> stored.movies
-                StalkerCatalogKind.SERIES -> stored.series
-            },
-            loaded = true
-        )
+        val categories = when (kind) {
+            StalkerCatalogKind.MOVIES -> stored.movies
+            StalkerCatalogKind.SERIES -> stored.series
+        }
+        return StalkerCategorySnapshot(categories.orEmpty(), loaded = categories != null)
     }
 
     /**
@@ -11076,7 +11105,14 @@ class IptvRepository @Inject constructor(
     internal fun writeStalkerCategoryStore(entries: Map<String, StalkerCategoryStoreEntry>) {
         if (entries.isEmpty()) return
         synchronized(stalkerCategoryStoreLock) {
-            val merged = readStalkerCategoryStore() + entries
+            val merged = readStalkerCategoryStore().toMutableMap()
+            for ((portalId, entry) in entries) {
+                val previous = merged[portalId]?.takeIf { it.fingerprint == entry.fingerprint }
+                merged[portalId] = entry.copy(
+                    movies = entry.movies ?: previous?.movies,
+                    series = entry.series ?: previous?.series
+                )
+            }
             stalkerCategoryStore = merged
             runCatching {
                 stalkerCategoryStoreFile().writeText(

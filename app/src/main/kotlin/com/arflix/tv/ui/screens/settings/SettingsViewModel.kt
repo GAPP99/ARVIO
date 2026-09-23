@@ -1110,14 +1110,15 @@ class SettingsViewModel @Inject constructor(
     /**
      * Switch the categories page between live TV, movies and series.
      *
-     * Reading the stored names costs a file read, not a portal request, so the
-     * list is re-read every time a tab is opened: the ordinary channel load may
-     * have filled it in the meantime, and re-reading is how a page that opened
-     * a moment too early catches up without the user leaving it.
+     * Reuse stored names, or fetch a missing list without requiring live TV.
      */
     fun setIptvCategoryTab(tab: StalkerCategoryTab) {
         if (_uiState.value.iptvCategoryTab == tab) return
-        _uiState.value = _uiState.value.copy(iptvCategoryTab = tab)
+        _uiState.value = _uiState.value.copy(
+            iptvCategoryTab = tab,
+            isIptvStalkerCategoriesLoading = false,
+            iptvStalkerCategoriesLoaded = false
+        )
         val kind = tab.catalogKind() ?: return
         val portalId = _uiState.value.iptvSelectedPlaylistId.orEmpty()
         if (portalId.isBlank() || !_uiState.value.iptvSelectedIsStalkerPortal) return
@@ -1126,8 +1127,9 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val snapshot = runCatching { iptvRepository.stalkerCategories(portalId, kind) }
                 .getOrNull()
-            // The user can have walked on while the file was being read.
-            if (_uiState.value.iptvSelectedPlaylistId != portalId) return@launch
+            // A slow portal response must not replace the newly selected tab.
+            if (_uiState.value.iptvSelectedPlaylistId != portalId ||
+                _uiState.value.iptvCategoryTab != tab) return@launch
             val categories = snapshot?.categories.orEmpty()
             _uiState.value = when (kind) {
                 StalkerCatalogKind.MOVIES ->

@@ -8,6 +8,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -16,13 +17,9 @@ import org.junit.rules.TemporaryFolder
 /**
  * Where a Stalker portal's catalog category names come from.
  *
- * They are fetched by the ordinary channel load, inside the session that
- * fetches the channels, and kept on disk from there on — the settings screen
- * reads that store and never asks the portal itself. The reason is measured:
- * this portal closes an idle connection after ten seconds, and a request sent
- * into that closed socket is lost without an answer and without a retry, which
- * is what made the movie categories show up empty on first open while the live
- * TV groups — which ride along on the channels — were always there.
+ * Channel loads warm the disk cache; settings can independently load missing
+ * kinds for VOD-only portals. A failed request must never look like a successful
+ * empty list or erase the other kind's cached names.
  */
 class IptvRepositoryStalkerCategoryStoreTest {
 
@@ -175,7 +172,7 @@ class IptvRepositoryStalkerCategoryStoreTest {
         }
 
         val stored = repository.readStalkerCategoryStore().getValue("portal-a")
-        assertTrue(stored.movies.isEmpty())
+        assertEquals(emptyList<StalkerApi.StalkerCategory>(), stored.movies)
         assertTrue(stored.fingerprint.isNotBlank())
     }
 
@@ -194,7 +191,7 @@ class IptvRepositoryStalkerCategoryStoreTest {
     @Test
     fun `a portal that answered with nothing reads as loaded and empty`() {
         val repository = newRepository()
-        val stored = IptvRepository.StalkerCategoryStoreEntry(fingerprint = "abc")
+        val stored = IptvRepository.StalkerCategoryStoreEntry(fingerprint = "abc", movies = emptyList())
 
         val snapshot = repository.stalkerCategorySnapshotOf(stored, "abc", StalkerCatalogKind.MOVIES)
 
@@ -232,5 +229,98 @@ class IptvRepositoryStalkerCategoryStoreTest {
 
         assertFalse(snapshot.loaded)
         assertTrue(snapshot.categories.isEmpty())
+    }
+
+    @Test
+    fun `first load partial failure stays not loaded for the failed kind after restart`() = runTest {
+        newRepository().loadStalkerChannels(listOf(portal("portal-a"))) {
+            answer(it.id, listOf(category("1", "Movies")), null)
+        }
+        val reopened = newRepository()
+        val stored = reopened.readStalkerCategoryStore().getValue("portal-a")
+        assertNull(stored.series)
+        assertTrue(reopened.stalkerCategorySnapshotOf(stored, stored.fingerprint, StalkerCatalogKind.MOVIES).loaded)
+        assertFalse(reopened.stalkerCategorySnapshotOf(stored, stored.fingerprint, StalkerCatalogKind.SERIES).loaded)
+    }
+
+    @Test
+    fun `movie only portal can load categories without ever loading live channels`() = runTest {
+        val repository = newRepository()
+        val entry = portal("portal-a").copy(importLiveTv = false)
+        val movies = listOf(category("1", "Movies"))
+        var calls = 0
+        val snapshot = repository.loadStalkerCategories(entry, StalkerCatalogKind.MOVIES) { requestedPortal, kind ->
+            calls++
+            assertEquals(entry, requestedPortal)
+            assertEquals(StalkerCatalogKind.MOVIES, kind)
+            movies
+        }
+        assertTrue(snapshot.loaded)
+        assertEquals(movies, snapshot.categories)
+        repository.loadStalkerCategories(entry, StalkerCatalogKind.MOVIES) { _, _ ->
+            error("Cached categories must not request the portal again")
+        }
+        assertEquals(1, calls)
+        assertEquals(movies, newRepository().readStalkerCategoryStore().getValue(entry.id).movies)
+    }
+
+    @Test
+    fun `failed on demand fetch can be retried without replacing the other kind`() = runTest {
+        val repository = newRepository()
+        val entry = portal("portal-a")
+        val movies = listOf(category("1", "Movies"))
+        repository.loadStalkerCategories(entry, StalkerCatalogKind.MOVIES) { _, _ -> movies }
+        val failed = repository.loadStalkerCategories(entry, StalkerCatalogKind.SERIES) { _, _ -> null }
+        assertFalse(failed.loaded)
+        val retried = repository.loadStalkerCategories(entry, StalkerCatalogKind.SERIES) { _, _ -> emptyList() }
+        assertTrue(retried.loaded)
+        assertTrue(retried.categories.isEmpty())
+        val stored = newRepository().readStalkerCategoryStore().getValue(entry.id)
+        assertEquals(movies, stored.movies)
+        assertEquals(emptyList<StalkerApi.StalkerCategory>(), stored.series)
+    }
+
+    @Test
+    fun `channel load cannot overwrite categories filled by settings with null`() = runTest {
+        val repository = newRepository()
+        val entry = portal("portal-a")
+        val movies = listOf(category("1", "Movies"))
+        repository.loadStalkerCategories(entry, StalkerCatalogKind.MOVIES) { _, _ -> movies }
+        repository.loadStalkerChannels(listOf(entry)) { answer(it.id, null, emptyList()) }
+        assertEquals(movies, repository.readStalkerCategoryStore().getValue(entry.id).movies)
+    }
+
+    @Test
+    fun `repointed portal does not inherit the previous servers successful kind`() = runTest {
+        val repository = newRepository()
+        val entry = portal("portal-a")
+        repository.loadStalkerCategories(entry, StalkerCatalogKind.MOVIES) { _, _ -> listOf(category("1", "Old")) }
+        repository.loadStalkerCategories(entry.copy(portalUrl = "http://new.invalid/c"), StalkerCatalogKind.SERIES) { _, _ -> emptyList() }
+        val stored = repository.readStalkerCategoryStore().getValue(entry.id)
+        assertNull(stored.movies)
+        assertFalse(repository.stalkerCategorySnapshotOf(stored, stored.fingerprint, StalkerCatalogKind.MOVIES).loaded)
+    }
+
+    @Test
+    fun `request exceptions do not mark categories as loaded`() = runTest {
+        val repository = newRepository()
+        val snapshot = repository.loadStalkerCategories(portal("portal-a"), StalkerCatalogKind.MOVIES) { _, _ ->
+            throw java.io.IOException("Offline")
+        }
+        assertFalse(snapshot.loaded)
+        assertTrue(repository.readStalkerCategoryStore().isEmpty())
+    }
+
+    @Test
+    fun `cancelled fetch is propagated and does not write an empty list`() = runTest {
+        val repository = newRepository()
+        try {
+            repository.loadStalkerCategories(portal("portal-a"), StalkerCatalogKind.MOVIES) { _, _ ->
+                throw kotlinx.coroutines.CancellationException("Cancelled")
+            }
+            org.junit.Assert.fail("Cancellation must propagate")
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            assertTrue(repository.readStalkerCategoryStore().isEmpty())
+        }
     }
 }
