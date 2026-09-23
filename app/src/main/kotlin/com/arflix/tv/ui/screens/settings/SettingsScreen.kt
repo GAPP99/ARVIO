@@ -1,5 +1,8 @@
 package com.arflix.tv.ui.screens.settings
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.ui.text.font.FontWeight
+import com.arflix.tv.data.model.AnimeStructuringStyle
 
 import androidx.activity.compose.BackHandler
 import com.arflix.tv.ui.components.LocalBottomBarInset
@@ -102,6 +105,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Tune
+import com.arflix.tv.data.model.StreamIntegrationType
+import com.arflix.tv.data.model.StreamSearchMode
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.ExitToApp
@@ -200,6 +206,7 @@ import com.arflix.tv.data.model.isBulkDeletablePack
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.data.model.QualityFilterConfig
 import com.arflix.tv.data.model.RuntimeKind
+import com.arflix.tv.data.model.StalkerCatalogKind
 import com.arflix.tv.data.repository.HomeServerConnection
 import com.arflix.tv.data.repository.HomeServerKind
 import com.arflix.tv.data.repository.IptvPlaylistEntry
@@ -288,10 +295,10 @@ private val tvGeneralSectionIds = setOf(
 private fun tvGeneralRowsForSection(section: String): List<Int> {
     return when (section) {
         "language" -> listOf(0, 3, 1, 2)
-        "subtitles" -> listOf(4, 5, 6, 7, 42, 8, 38, 39, 9)
+        "subtitles" -> listOf(4, 5, 6, 7, 42, 8, 38, 39, 9, 45)
         "ai_subtitles" -> listOf(28, 29, 30, 31, 32, 33)
         "playback" -> listOf(10, 11, 12, 43, 44, 13, 14, 34, 16, 15, 40, 27)
-        "appearance" -> listOf(17, 18, 20, 21, 24, 23, 22, 41, 36)
+        "appearance" -> listOf(17, 18, 20, 21, 24, 23, 22, 41, 46, 36)
         "profiles" -> listOf(19)
         "network" -> listOf(25, 26, 35)
         else -> emptyList()
@@ -331,6 +338,32 @@ internal fun iptvRowMaxAction(): Int = 5
  */
 internal fun firstIptvGroupIndex(orderedGroups: List<String>): Int =
     if (orderedGroups.isNotEmpty()) 2 else 1
+
+/**
+ * The same index once the tab bar sits above the list.
+ *
+ * A Stalker portal gets a row of three buttons - live TV, movies, series - at
+ * focus index 0, which pushes everything below it down by one. Every other
+ * source has no bar and keeps the indices it always had, which is what makes
+ * this a pure addition for M3U and Xtream playlists.
+ */
+internal fun firstIptvGroupIndex(orderedGroups: List<String>, hasTabBar: Boolean): Int =
+    firstIptvGroupIndex(orderedGroups) + if (hasTabBar) 1 else 0
+
+/**
+ * Focus index of the first row on the movies or series tab.
+ *
+ * Those two are shorter than the live TV list: the tab bar sits at 0 and the
+ * bulk "hide all / show all" at 1, so the categories start at 2. There is no
+ * reset row, because there is no order to reset - a catalog category is either
+ * searched or it is not, and the sequence of the checkboxes changes nothing.
+ */
+internal fun firstStalkerCategoryIndex(categoryCount: Int): Int =
+    if (categoryCount > 0) 2 else 1
+
+/** The last focus index of the movies or series tab. */
+internal fun lastStalkerCategoryIndex(categoryCount: Int): Int =
+    if (categoryCount > 0) firstStalkerCategoryIndex(categoryCount) + categoryCount - 1 else 0
 
 /**
  * The sub-focus column ("chip") the IPTV categories screen keeps when the focus
@@ -384,6 +417,19 @@ internal fun heldGroupMoveTarget(focusedIndex: Int, firstGroupIndex: Int, groupC
 internal fun centeredScrollOffset(viewportSize: Int, itemSize: Int): Int =
     if (viewportSize <= 0 || itemSize <= 0 || itemSize >= viewportSize) 0
     else -((viewportSize - itemSize) / 2)
+
+/**
+ * Builds the Trakt activation URL that already carries the user code, e.g.
+ * `https://trakt.tv/activate/AB12CD34`. Trakt redirects such a link to its sign-in page and keeps
+ * the code in `callbackURL`, so the user never has to type it. Falls back to the plain
+ * verification URL when no code is available yet.
+ */
+internal fun traktActivationUrl(verificationUrl: String, userCode: String): String {
+    val base = verificationUrl.trim().trimEnd('/')
+    val code = userCode.trim()
+    if (base.isEmpty()) return ""
+    return if (code.isEmpty()) base else "$base/$code"
+}
 
 private fun openExternalUrl(context: Context, url: String) {
     runCatching {
@@ -490,6 +536,7 @@ fun SettingsScreen(
             add("language")
             add("subtitles")
             add("ai_subtitles")
+            add("stream_integrations")
             add("iptv")
             add("stremio")
             add("catalogs")
@@ -543,6 +590,8 @@ fun SettingsScreen(
     var activeZone by remember { mutableStateOf(Zone.CONTENT) }
     var suppressSelectUntilMs by remember { mutableLongStateOf(0L) }
 
+    // Sub-focus for stream integration rows: 0 = toggle, 1 = up, 2 = down, 3 = configure
+    var integrationActionIndex by remember { mutableIntStateOf(0) }
     // Sub-focus for addon rows: 0 = toggle, 1 = delete
     var addonActionIndex by remember { mutableIntStateOf(0) }
     // Sub-focus for catalog rows: 0 = edit, 1 = up, 2 = down, 3 = layout, 4 = delete
@@ -622,24 +671,41 @@ fun SettingsScreen(
     val stremioAddons = remember(uiState.addons) {
         uiState.addons.filter { it.runtimeKind == RuntimeKind.STREMIO }
     }
+
+    // The categories page in one place, so the focus arithmetic below and the
+    // page itself can never disagree about which list is on screen.
+    val iptvTabBarVisible = uiState.iptvSelectedIsStalkerPortal
+    val iptvCatalogKind = uiState.iptvCategoryTab.catalogKind()
+    val iptvCatalogCategories = when (iptvCatalogKind) {
+        StalkerCatalogKind.MOVIES -> uiState.iptvStalkerVodCategories
+        StalkerCatalogKind.SERIES -> uiState.iptvStalkerSeriesCategories
+        null -> emptyList()
+    }
+
     val sectionMaxIndex: (String) -> Int = { section ->
         when (section) {
             in tvGeneralSectionIds -> (tvGeneralRowsForSection(section).size - 1).coerceAtLeast(0)
             "iptv" -> if (showIptvCategoriesSettings) {
+                if (iptvCatalogKind != null) {
+                    // Tab bar + (bulk-toggle row) + category rows.
+                    lastStalkerCategoryIndex(iptvCatalogCategories.size)
+                } else {
                 val groups = orderedIptvGroups(
                     playlistId = uiState.iptvSelectedPlaylistId.orEmpty(),
                     availableGroups = uiState.iptvAvailableGroups,
                     groupOrder = uiState.iptvGroupOrder
                 )
-                // Reset row + (bulk-toggle row) + category rows.
-                groups.size + (firstIptvGroupIndex(groups) - 1)
+                // (Tab bar) + reset row + (bulk-toggle row) + category rows.
+                groups.size + (firstIptvGroupIndex(groups, iptvTabBarVisible) - 1)
+                }
             } else {
                 // Add-Playlist + M3U rows + Stalker rows + order + VOD search
                 // + EPG actions + favorites-on-home + refresh + clear + fallback logos
                 7 + uiState.iptvPlaylists.size + uiState.iptvStalkerPortals.size
             }
+            "stream_integrations" -> uiState.streamProviderItems.size
             "home_server" -> uiState.homeServerConnections.size + 3
-            "catalogs" -> uiState.catalogs.size + 1 // Add + Import + catalogs
+            "catalogs" -> uiState.catalogs.size + 2 // Add + Import + Built-in collections toggle + catalogs
             "stremio" -> stremioAddons.size + 1 // rows + refresh + add button
             "plugins" -> pluginsMaxIndex
             "accounts" -> 16 // Includes About & Credits.
@@ -979,9 +1045,9 @@ fun SettingsScreen(
                     val focusedStremioAddonMaxAction = if (focusedStremioAddon == null) {
                         0
                     } else if (focusedStremioAddonCanDelete) {
-                        3
+                        1
                     } else {
-                        2
+                        0
                     }
 
                     val isRtl = isRtlLayoutDirection
@@ -999,7 +1065,11 @@ fun SettingsScreen(
                     // focus. Returns true when the press was consumed by it.
                     val moveHeldIptvGroup: (Boolean) -> Boolean = handler@{ moveUp ->
                         val heldGroup = iptvHeldGroup
-                        if (heldGroup == null || currentSection != "iptv" || !showIptvCategoriesSettings) {
+                        // Never on the movies or series tab: there is no order
+                        // to carry a category along in (see the tab bar).
+                        if (heldGroup == null || currentSection != "iptv" ||
+                            !showIptvCategoriesSettings || iptvCatalogKind != null
+                        ) {
                             return@handler false
                         }
                         val heldPlaylistId = uiState.iptvSelectedPlaylistId.orEmpty()
@@ -1008,7 +1078,7 @@ fun SettingsScreen(
                             availableGroups = uiState.iptvAvailableGroups,
                             groupOrder = uiState.iptvGroupOrder
                         )
-                        val heldFirstIndex = firstIptvGroupIndex(heldGroups)
+                        val heldFirstIndex = firstIptvGroupIndex(heldGroups, iptvTabBarVisible)
                         if (heldGroup !in heldGroups || contentFocusIndex - heldFirstIndex !in heldGroups.indices) {
                             // The group is gone (the playlist reloaded) or the focus is not on a
                             // category row at all - let go and navigate normally. The position
@@ -1034,17 +1104,28 @@ fun SettingsScreen(
                     // rule per row type and is a change of its own.
                     val nextIptvActionIndex: (Int) -> Int = { targetIndex ->
                         if (currentSection == "iptv" && showIptvCategoriesSettings) {
-                            val groups = orderedIptvGroups(
-                                playlistId = uiState.iptvSelectedPlaylistId.orEmpty(),
-                                availableGroups = uiState.iptvAvailableGroups,
-                                groupOrder = uiState.iptvGroupOrder
-                            )
-                            keptIptvActionIndex(
-                                actionIndex = iptvActionIndex,
-                                targetFocusIndex = targetIndex,
-                                firstGroupIndex = firstIptvGroupIndex(groups),
-                                groupCount = groups.size
-                            )
+                            when {
+                                // Landing on the tab bar: the column is the tab
+                                // cursor, so it shows which tab is open rather
+                                // than starting at the left every time.
+                                iptvTabBarVisible && targetIndex == 0 -> uiState.iptvCategoryTab.ordinal
+                                // A catalog row carries one chip, so there is
+                                // no column to keep.
+                                iptvCatalogKind != null -> 0
+                                else -> {
+                                    val groups = orderedIptvGroups(
+                                        playlistId = uiState.iptvSelectedPlaylistId.orEmpty(),
+                                        availableGroups = uiState.iptvAvailableGroups,
+                                        groupOrder = uiState.iptvGroupOrder
+                                    )
+                                    keptIptvActionIndex(
+                                        actionIndex = iptvActionIndex,
+                                        targetFocusIndex = targetIndex,
+                                        firstGroupIndex = firstIptvGroupIndex(groups, iptvTabBarVisible),
+                                        groupCount = groups.size
+                                    )
+                                }
+                            }
                         } else 0
                     }
 
@@ -1062,8 +1143,29 @@ fun SettingsScreen(
                                     val stalkerCount = uiState.iptvStalkerPortals.size
                                     val stalkerStart = m3uCount + 1
                                     val stalkerEnd = m3uCount + stalkerCount
-                                    if (currentSection == "stremio" && contentFocusIndex < stremioAddons.size && addonActionIndex > 0) {
+                                    if (currentSection == "stream_integrations") {
+                                        if (contentFocusIndex == 0 && integrationActionIndex > 0) {
+                                            integrationActionIndex--
+                                        } else if (contentFocusIndex > 0 && integrationActionIndex > 0) {
+                                            integrationActionIndex--
+                                        } else {
+                                            activeZone = Zone.SECTION
+                                            integrationActionIndex = 0
+                                            addonActionIndex = 0
+                                            iptvActionIndex = 0
+                                            iptvHeldGroup = null
+                                            catalogActionIndex = 0
+                                        }
+                                    } else if (currentSection == "stremio" && contentFocusIndex < stremioAddons.size && addonActionIndex > 0) {
                                         addonActionIndex--
+                                    } else if (currentSection == "iptv" && showIptvCategoriesSettings &&
+                                        iptvTabBarVisible && contentFocusIndex == 0 && iptvActionIndex > 0
+                                    ) {
+                                        val previous = StalkerCategoryTab.entries.getOrNull(iptvActionIndex - 1)
+                                        if (previous != null) {
+                                            iptvActionIndex--
+                                            viewModel.setIptvCategoryTab(previous)
+                                        }
                                     } else if (currentSection == "iptv" &&
                                         iptvActionIndex > 0 &&
                                         (
@@ -1072,10 +1174,11 @@ fun SettingsScreen(
                                             )
                                     ) {
                                         iptvActionIndex--
-                                    } else if (currentSection == "catalogs" && contentFocusIndex > 1 && catalogActionIndex > 0) {
+                                    } else if (currentSection == "catalogs" && contentFocusIndex > 2 && catalogActionIndex > 0) {
                                         catalogActionIndex--
                                     } else {
                                         activeZone = Zone.SECTION
+                                        integrationActionIndex = 0
                                         addonActionIndex = 0
                                         iptvActionIndex = 0
                                         iptvHeldGroup = null
@@ -1102,6 +1205,11 @@ fun SettingsScreen(
                                 }
                                 Zone.SECTION -> {
                                     activeZone = Zone.CONTENT
+                                    integrationActionIndex = if (currentSection == "stream_integrations" && contentFocusIndex == 0) {
+                                        if (uiState.streamSearchMode == StreamSearchMode.SEQUENTIAL) 1 else 0
+                                    } else {
+                                        0
+                                    }
                                     addonActionIndex = 0
                                     iptvActionIndex = 0
                                     iptvHeldGroup = null
@@ -1113,18 +1221,49 @@ fun SettingsScreen(
                                     val stalkerCount = uiState.iptvStalkerPortals.size
                                     val stalkerStart = m3uCount + 1
                                     val stalkerEnd = m3uCount + stalkerCount
-                                    if (currentSection == "stremio" &&
+                                    if (currentSection == "stream_integrations") {
+                                        val maxAction = if (contentFocusIndex == 0) {
+                                            1
+                                        } else {
+                                            if (uiState.streamProviderItems.size > 1) 2 else 0
+                                        }
+                                        if (integrationActionIndex < maxAction) {
+                                            integrationActionIndex++
+                                        }
+                                    } else if (currentSection == "stremio" &&
                                         contentFocusIndex in 0 until stremioAddons.size &&
                                         addonActionIndex < focusedStremioAddonMaxAction
                                     ) {
                                         addonActionIndex++
-                                    } else if (currentSection == "iptv" && showIptvCategoriesSettings && contentFocusIndex >= firstIptvGroupIndex(orderedIptvGroups(uiState.iptvSelectedPlaylistId.orEmpty(), uiState.iptvAvailableGroups, uiState.iptvGroupOrder)) && iptvActionIndex < 1) {
+                                    } else if (currentSection == "iptv" && showIptvCategoriesSettings &&
+                                        iptvTabBarVisible && contentFocusIndex == 0
+                                    ) {
+                                        // On the tab bar the cursor and the open
+                                        // tab are the same thing: stepping to the
+                                        // next button opens it, no OK needed.
+                                        val next = StalkerCategoryTab.entries.getOrNull(iptvActionIndex + 1)
+                                        if (next != null) {
+                                            iptvActionIndex++
+                                            viewModel.setIptvCategoryTab(next)
+                                        }
+                                    } else if (currentSection == "iptv" && showIptvCategoriesSettings &&
+                                        iptvCatalogKind == null &&
+                                        contentFocusIndex >= firstIptvGroupIndex(
+                                            orderedIptvGroups(
+                                                uiState.iptvSelectedPlaylistId.orEmpty(),
+                                                uiState.iptvAvailableGroups,
+                                                uiState.iptvGroupOrder
+                                            ),
+                                            iptvTabBarVisible
+                                        ) &&
+                                        iptvActionIndex < 1
+                                    ) {
                                         iptvActionIndex++
                                     } else if (currentSection == "iptv" && !showIptvCategoriesSettings && contentFocusIndex in 1..m3uCount && iptvActionIndex < iptvRowMaxAction()) {
                                         iptvActionIndex++
                                     } else if (currentSection == "iptv" && !showIptvCategoriesSettings && stalkerCount > 0 && contentFocusIndex in stalkerStart..stalkerEnd && iptvActionIndex < iptvRowMaxAction()) {
                                         iptvActionIndex++
-                                    } else if (currentSection == "catalogs" && contentFocusIndex > 1 && catalogActionIndex < 5) {
+                                    } else if (currentSection == "catalogs" && contentFocusIndex > 2 && catalogActionIndex < 5) {
                                         catalogActionIndex++
                                     }
                                 }
@@ -1138,6 +1277,7 @@ fun SettingsScreen(
                                     if (sectionIndex > 0) {
                                         sectionIndex--
                                         contentFocusIndex = 0 // Reset content focus when changing section
+                                        integrationActionIndex = 0
                                         addonActionIndex = 0
                                         iptvActionIndex = 0
                                         iptvHeldGroup = null
@@ -1152,6 +1292,11 @@ fun SettingsScreen(
                                     if (!moveHeldIptvGroup(true)) {
                                         if (contentFocusIndex > 0) {
                                             contentFocusIndex--
+                                            integrationActionIndex = if (currentSection == "stream_integrations" && contentFocusIndex == 0) {
+                                                if (uiState.streamSearchMode == StreamSearchMode.SEQUENTIAL) 1 else 0
+                                            } else {
+                                                0
+                                            }
                                             addonActionIndex = 0 // Reset to toggle when changing rows
                                             iptvActionIndex = nextIptvActionIndex(contentFocusIndex)
                                             iptvHeldGroup = null
@@ -1180,6 +1325,7 @@ fun SettingsScreen(
                                     if (sectionIndex < sections.size - 1) {
                                         sectionIndex++
                                         contentFocusIndex = 0 // Reset content focus when changing section
+                                        integrationActionIndex = 0
                                         addonActionIndex = 0
                                         iptvActionIndex = 0
                                         iptvHeldGroup = null
@@ -1192,6 +1338,7 @@ fun SettingsScreen(
                                         val maxIndex = sectionMaxIndex(currentSection)
                                         if (contentFocusIndex < maxIndex) {
                                             contentFocusIndex++
+                                            integrationActionIndex = 0
                                             addonActionIndex = 0 // Reset to toggle when changing rows
                                             iptvActionIndex = nextIptvActionIndex(contentFocusIndex)
                                             iptvHeldGroup = null
@@ -1234,6 +1381,7 @@ fun SettingsScreen(
                                                 42 -> viewModel.cycleSubtitleFont()
                                                 8 -> viewModel.toggleSubtitleStylized()
                                                 9 -> viewModel.setFilterSubtitlesByLanguage(!uiState.filterSubtitlesByLanguage)
+                                                45 -> viewModel.setUseForcedSubtitles(!uiState.useForcedSubtitles)
                                                 10 -> viewModel.setAutoPlayNext(!uiState.autoPlayNext)
                                                 11 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
                                                 12 -> viewModel.cycleAutoPlayMinQuality()
@@ -1250,6 +1398,7 @@ fun SettingsScreen(
                                                 21 -> viewModel.cycleClockFormat()
                                                 22 -> viewModel.setShowBudget(!uiState.showBudget)
                                                 41 -> viewModel.setShowEpisodeRatings(!uiState.showEpisodeRatings)
+                                                46 -> viewModel.cycleAnimeStructuringStyle()
                                                  36 -> viewModel.setSmoothScrolling(!uiState.smoothScrolling)
                                                 23 -> viewModel.setSpoilerBlurEnabled(!uiState.spoilerBlurEnabled)
                                                 24 -> viewModel.cycleAccentColor()
@@ -1271,20 +1420,61 @@ fun SettingsScreen(
                                             }
                                         }
                                         "iptv" -> {
-                                            if (showIptvCategoriesSettings) {
+                                            if (showIptvCategoriesSettings && iptvCatalogKind != null) {
+                                                val portalId = uiState.iptvSelectedPlaylistId.orEmpty()
+                                                val categories = iptvCatalogCategories
+                                                val firstCategoryIdx = firstStalkerCategoryIndex(categories.size)
+                                                val hiddenKeys = when (iptvCatalogKind) {
+                                                    StalkerCatalogKind.MOVIES -> uiState.iptvHiddenVodCategories
+                                                    StalkerCatalogKind.SERIES -> uiState.iptvHiddenSeriesCategories
+                                                }
+                                                when {
+                                                    // The tab bar: opening the tab
+                                                    // the cursor already sits on
+                                                    // is a no-op by design.
+                                                    contentFocusIndex == 0 -> {
+                                                        StalkerCategoryTab.entries.getOrNull(iptvActionIndex)
+                                                            ?.let { viewModel.setIptvCategoryTab(it) }
+                                                    }
+                                                    contentFocusIndex == 1 && categories.isNotEmpty() -> {
+                                                        val allHidden = categories.all {
+                                                            com.arflix.tv.data.model.PlaylistGroupKey.build(portalId, it.id) in hiddenKeys
+                                                        }
+                                                        viewModel.setAllIptvStalkerCategoriesVisible(
+                                                            kind = iptvCatalogKind,
+                                                            portalId = portalId,
+                                                            visible = allHidden
+                                                        )
+                                                    }
+                                                    contentFocusIndex in firstCategoryIdx..lastStalkerCategoryIndex(categories.size) -> {
+                                                        categories.getOrNull(contentFocusIndex - firstCategoryIdx)?.let { category ->
+                                                            viewModel.toggleIptvHiddenStalkerCategory(
+                                                                kind = iptvCatalogKind,
+                                                                portalId = portalId,
+                                                                categoryId = category.id
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            } else if (showIptvCategoriesSettings) {
                                                 val playlistId = uiState.iptvSelectedPlaylistId.orEmpty()
                                                 val orderedGroups = orderedIptvGroups(
                                                     playlistId = playlistId,
                                                     availableGroups = uiState.iptvAvailableGroups,
                                                     groupOrder = uiState.iptvGroupOrder
                                                 )
-                                                val firstGroupIdx = firstIptvGroupIndex(orderedGroups)
+                                                val tabOffset = if (iptvTabBarVisible) 1 else 0
+                                                val firstGroupIdx = firstIptvGroupIndex(orderedGroups, iptvTabBarVisible)
                                                 val hasBulkToggle = orderedGroups.isNotEmpty()
                                                 when {
-                                                    contentFocusIndex == 0 -> {
+                                                    iptvTabBarVisible && contentFocusIndex == 0 -> {
+                                                        StalkerCategoryTab.entries.getOrNull(iptvActionIndex)
+                                                            ?.let { viewModel.setIptvCategoryTab(it) }
+                                                    }
+                                                    contentFocusIndex == tabOffset -> {
                                                         viewModel.resetIptvGroupOrder(playlistId)
                                                     }
-                                                    contentFocusIndex == 1 && hasBulkToggle -> {
+                                                    contentFocusIndex == tabOffset + 1 && hasBulkToggle -> {
                                                         val allHidden = orderedGroups.all {
                                                             com.arflix.tv.data.model.PlaylistGroupKey.build(playlistId, it) in uiState.iptvHiddenGroups
                                                         }
@@ -1395,6 +1585,26 @@ fun SettingsScreen(
                                                 }
                                             }
                                         }
+                                        "stream_integrations" -> {
+                                            if (contentFocusIndex == 0) {
+                                                val targetMode = if (integrationActionIndex == 0) {
+                                                    StreamSearchMode.PARALLEL
+                                                } else {
+                                                    StreamSearchMode.SEQUENTIAL
+                                                }
+                                                viewModel.setStreamSearchMode(targetMode)
+                                            } else {
+                                                val item = uiState.streamProviderItems.getOrNull(contentFocusIndex - 1)
+                                                if (item != null) {
+                                                    when (integrationActionIndex) {
+                                                        0 -> viewModel.toggleStreamProvider(item.id)
+                                                        1 -> viewModel.moveStreamProviderUp(item.id)
+                                                        2 -> viewModel.moveStreamProviderDown(item.id)
+                                                        else -> viewModel.toggleStreamProvider(item.id)
+                                                    }
+                                                }
+                                            }
+                                        }
                                         "home_server" -> {
                                             when (contentFocusIndex) {
                                        0 -> {
@@ -1426,8 +1636,10 @@ fun SettingsScreen(
                                                 showCatalogInput = true
                                             } else if (contentFocusIndex == 1) {
                                                 showCatalogPackInput = true
+                                            } else if (contentFocusIndex == 2) {
+                                                viewModel.toggleBuiltInCollections()
                                             } else {
-                                                val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 2)
+                                                val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 3)
                                                 if (catalog != null) {
                                                     when (catalogActionIndex) {
                                                         0 -> {
@@ -1467,9 +1679,7 @@ fun SettingsScreen(
                                                     val canDelete = !(addon.id == "opensubtitles" && addon.type == com.arflix.tv.data.model.AddonType.SUBTITLE)
                                                     when (addonActionIndex) {
                                                         0 -> viewModel.toggleAddon(addon.id)
-                                                        1 -> viewModel.moveAddonUp(addon.id)
-                                                        2 -> viewModel.moveAddonDown(addon.id)
-                                                        3 -> if (canDelete) {
+                                                        1 -> if (canDelete) {
                                                             viewModel.removeAddon(addon.id)
                                                             addonActionIndex = 0
                                                             if (contentFocusIndex >= stremioAddons.size && contentFocusIndex > 0) {
@@ -1708,6 +1918,7 @@ fun SettingsScreen(
                                     "appearance" -> Icons.Default.Palette
                                     "profiles" -> Icons.Default.SwitchAccount
                                     "network" -> Icons.Default.Settings
+                                    "stream_integrations" -> Icons.Default.Tune
                                     "iptv" -> Icons.Default.LiveTv
                                     "home_server" -> Icons.Default.Cloud
                                     "catalogs" -> Icons.Default.Widgets
@@ -1723,6 +1934,7 @@ fun SettingsScreen(
                                     "appearance" -> stringResource(R.string.interface_label)
                                     "profiles" -> stringResource(R.string.profiles)
                                     "network" -> stringResource(R.string.network)
+                                    "stream_integrations" -> stringResource(R.string.settings_stream_integrations)
                                     "iptv" -> stringResource(R.string.iptv)
                                     "home_server" -> stringResource(R.string.settings_home_server)
                                     "catalogs" -> stringResource(R.string.catalogs)
@@ -1735,6 +1947,7 @@ fun SettingsScreen(
                                 onClick = {
                                     sectionIndex = index
                                     contentFocusIndex = 0
+                                    integrationActionIndex = 0
                                     iptvActionIndex = 0
                                     iptvHeldGroup = null
                                     showIptvCategoriesSettings = false
@@ -1828,6 +2041,8 @@ fun SettingsScreen(
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             showEpisodeRatings = uiState.showEpisodeRatings,
                             onShowEpisodeRatingsToggle = { viewModel.setShowEpisodeRatings(it) },
+                            animeStructuringStyle = uiState.animeStructuringStyle,
+                            onAnimeStructuringStyleToggle = { viewModel.cycleAnimeStructuringStyle() },
                             smoothScrolling = uiState.smoothScrolling,
                             onSmoothScrollingToggle = { viewModel.setSmoothScrolling(it) },
                             spoilerBlurEnabled = uiState.spoilerBlurEnabled,
@@ -1845,6 +2060,8 @@ fun SettingsScreen(
                             onSubtitleStylizedToggle = { viewModel.toggleSubtitleStylized() },
                             filterSubtitlesByLanguage = uiState.filterSubtitlesByLanguage,
                             onFilterSubtitlesByLanguageToggle = { viewModel.setFilterSubtitlesByLanguage(it) },
+                            useForcedSubtitles = uiState.useForcedSubtitles,
+                            onUseForcedSubtitlesToggle = { viewModel.setUseForcedSubtitles(it) },
                             qualityFilterValue = uiState.qualityFilterPresetLabel,
                             onQualityFiltersClick = { showQualityFiltersModal = true },
                             subtitleAiEnabled = uiState.subtitleAiEnabled,
@@ -1907,6 +2124,16 @@ fun SettingsScreen(
                             )
                         }
                         } // end "general" block
+                        "stream_integrations" -> StreamIntegrationsScreen(
+                            items = uiState.streamProviderItems,
+                            searchMode = uiState.streamSearchMode,
+                            onSearchModeChange = { viewModel.setStreamSearchMode(it) },
+                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
+                            focusedActionIndex = integrationActionIndex,
+                            onToggle = { viewModel.toggleStreamProvider(it.id) },
+                            onMoveUp = { viewModel.moveStreamProviderUp(it.id) },
+                            onMoveDown = { viewModel.moveStreamProviderDown(it.id) }
+                        )
                         "iptv" -> if (showIptvCategoriesSettings) {
                             IptvCategoriesSettings(
                                 playlistId = uiState.iptvSelectedPlaylistId ?: "",
@@ -1919,7 +2146,36 @@ fun SettingsScreen(
                                 onToggleHold = { group -> iptvHeldGroup = if (iptvHeldGroup == null) group else null },
                                 onReset = { viewModel.resetIptvGroupOrder(uiState.iptvSelectedPlaylistId ?: "") },
                                 onBulkToggle = { visible -> viewModel.setAllIptvGroupsVisible(uiState.iptvSelectedPlaylistId ?: "", visible) },
-                                heldGroup = iptvHeldGroup
+                                heldGroup = iptvHeldGroup,
+                                showCategoryTabs = iptvTabBarVisible,
+                                selectedTab = uiState.iptvCategoryTab,
+                                onSelectTab = { tab -> viewModel.setIptvCategoryTab(tab) },
+                                catalogCategories = iptvCatalogCategories,
+                                hiddenCatalogCategories = when (iptvCatalogKind) {
+                                    StalkerCatalogKind.MOVIES -> uiState.iptvHiddenVodCategories
+                                    StalkerCatalogKind.SERIES -> uiState.iptvHiddenSeriesCategories
+                                    null -> emptyList()
+                                },
+                                isCatalogLoading = uiState.isIptvStalkerCategoriesLoading,
+                                isCatalogLoaded = uiState.iptvStalkerCategoriesLoaded,
+                                onToggleCatalogCategory = { categoryId ->
+                                    iptvCatalogKind?.let { kind ->
+                                        viewModel.toggleIptvHiddenStalkerCategory(
+                                            kind = kind,
+                                            portalId = uiState.iptvSelectedPlaylistId ?: "",
+                                            categoryId = categoryId
+                                        )
+                                    }
+                                },
+                                onBulkToggleCatalogCategories = { visible ->
+                                    iptvCatalogKind?.let { kind ->
+                                        viewModel.setAllIptvStalkerCategoriesVisible(
+                                            kind = kind,
+                                            portalId = uiState.iptvSelectedPlaylistId ?: "",
+                                            visible = visible
+                                        )
+                                    }
+                                }
                             )
                         } else IptvSettings(
                             playlists = uiState.iptvPlaylists,
@@ -2081,6 +2337,8 @@ fun SettingsScreen(
                             focusedActionIndex = catalogActionIndex,
                             onAddCatalog = { showCatalogInput = true },
                             onImportCatalogPack = { showCatalogPackInput = true },
+                            builtInCollectionsEnabled = uiState.builtInCollectionsEnabled,
+                            onToggleBuiltInCollections = { viewModel.toggleBuiltInCollections() },
                             onRenameCatalog = { catalog ->
                                 renameCatalogId = catalog.id
                                 renameCatalogTitle = catalog.title
@@ -2105,8 +2363,6 @@ fun SettingsScreen(
                             focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
                             focusedActionIndex = addonActionIndex,
                             onToggleAddon = { viewModel.toggleAddon(it) },
-                            onMoveAddonUp = { viewModel.moveAddonUp(it) },
-                            onMoveAddonDown = { viewModel.moveAddonDown(it) },
                             onDeleteAddon = { viewModel.removeAddon(it) },
                             onAddCustomAddon = { showCustomAddonInput = true },
                             onRefreshAddons = { viewModel.refreshAddons() }
@@ -2788,6 +3044,14 @@ fun SettingsScreen(
             TraktActivationModal(
                 verificationUrl = traktCode.verificationUrl,
                 userCode = traktCode.userCode,
+                onOpenUrl = {
+                    openExternalUrl(
+                        context,
+                        traktActivationUrl(traktCode.verificationUrl, traktCode.userCode)
+                    )
+                },
+                openUrlLabel = stringResource(R.string.settings_open_trakt_page),
+                showCopyCode = false,
                 onDismiss = { viewModel.cancelTraktAuth() }
             )
         }
@@ -3906,10 +4170,13 @@ private fun TraktActivationModal(
     onDismiss: () -> Unit,
     title: String? = null,
     instruction: String? = null,
-    onOpenUrl: (() -> Unit)? = null
+    onOpenUrl: (() -> Unit)? = null,
+    openUrlLabel: String? = null,
+    showCopyCode: Boolean = true
 ) {
     val resolvedTitle = title ?: stringResource(R.string.settings_connect_trakt)
     val resolvedInstruction = instruction ?: stringResource(R.string.settings_trakt_instruction, verificationUrl)
+    val resolvedOpenUrlLabel = openUrlLabel ?: stringResource(R.string.settings_open_auth_page)
     val accentColor = resolveAccentColor(fallback = Pink)
     val accentContentColor = contrastingContentColor(accentColor)
     val focusRequester = remember { FocusRequester() }
@@ -4022,28 +4289,30 @@ private fun TraktActivationModal(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.settings_open_auth_page),
+                            text = resolvedOpenUrlLabel,
                             style = ArflixTypography.button,
                             color = accentContentColor
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    if (showCopyCode) {
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
-                            .clickable { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(userCode)) }
-                            .padding(vertical = 12.dp, horizontal = 18.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_copy_code),
-                            style = ArflixTypography.button,
-                            color = Color.White
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                                .clickable { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(userCode)) }
+                                .padding(vertical = 12.dp, horizontal = 18.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_copy_code),
+                                style = ArflixTypography.button,
+                                color = Color.White
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -4338,11 +4607,23 @@ private fun MobileSettingsLayout(
                     .fillMaxSize()
                     .arvioBackSurface(backMotion)
                     .background(appBackgroundDark())
+                    // The main settings list stays composed underneath this page,
+                    // and an opaque background hides it without stopping a touch.
+                    // A tap that lands anywhere this page has no control - the gap
+                    // under a heading, the space beside a row, the empty area below
+                    // a short list - therefore reached whatever sat at the same
+                    // spot in the list below, which starts with the app language
+                    // row. Opening a sub-page and tapping just under its heading
+                    // opened the language picker. Swallow what no child of this
+                    // page took; children are hit first, so nothing here loses a
+                    // tap it would otherwise have received.
+                    .pointerInput(Unit) { detectTapGestures { } }
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                        .height(56.dp)
+                        .padding(horizontal = 24.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -4352,11 +4633,11 @@ private fun MobileSettingsLayout(
                         modifier = Modifier
                             .clickable { onNavigate(backTarget) }
                             .padding(end = 16.dp)
-                            .size(28.dp)
+                            .size(24.dp)
                     )
                     Text(
                         text = mobileCategoryTitle(displayedSubPage),
-                        style = ArflixTypography.heroTitle.copy(fontSize = 24.sp),
+                        style = ArflixTypography.heroTitle.copy(fontSize = 20.sp),
                         color = TextPrimary,
                         modifier = Modifier.weight(1f)
                     )
@@ -4403,6 +4684,7 @@ private fun MobileSettingsLayout(
  */
 @Composable
 private fun mobileCategoryTitle(page: String): String = when (page) {
+    "Stream Integrations" -> stringResource(R.string.settings_stream_integrations)
     "Playback & Controls" -> stringResource(R.string.settings_cat_playback_controls)
     "Audio & Subtitles" -> stringResource(R.string.settings_cat_audio_subtitles)
     "Appearance" -> stringResource(R.string.interface_label)
@@ -4487,6 +4769,7 @@ private fun MobileSettingsMainPage(
         item {
             MobileSettingsCategory(title = stringResource(R.string.settings_section_categories)) {
                 val categories = buildList {
+                    add("Stream Integrations" to Icons.Default.Tune)
                     add("Playback & Controls" to Icons.Default.PlayArrow)
                     add("Audio & Subtitles" to Icons.Default.Speaker)
                     add("Appearance" to Icons.Default.Palette)
@@ -4665,6 +4948,31 @@ private fun MobileSettingsSubPage(
             onBulkToggle = { visible -> viewModel.setAllIptvGroupsVisible(categoriesPlaylistId, visible) },
             onMoveUp = { viewModel.moveIptvGroupUp(categoriesPlaylistId, it) },
             onMoveDown = { viewModel.moveIptvGroupDown(categoriesPlaylistId, it) },
+            showCategoryTabs = uiState.iptvSelectedIsStalkerPortal,
+            selectedTab = uiState.iptvCategoryTab,
+            onSelectTab = { tab -> viewModel.setIptvCategoryTab(tab) },
+            catalogCategories = when (uiState.iptvCategoryTab.catalogKind()) {
+                StalkerCatalogKind.MOVIES -> uiState.iptvStalkerVodCategories
+                StalkerCatalogKind.SERIES -> uiState.iptvStalkerSeriesCategories
+                null -> emptyList()
+            },
+            hiddenCatalogCategories = when (uiState.iptvCategoryTab.catalogKind()) {
+                StalkerCatalogKind.MOVIES -> uiState.iptvHiddenVodCategories
+                StalkerCatalogKind.SERIES -> uiState.iptvHiddenSeriesCategories
+                null -> emptyList()
+            },
+            isCatalogLoading = uiState.isIptvStalkerCategoriesLoading,
+            isCatalogLoaded = uiState.iptvStalkerCategoriesLoaded,
+            onToggleCatalogCategory = { categoryId ->
+                uiState.iptvCategoryTab.catalogKind()?.let { kind ->
+                    viewModel.toggleIptvHiddenStalkerCategory(kind, categoriesPlaylistId, categoryId)
+                }
+            },
+            onBulkToggleCatalogCategories = { visible ->
+                uiState.iptvCategoryTab.catalogKind()?.let { kind ->
+                    viewModel.setAllIptvStalkerCategoriesVisible(kind, categoriesPlaylistId, visible)
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 0.dp)
@@ -4685,6 +4993,16 @@ private fun MobileSettingsSubPage(
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         when (page) {
+            "Stream Integrations" -> {
+                StreamIntegrationsScreen(
+                    items = uiState.streamProviderItems,
+                    searchMode = uiState.streamSearchMode,
+                    onSearchModeChange = { viewModel.setStreamSearchMode(it) },
+                    onToggle = { viewModel.toggleStreamProvider(it.id) },
+                    onMoveUp = { viewModel.moveStreamProviderUp(it.id) },
+                    onMoveDown = { viewModel.moveStreamProviderDown(it.id) }
+                )
+            }
             "Playback & Controls" -> {
                 MobileSettingsCategory(title = stringResource(R.string.settings_section_playback)) {
                     MobileSettingsRow(
@@ -4875,8 +5193,18 @@ private fun MobileSettingsSubPage(
                         toggleChecked = uiState.filterSubtitlesByLanguage,
                         isToggle = true,
                         isFocused = false,
-                        showDivider = false,
                         onClick = { viewModel.setFilterSubtitlesByLanguage(!uiState.filterSubtitlesByLanguage) }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.Subtitles,
+                        title = stringResource(R.string.use_forced_subtitles),
+                        subtitle = stringResource(R.string.use_forced_subtitles_desc),
+                        value = stringResource(if (uiState.useForcedSubtitles) R.string.on else R.string.off),
+                        toggleChecked = uiState.useForcedSubtitles,
+                        isToggle = true,
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = { viewModel.setUseForcedSubtitles(!uiState.useForcedSubtitles) }
                     )
                 }
                 MobileSettingsCategory(title = stringResource(R.string.ai_subtitles_section)) {
@@ -5001,6 +5329,20 @@ private fun MobileSettingsSubPage(
                         onClick = { viewModel.setShowEpisodeRatings(!uiState.showEpisodeRatings) }
                     )
                     MobileSettingsRow(
+                        icon = Icons.Default.SwapHoriz,
+                        title = stringResource(R.string.anime_episode_structuring),
+                        subtitle = stringResource(R.string.anime_episode_structuring_desc),
+                        value = stringResource(
+                            if (uiState.animeStructuringStyle == AnimeStructuringStyle.BROADCAST)
+                                R.string.anime_structuring_broadcast
+                            else
+                                R.string.anime_structuring_standard
+                        ),
+                        isFocused = false,
+                        showDivider = true,
+                        onClick = { viewModel.cycleAnimeStructuringStyle() }
+                    )
+                    MobileSettingsRow(
                         icon = Icons.Default.VisibilityOff,
                         title = stringResource(R.string.spoiler_blur),
                         value = stringResource(if (uiState.spoilerBlurEnabled) R.string.on else R.string.off),
@@ -5036,8 +5378,6 @@ private fun MobileSettingsSubPage(
                     focusedIndex = -1,
                     focusedActionIndex = 0,
                     onToggleAddon = { viewModel.toggleAddon(it) },
-                    onMoveAddonUp = { viewModel.moveAddonUp(it) },
-                    onMoveAddonDown = { viewModel.moveAddonDown(it) },
                     onDeleteAddon = { viewModel.removeAddon(it) },
                     onAddCustomAddon = onAddCustomAddonClick,
                     onRefreshAddons = { viewModel.refreshAddons() }
@@ -5062,6 +5402,8 @@ private fun MobileSettingsSubPage(
                     focusedActionIndex = 0,
                     onAddCatalog = onAddCatalogClick,
                     onImportCatalogPack = onImportCatalogPackClick,
+                    builtInCollectionsEnabled = uiState.builtInCollectionsEnabled,
+                    onToggleBuiltInCollections = { viewModel.toggleBuiltInCollections() },
                     onRenameCatalog = onRenameCatalogClick,
                     onMoveCatalogUp = { viewModel.moveCatalogUp(it.id) },
                     onMoveCatalogDown = { viewModel.moveCatalogDown(it.id) },
@@ -5555,7 +5897,7 @@ private fun tvSettingsSidebarGroup(section: String): String {
     return when (section) {
         "accounts", "profiles" -> stringResource(R.string.settings_group_profile)
         "playback", "language", "subtitles", "ai_subtitles" -> stringResource(R.string.playback)
-        "iptv", "stremio", "catalogs", "home_server" -> stringResource(R.string.sources)
+        "iptv", "stremio", "catalogs", "home_server", "stream_integrations" -> stringResource(R.string.sources)
         else -> stringResource(R.string.settings_group_system)
     }
 }
@@ -5656,9 +5998,13 @@ private fun TvSettingsSectionHeader(
             verticalAlignment = Alignment.Bottom
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                val isStreamIntegrations = section == "stream_integrations"
                 Text(
                     text = tvSettingsSectionTitle(section),
-                    style = ArflixTypography.sectionTitle.copy(fontSize = 24.sp),
+                    style = ArflixTypography.sectionTitle.copy(
+                        fontSize = if (isStreamIntegrations) 28.sp else 24.sp,
+                        fontWeight = if (isStreamIntegrations) FontWeight.Bold else FontWeight.SemiBold
+                    ),
                     color = TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -5666,7 +6012,9 @@ private fun TvSettingsSectionHeader(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = tvSettingsSectionDescription(section),
-                    style = ArflixTypography.caption.copy(fontSize = 13.sp),
+                    style = ArflixTypography.caption.copy(
+                        fontSize = if (isStreamIntegrations) 14.sp else 13.sp
+                    ),
                     color = TextSecondary.copy(alpha = 0.74f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -5833,6 +6181,7 @@ private fun tvSettingsSectionTitle(section: String): String {
         "appearance" -> stringResource(R.string.interface_label)
         "profiles" -> stringResource(R.string.profiles)
         "network" -> stringResource(R.string.network)
+        "stream_integrations" -> stringResource(R.string.settings_stream_integrations)
         "iptv" -> stringResource(R.string.iptv)
         "home_server" -> stringResource(R.string.settings_home_server)
         "catalogs" -> stringResource(R.string.catalogs)
@@ -5852,6 +6201,7 @@ private fun tvSettingsSectionDescription(section: String): String {
         "appearance" -> stringResource(R.string.settings_desc_appearance)
         "profiles" -> stringResource(R.string.settings_desc_profiles)
         "network" -> stringResource(R.string.settings_desc_network)
+        "stream_integrations" -> stringResource(R.string.settings_desc_stream_integrations)
         "iptv" -> stringResource(R.string.settings_desc_iptv)
         "home_server" -> stringResource(R.string.settings_desc_home_server)
         "catalogs" -> stringResource(R.string.settings_desc_catalogs)
@@ -5890,6 +6240,15 @@ private fun tvSettingsSectionPills(
         )
         "profiles" -> listOf(if (uiState.skipProfileSelection) stringResource(R.string.settings_pill_skip_on) else stringResource(R.string.settings_pill_picker_on))
         "network" -> listOf(stringResource(R.string.settings_pill_dns, uiState.dnsProvider), if (uiState.showLoadingStats) stringResource(R.string.settings_pill_stats_on) else stringResource(R.string.settings_pill_stats_off))
+        "stream_integrations" -> listOf(
+            if (uiState.streamSearchMode == StreamSearchMode.SEQUENTIAL) {
+                stringResource(R.string.settings_stream_search_mode_sequential)
+            } else {
+                stringResource(R.string.settings_stream_search_mode_parallel)
+            },
+            stringResource(R.string.settings_pill_integrations, uiState.streamProviderItems.count { it.isEnabled }),
+            stringResource(R.string.settings_profile_scoped)
+        )
         "iptv" -> listOf(
             stringResource(R.string.settings_pill_playlists, uiState.iptvPlaylists.size),
             stringResource(R.string.settings_pill_channels, formatCompactCount(uiState.iptvChannelCount)),
@@ -5947,6 +6306,15 @@ private fun tvSettingsPanelFacts(
             stringResource(R.string.settings_fact_loading_stats) to if (uiState.showLoadingStats) stringResource(R.string.on) else stringResource(R.string.off),
             stringResource(R.string.settings_fact_user_agent) to formatUserAgentPreview(uiState.customUserAgent, 40)
         )
+        "stream_integrations" -> listOf(
+            stringResource(R.string.settings_stream_search_mode) to if (uiState.streamSearchMode == StreamSearchMode.SEQUENTIAL) {
+                stringResource(R.string.settings_stream_search_mode_sequential)
+            } else {
+                stringResource(R.string.settings_stream_search_mode_parallel)
+            },
+            stringResource(R.string.settings_fact_integrations) to uiState.streamProviderItems.count { it.isEnabled }.toString(),
+            stringResource(R.string.settings_fact_scope) to stringResource(R.string.settings_current_profile)
+        )
         "iptv" -> listOf(
             stringResource(R.string.settings_fact_playlists) to "${uiState.iptvPlaylists.size}/$MAX_IPTV_PLAYLISTS",
             stringResource(R.string.settings_fact_channels) to formatCompactCount(uiState.iptvChannelCount),
@@ -6003,6 +6371,16 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
         "appearance" -> TvSettingsHelp(stringResource(R.string.interface_label), stringResource(R.string.settings_help_interface_desc))
         "profiles" -> TvSettingsHelp(stringResource(R.string.profiles), stringResource(R.string.settings_help_profiles_desc))
         "network" -> TvSettingsHelp(stringResource(R.string.network), stringResource(R.string.settings_desc_network))
+        "stream_integrations" -> when (focusedIndex) {
+            0 -> TvSettingsHelp(
+                stringResource(R.string.settings_stream_search_mode),
+                stringResource(R.string.settings_stream_search_mode_sequential_desc)
+            )
+            else -> TvSettingsHelp(
+                stringResource(R.string.settings_stream_integrations),
+                stringResource(R.string.settings_desc_stream_integrations)
+            )
+        }
         "iptv" -> when (focusedIndex) {
             0 -> TvSettingsHelp(stringResource(R.string.settings_help_add_playlist), stringResource(R.string.settings_help_add_playlist_desc))
             1 -> TvSettingsHelp(stringResource(R.string.settings_help_stalker), stringResource(R.string.settings_help_stalker_desc))
@@ -6066,6 +6444,7 @@ private fun TvGeneralSettingsRows(
     clockFormat: String = "24h",
     showBudget: Boolean = true,
     showEpisodeRatings: Boolean = false,
+    animeStructuringStyle: AnimeStructuringStyle = AnimeStructuringStyle.BROADCAST,
     smoothScrolling: Boolean = true,
     spoilerBlurEnabled: Boolean = false,
     accentColor: String = "White",
@@ -6089,6 +6468,7 @@ private fun TvGeneralSettingsRows(
     onClockFormatClick: () -> Unit = {},
     onShowBudgetToggle: (Boolean) -> Unit = {},
     onShowEpisodeRatingsToggle: (Boolean) -> Unit = {},
+    onAnimeStructuringStyleToggle: () -> Unit = {},
     onSmoothScrollingToggle: (Boolean) -> Unit = {},
     onSpoilerBlurToggle: (Boolean) -> Unit = {},
     onAccentColorClick: () -> Unit = {},
@@ -6106,6 +6486,8 @@ private fun TvGeneralSettingsRows(
     onSubtitleStylizedToggle: () -> Unit = {},
     filterSubtitlesByLanguage: Boolean = true,
     onFilterSubtitlesByLanguageToggle: (Boolean) -> Unit = {},
+    useForcedSubtitles: Boolean = false,
+    onUseForcedSubtitlesToggle: (Boolean) -> Unit = {},
     onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
     onTrailerSoundEnabledToggle: (Boolean) -> Unit = {},
     trailerInCards: Boolean = true,
@@ -6181,6 +6563,7 @@ private fun TvGeneralSettingsRows(
                 42 -> SettingsRow(Icons.Default.Subtitles, stringResource(R.string.subtitle_font), stringResource(R.string.subtitle_font_desc), subtitleFont, focusedIndex == localIndex, onSubtitleFontClick, Modifier.settingsFocusSlot(localIndex))
                 8 -> SettingsToggleRow(stringResource(R.string.subtitle_stylized), stringResource(R.string.subtitle_stylized_desc), subtitleStylized, focusedIndex == localIndex, { onSubtitleStylizedToggle() }, Modifier.settingsFocusSlot(localIndex))
                 9 -> SettingsToggleRow(stringResource(R.string.filter_subtitles), stringResource(R.string.filter_subtitles_desc), filterSubtitlesByLanguage, focusedIndex == localIndex, onFilterSubtitlesByLanguageToggle, Modifier.settingsFocusSlot(localIndex))
+                45 -> SettingsToggleRow(stringResource(R.string.use_forced_subtitles), stringResource(R.string.use_forced_subtitles_desc), useForcedSubtitles, focusedIndex == localIndex, onUseForcedSubtitlesToggle, Modifier.settingsFocusSlot(localIndex))
                 10 -> SettingsToggleRow(stringResource(R.string.auto_play_next_title), stringResource(R.string.auto_play_desc), autoPlayNext, focusedIndex == localIndex, onAutoPlayToggle, Modifier.settingsFocusSlot(localIndex))
                 11 -> SettingsToggleRow(stringResource(R.string.autoplay), stringResource(R.string.autoplay_desc), autoPlaySingleSource, focusedIndex == localIndex, onAutoPlaySingleSourceToggle, Modifier.settingsFocusSlot(localIndex))
                 12 -> SettingsRow(Icons.Default.HighQuality, stringResource(R.string.auto_play_min_quality), stringResource(R.string.auto_play_quality_desc), autoPlayMinQuality, focusedIndex == localIndex, onAutoPlayMinQualityClick, Modifier.settingsFocusSlot(localIndex))
@@ -6210,6 +6593,20 @@ private fun TvGeneralSettingsRows(
                 21 -> SettingsRow(Icons.Default.Schedule, stringResource(R.string.clock_format), stringResource(R.string.clock_format_desc), if (clockFormat == "12h") "12-hour" else "24-hour", focusedIndex == localIndex, onClockFormatClick, Modifier.settingsFocusSlot(localIndex))
                 22 -> SettingsToggleRow(stringResource(R.string.show_budget), stringResource(R.string.show_budget_desc), showBudget, focusedIndex == localIndex, onShowBudgetToggle, Modifier.settingsFocusSlot(localIndex))
                 41 -> SettingsToggleRow(stringResource(R.string.show_episode_ratings), stringResource(R.string.show_episode_ratings_desc), showEpisodeRatings, focusedIndex == localIndex, onShowEpisodeRatingsToggle, Modifier.settingsFocusSlot(localIndex))
+                46 -> SettingsRow(
+                    icon = Icons.Default.SwapHoriz,
+                    title = stringResource(R.string.anime_episode_structuring),
+                    subtitle = stringResource(R.string.anime_episode_structuring_desc),
+                    value = stringResource(
+                        if (animeStructuringStyle == AnimeStructuringStyle.BROADCAST)
+                            R.string.anime_structuring_broadcast
+                        else
+                            R.string.anime_structuring_standard
+                    ),
+                    isFocused = focusedIndex == localIndex,
+                    onClick = onAnimeStructuringStyleToggle,
+                    modifier = Modifier.settingsFocusSlot(localIndex)
+                )
                 36 -> SettingsToggleRow(stringResource(R.string.smooth_scrolling), stringResource(R.string.smooth_scrolling_desc), smoothScrolling, focusedIndex == localIndex, onSmoothScrollingToggle, Modifier.settingsFocusSlot(localIndex))
                 23 -> SettingsToggleRow(stringResource(R.string.spoiler_blur), stringResource(R.string.spoiler_blur_desc), spoilerBlurEnabled, focusedIndex == localIndex, onSpoilerBlurToggle, Modifier.settingsFocusSlot(localIndex))
                 24 -> SettingsRow(Icons.Default.Palette, stringResource(R.string.accent_color), stringResource(R.string.accent_color_desc), accentColor, focusedIndex == localIndex, onAccentColorClick, Modifier.settingsFocusSlot(localIndex))
@@ -6276,6 +6673,7 @@ private fun GeneralSettings(
     clockFormat: String = "24h",
     showBudget: Boolean = true,
     showEpisodeRatings: Boolean = false,
+    animeStructuringStyle: AnimeStructuringStyle = AnimeStructuringStyle.BROADCAST,
     spoilerBlurEnabled: Boolean = false,
     accentColor: String = "White",
     volumeBoostDb: Int = 0,
@@ -6296,6 +6694,7 @@ private fun GeneralSettings(
     onClockFormatClick: () -> Unit = {},
     onShowBudgetToggle: (Boolean) -> Unit = {},
     onShowEpisodeRatingsToggle: (Boolean) -> Unit = {},
+    onAnimeStructuringStyleToggle: () -> Unit = {},
     onSpoilerBlurToggle: (Boolean) -> Unit = {},
     onAccentColorClick: () -> Unit = {},
     showLoadingStats: Boolean = true,
@@ -6576,6 +6975,21 @@ private fun GeneralSettings(
             isFocused = focusedIndex == 41,
             onToggle = onShowEpisodeRatingsToggle,
             modifier = Modifier.settingsFocusSlot(41)
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingsRow(
+            icon = Icons.Default.SwapHoriz,
+            title = stringResource(R.string.anime_episode_structuring),
+            subtitle = stringResource(R.string.anime_episode_structuring_desc),
+            value = stringResource(
+                if (animeStructuringStyle == AnimeStructuringStyle.BROADCAST)
+                    R.string.anime_structuring_broadcast
+                else
+                    R.string.anime_structuring_standard
+            ),
+            isFocused = focusedIndex == 46,
+            onClick = onAnimeStructuringStyleToggle,
+            modifier = Modifier.settingsFocusSlot(46)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
@@ -8600,6 +9014,8 @@ private fun CatalogsSettings(
     focusedActionIndex: Int,
     onAddCatalog: () -> Unit,
     onImportCatalogPack: () -> Unit,
+    builtInCollectionsEnabled: Boolean,
+    onToggleBuiltInCollections: () -> Unit,
     onRenameCatalog: (CatalogConfig) -> Unit,
     onMoveCatalogUp: (CatalogConfig) -> Unit,
     onMoveCatalogDown: (CatalogConfig) -> Unit,
@@ -8629,12 +9045,13 @@ private fun CatalogsSettings(
             }
             MobileSettingsCategory(title = stringResource(R.string.settings_section_add_catalog)) {
                 MobileSettingsRow(icon = Icons.Default.Add, title = stringResource(R.string.add_catalog), subtitle = stringResource(R.string.add_catalog_desc), value = "", isFocused = false, showDivider = true, onClick = onAddCatalog)
-                MobileSettingsRow(icon = Icons.Default.Widgets, title = stringResource(R.string.settings_catalog_pack_import_title), subtitle = stringResource(R.string.settings_catalog_pack_import_desc), value = "", isFocused = false, showDivider = false, onClick = onImportCatalogPack)
+                MobileSettingsRow(icon = Icons.Default.Widgets, title = stringResource(R.string.settings_catalog_pack_import_title), subtitle = stringResource(R.string.settings_catalog_pack_import_desc), value = "", isFocused = false, showDivider = true, onClick = onImportCatalogPack)
+                MobileSettingsRow(icon = if (builtInCollectionsEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff, title = stringResource(R.string.settings_builtin_collections_title), subtitle = stringResource(R.string.settings_builtin_collections_desc), value = stringResource(if (builtInCollectionsEnabled) R.string.on else R.string.off), isFocused = false, showDivider = false, onClick = onToggleBuiltInCollections)
             }
             if (catalogs.isNotEmpty()) {
                 MobileSettingsCategory(title = stringResource(R.string.settings_section_my_catalogs)) {
                     catalogs.forEachIndexed { index, catalog ->
-                        val title = if (catalog.isPreinstalled) { when (catalog.kind) { CatalogKind.COLLECTION -> stringResource(R.string.settings_title_builtin_collection, catalog.title); CatalogKind.COLLECTION_RAIL -> stringResource(R.string.settings_title_builtin_rail, catalog.title); else -> stringResource(R.string.settings_title_builtin, catalog.title) } } else catalog.title
+                        val title = if (catalog.isPreinstalled && catalog.collectionRailKey == null) { when (catalog.kind) { CatalogKind.COLLECTION -> stringResource(R.string.settings_title_builtin_collection, catalog.title); CatalogKind.COLLECTION_RAIL -> stringResource(R.string.settings_title_builtin_rail, catalog.title); else -> stringResource(R.string.settings_title_builtin, catalog.title) } } else catalog.title
                         val currentPackId = catalog.packId
                         val prevPackId = if (index > 0) catalogs[index - 1].packId else null
                         val showPackHeader = currentPackId != null && currentPackId != prevPackId && catalog.isBulkDeletablePack
@@ -8643,7 +9060,7 @@ private fun CatalogsSettings(
                         val subtitle = run {
                             val baseSubtitle = when {
                                 catalog.kind == CatalogKind.COLLECTION_RAIL -> {
-                                    val group = catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: collectionFallback
+                                    val group = (if (catalog.collectionRailKey != null) catalog.packName else catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() }) ?: collectionFallback
                                     stringResource(R.string.settings_group_rail, group)
                                 }
                                 catalog.kind == CatalogKind.COLLECTION -> {
@@ -8763,8 +9180,10 @@ private fun CatalogsSettings(
             Spacer(modifier = Modifier.height(16.dp))
             SettingsRow(icon = Icons.Default.Widgets, title = stringResource(R.string.settings_catalog_pack_import_title), subtitle = stringResource(R.string.settings_catalog_pack_import_desc), value = stringResource(R.string.settings_catalog_pack_import_badge), isFocused = focusedIndex == 1, onClick = onImportCatalogPack, modifier = Modifier.settingsFocusSlot(1))
             Spacer(modifier = Modifier.height(16.dp))
+            SettingsRow(icon = if (builtInCollectionsEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff, title = stringResource(R.string.settings_builtin_collections_title), subtitle = stringResource(R.string.settings_builtin_collections_desc), value = stringResource(if (builtInCollectionsEnabled) R.string.on else R.string.off), isFocused = focusedIndex == 2, onClick = onToggleBuiltInCollections, modifier = Modifier.settingsFocusSlot(2))
+            Spacer(modifier = Modifier.height(16.dp))
             catalogs.forEachIndexed { index, catalog ->
-                val rowFocusIndex = index + 2; val isRowFocused = focusedIndex == rowFocusIndex
+                val rowFocusIndex = index + 3; val isRowFocused = focusedIndex == rowFocusIndex
                 val currentPackId = catalog.packId
                 val prevPackId = if (index > 0) catalogs[index - 1].packId else null
                 val showPackHeader = currentPackId != null && currentPackId != prevPackId && catalog.isBulkDeletablePack
@@ -8793,13 +9212,13 @@ private fun CatalogsSettings(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                val title = if (catalog.isPreinstalled) { when (catalog.kind) { CatalogKind.COLLECTION -> stringResource(R.string.settings_title_builtin_collection, catalog.title); CatalogKind.COLLECTION_RAIL -> stringResource(R.string.settings_title_builtin_rail, catalog.title); else -> stringResource(R.string.settings_title_builtin, catalog.title) } } else catalog.title
+                val title = if (catalog.isPreinstalled && catalog.collectionRailKey == null) { when (catalog.kind) { CatalogKind.COLLECTION -> stringResource(R.string.settings_title_builtin_collection, catalog.title); CatalogKind.COLLECTION_RAIL -> stringResource(R.string.settings_title_builtin_rail, catalog.title); else -> stringResource(R.string.settings_title_builtin, catalog.title) } } else catalog.title
                 val collectionFallback = stringResource(R.string.settings_collection_fallback)
                 val addonFallback = stringResource(R.string.settings_source_addon)
                 val subtitle = run {
                     val baseSubtitle = when {
                         catalog.kind == CatalogKind.COLLECTION_RAIL -> {
-                            val group = catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: collectionFallback
+                            val group = (if (catalog.collectionRailKey != null) catalog.packName else catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() }) ?: collectionFallback
                             stringResource(R.string.settings_group_rail, group)
                         }
                         catalog.kind == CatalogKind.COLLECTION -> {
@@ -8924,8 +9343,6 @@ private fun StremioAddonsSettings(
     focusedIndex: Int = -1,
     focusedActionIndex: Int = 0,
     onToggleAddon: (String) -> Unit = {},
-    onMoveAddonUp: (String) -> Unit = {},
-    onMoveAddonDown: (String) -> Unit = {},
     onDeleteAddon: (String) -> Unit = {},
     onAddCustomAddon: () -> Unit = {},
     onRefreshAddons: () -> Unit = {}
@@ -8968,8 +9385,6 @@ private fun StremioAddonsSettings(
                 } else {
                     addons.forEachIndexed { index, addon ->
                         val canDelete = !(addon.id == "opensubtitles" && addon.type == com.arflix.tv.data.model.AddonType.SUBTITLE)
-                        val canMoveUp = index > 0
-                        val canMoveDown = index < addons.lastIndex
                         Row(
                             modifier = Modifier.fillMaxWidth().clickable { onToggleAddon(addon.id) }.padding(horizontal = 16.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -8984,36 +9399,6 @@ private fun StremioAddonsSettings(
                             // Toggle switch
                             Box(modifier = Modifier.width(44.dp).height(24.dp).background(color = if (addon.isEnabled) SuccessGreen else Color.White.copy(alpha = 0.2f), shape = RoundedCornerShape(13.dp)).padding(3.dp), contentAlignment = if (addon.isEnabled) Alignment.CenterEnd else Alignment.CenterStart) {
                                 Box(modifier = Modifier.size(18.dp).background(color = Color.White, shape = RoundedCornerShape(10.dp)))
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clickable(enabled = canMoveUp) { onMoveAddonUp(addon.id) }
-                                    .background(Color.White.copy(alpha = if (canMoveUp) 0.1f else 0.04f), RoundedCornerShape(8.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.ArrowUpward,
-                                    contentDescription = stringResource(R.string.settings_cd_move_addon_up),
-                                    tint = TextSecondary.copy(alpha = if (canMoveUp) 1f else 0.35f),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clickable(enabled = canMoveDown) { onMoveAddonDown(addon.id) }
-                                    .background(Color.White.copy(alpha = if (canMoveDown) 0.1f else 0.04f), RoundedCornerShape(8.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.ArrowDownward,
-                                    contentDescription = stringResource(R.string.settings_cd_move_addon_down),
-                                    tint = TextSecondary.copy(alpha = if (canMoveDown) 1f else 0.35f),
-                                    modifier = Modifier.size(18.dp)
-                                )
                             }
                             if (canDelete) {
                                 Spacer(modifier = Modifier.width(12.dp))
@@ -9044,8 +9429,6 @@ private fun StremioAddonsSettings(
                         focusedAction = if (focusedIndex == index) focusedActionIndex else -1,
                         canDelete = canDelete,
                         onToggle = { onToggleAddon(addon.id) },
-                        onMoveUp = { onMoveAddonUp(addon.id) },
-                        onMoveDown = { onMoveAddonDown(addon.id) },
                         onDelete = { onDeleteAddon(addon.id) },
                         modifier = Modifier.settingsFocusSlot(index)
                     )
@@ -9126,15 +9509,11 @@ private fun AddonRow(
     focusedAction: Int = -1,
     canDelete: Boolean = true,
     onToggle: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isToggleFocused = isFocused && focusedAction == 0
-    val isMoveUpFocused = isFocused && focusedAction == 1
-    val isMoveDownFocused = isFocused && focusedAction == 2
-    val isDeleteFocused = canDelete && isFocused && focusedAction == 3
+    val isDeleteFocused = canDelete && isFocused && focusedAction == 1
     val isEnabled = addon.isEnabled
     val focusRingColor = resolveAccentColor(fallback = Pink)
 
@@ -9240,18 +9619,6 @@ private fun AddonRow(
                     )
                 }
             }
-
-            CatalogActionChip(
-                icon = Icons.Default.ArrowUpward,
-                isFocused = isMoveUpFocused,
-                onClick = onMoveUp
-            )
-
-            CatalogActionChip(
-                icon = Icons.Default.ArrowDownward,
-                isFocused = isMoveDownFocused,
-                onClick = onMoveDown
-            )
 
             if (canDelete) {
                 CatalogActionChip(
@@ -11716,6 +12083,20 @@ private fun IptvCategoriesSettings(
     onToggleHidden: (String) -> Unit,
     onReset: () -> Unit,
     onBulkToggle: (visible: Boolean) -> Unit = {},
+    // The three-button bar and everything behind it. Off for M3U and Xtream
+    // sources, which have no catalog categories to pick - their page is the
+    // live TV list alone, exactly as before.
+    showCategoryTabs: Boolean = false,
+    selectedTab: StalkerCategoryTab = StalkerCategoryTab.LIVE,
+    onSelectTab: (StalkerCategoryTab) -> Unit = {},
+    catalogCategories: List<com.arflix.tv.data.api.StalkerApi.StalkerCategory> = emptyList(),
+    hiddenCatalogCategories: List<String> = emptyList(),
+    isCatalogLoading: Boolean = false,
+    // False until this portal's names have been stored by a channel load. An
+    // empty list then means "not fetched yet", not "this portal has none".
+    isCatalogLoaded: Boolean = false,
+    onToggleCatalogCategory: (String) -> Unit = {},
+    onBulkToggleCatalogCategories: (visible: Boolean) -> Unit = {},
     // Hold-and-move is a D-pad affair: the phone route renders rows without
     // chips at all, so both of these stay at their defaults there.
     heldGroup: String? = null,
@@ -11736,10 +12117,12 @@ private fun IptvCategoriesSettings(
         )
     }
     val categoryListState = rememberLazyListState()
-    // The bulk toggle occupies focus index 1 whenever there are categories, so
-    // the first category row sits at index 2. Reset stays at index 0. The same
-    // function the D-pad handling uses, so the two can never drift apart.
-    val firstGroupIndex = firstIptvGroupIndex(orderedGroups)
+    // The tab bar takes focus index 0 when it is there; the bulk toggle
+    // occupies the index after Reset whenever there are categories, so the
+    // first category row sits two below Reset. The same functions the D-pad
+    // handling uses, so the two can never drift apart.
+    val tabOffset = if (showCategoryTabs) 1 else 0
+    val firstGroupIndex = firstIptvGroupIndex(orderedGroups, showCategoryTabs)
 
     // Bulk button reflects the current state: when every category is hidden
     // it offers "Show all", otherwise "Hide all".
@@ -11773,6 +12156,34 @@ private fun IptvCategoriesSettings(
             )
         }
 
+        if (showCategoryTabs) {
+            StalkerCategoryTabBar(
+                selectedTab = selectedTab,
+                cursorTab = StalkerCategoryTab.entries.getOrNull(focusedActionIndex) ?: selectedTab,
+                isFocused = focusedIndex == 0,
+                onSelectTab = onSelectTab
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+        }
+
+        if (selectedTab != StalkerCategoryTab.LIVE) {
+            StalkerCatalogCategoryList(
+                portalId = playlistId,
+                categories = catalogCategories,
+                hiddenCategories = hiddenCatalogCategories,
+                isLoading = isCatalogLoading,
+                isLoaded = isCatalogLoaded,
+                focusedIndex = focusedIndex,
+                onToggleCategory = onToggleCatalogCategory,
+                onBulkToggle = onBulkToggleCatalogCategories,
+                // Exactly what the live TV list below does: the phone page
+                // fills the height it was given, the TV page sits in a column
+                // that scrolls as a whole and must not ask for a weight there.
+                modifier = if (isMobile) Modifier.weight(1f) else Modifier
+            )
+            return@Column
+        }
+
         if (isMobile) {
             // The TV row squeezes its title, its description and its badge into one line and
             // relies on a focus frame to be readable; on a phone that came out overlapping.
@@ -11792,9 +12203,9 @@ private fun IptvCategoriesSettings(
                 title = stringResource(R.string.settings_reset_order),
                 subtitle = stringResource(R.string.settings_reset_order_desc),
                 value = stringResource(R.string.settings_badge_reset),
-                isFocused = focusedIndex == 0,
+                isFocused = focusedIndex == tabOffset,
                 onClick = onReset,
-                modifier = Modifier.settingsFocusSlot(0)
+                modifier = Modifier.settingsFocusSlot(tabOffset)
             )
         }
 
@@ -11818,9 +12229,9 @@ private fun IptvCategoriesSettings(
                     title = bulkTitle,
                     subtitle = bulkSubtitle,
                     value = stringResource(R.string.settings_badge_reset),
-                    isFocused = focusedIndex == 1,
+                    isFocused = focusedIndex == tabOffset + 1,
                     onClick = { onBulkToggle(allCategoriesHidden) },
-                    modifier = Modifier.settingsFocusSlot(1)
+                    modifier = Modifier.settingsFocusSlot(tabOffset + 1)
                 )
             }
         }
@@ -11937,6 +12348,288 @@ private fun IptvCategoriesSettings(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The three-button bar above the categories list: live TV, movies, series.
+ *
+ * Only a Stalker portal gets it, because only a Stalker portal has a movie and
+ * a series catalog to narrow. [selectedTab] is the list currently on screen;
+ * [cursorTab] is where the D-pad sits, which is the same thing while the bar
+ * has focus and stays put when the focus walks down into the list.
+ */
+@Composable
+private fun StalkerCategoryTabBar(
+    selectedTab: StalkerCategoryTab,
+    cursorTab: StalkerCategoryTab,
+    isFocused: Boolean,
+    onSelectTab: (StalkerCategoryTab) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accent = resolveAccentColor(fallback = Pink)
+    Row(
+        modifier = modifier
+            .settingsFocusSlot(0)
+            .fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        StalkerCategoryTab.entries.forEach { tab ->
+            val isSelected = tab == selectedTab
+            val hasCursor = isFocused && tab == cursorTab
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(
+                        when {
+                            isSelected -> accent.copy(alpha = 0.28f)
+                            else -> Color.White.copy(alpha = 0.06f)
+                        },
+                        RoundedCornerShape(12.dp)
+                    )
+                    .then(
+                        if (hasCursor) Modifier.border(2.dp, accent, RoundedCornerShape(12.dp))
+                        else Modifier
+                    )
+                    .clickable { onSelectTab(tab) }
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(
+                        when (tab) {
+                            StalkerCategoryTab.LIVE -> R.string.settings_iptv_tab_live
+                            StalkerCategoryTab.MOVIES -> R.string.settings_iptv_tab_movies
+                            StalkerCategoryTab.SERIES -> R.string.settings_iptv_tab_series
+                        }
+                    ),
+                    style = ArflixTypography.body,
+                    color = if (isSelected || hasCursor) TextPrimary else TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The movies resp. series list: one checkbox row per catalog category of the
+ * portal, plus the same bulk toggle the live TV list has.
+ *
+ * Deliberately simpler than the live TV list next door - no reset row and no
+ * hold-and-move chip. A catalog category is only ever searched or not, and the
+ * order of the checkboxes changes nothing about a lookup, so a reorder gesture
+ * here would be a control that does nothing.
+ *
+ * An empty [categories] is not an error: plenty of portal builds do not
+ * implement `get_categories` at all, and the text says so and leaves every
+ * category searched.
+ */
+@Composable
+private fun StalkerCatalogCategoryList(
+    portalId: String,
+    categories: List<com.arflix.tv.data.api.StalkerApi.StalkerCategory>,
+    hiddenCategories: List<String>,
+    isLoading: Boolean,
+    isLoaded: Boolean,
+    focusedIndex: Int,
+    onToggleCategory: (String) -> Unit,
+    onBulkToggle: (visible: Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    val listState = rememberLazyListState()
+    val firstCategoryIndex = firstStalkerCategoryIndex(categories.size)
+    val allHidden = remember(categories, hiddenCategories, portalId) {
+        categories.isNotEmpty() && categories.all {
+            com.arflix.tv.data.model.PlaylistGroupKey.build(portalId, it.id) in hiddenCategories
+        }
+    }
+    val hiddenForPortal = remember(hiddenCategories, portalId) {
+        hiddenCategories
+            .asSequence()
+            .map { com.arflix.tv.data.model.PlaylistGroupKey(it) }
+            .filter { it.playlistId == portalId }
+            .map { it.groupName }
+            .toHashSet()
+    }
+
+    LaunchedEffect(isMobile, focusedIndex, categories.size) {
+        if (!isMobile && focusedIndex >= firstCategoryIndex && categories.isNotEmpty()) {
+            val row = (focusedIndex - firstCategoryIndex).coerceIn(0, categories.lastIndex)
+            val info = listState.layoutInfo
+            listState.animateScrollToItem(
+                row,
+                centeredScrollOffset(
+                    viewportSize = info.viewportEndOffset - info.viewportStartOffset,
+                    itemSize = info.visibleItemsInfo.firstOrNull()?.size ?: 0
+                )
+            )
+        }
+    }
+
+    Column(modifier = modifier) {
+        if (categories.isNotEmpty()) {
+            val bulkTitle = if (allHidden) stringResource(R.string.settings_iptv_show_all)
+            else stringResource(R.string.settings_iptv_hide_all)
+            val bulkSubtitle = if (allHidden) stringResource(R.string.settings_iptv_show_all_desc)
+            else stringResource(R.string.settings_iptv_hide_all_desc)
+            val bulkIcon = if (allHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff
+            if (isMobile) {
+                MobileSettingsRow(
+                    icon = bulkIcon,
+                    title = bulkTitle,
+                    subtitle = bulkSubtitle,
+                    value = "",
+                    onClick = { onBulkToggle(allHidden) },
+                    showDivider = true
+                )
+            } else {
+                SettingsRow(
+                    icon = bulkIcon,
+                    title = bulkTitle,
+                    subtitle = bulkSubtitle,
+                    value = stringResource(R.string.settings_badge_reset),
+                    isFocused = focusedIndex == 1,
+                    onClick = { onBulkToggle(allHidden) },
+                    modifier = Modifier.settingsFocusSlot(1)
+                )
+            }
+            // On TV the hint sits directly under the bulk row, as it always has.
+            // The phone puts it under the CATEGORIES heading instead, where the
+            // live TV page has its own heading - the two pages are read as one.
+            if (hiddenForPortal.isEmpty() && !isMobile) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = stringResource(R.string.settings_iptv_catalog_all_searched),
+                    style = ArflixTypography.caption,
+                    color = TextSecondary.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (categories.isEmpty()) {
+            Text(
+                // Three states, not two. "Nothing stored yet" is a page opened
+                // before the first channel load finished and reads as such;
+                // only a portal that answered with no categories gets told it
+                // has none.
+                text = stringResource(
+                    when {
+                        isLoading -> R.string.settings_iptv_catalog_loading
+                        !isLoaded -> R.string.settings_iptv_catalog_not_loaded
+                        else -> R.string.settings_iptv_catalog_unsupported
+                    }
+                ),
+                style = ArflixTypography.body,
+                color = TextSecondary,
+                modifier = Modifier.padding(16.dp)
+            )
+            return@Column
+        }
+
+        if (isMobile) {
+            // Everything below is the live TV categories page, rebuilt row for
+            // row: the same CATEGORIES heading, the same card, the same hairline
+            // between rows and the same row. Only the drag handle is missing,
+            // because an order changes nothing here (G-T5).
+            Text(
+                text = stringResource(R.string.settings_section_categories),
+                style = ArflixTypography.caption.copy(fontSize = 12.sp, letterSpacing = 1.sp),
+                color = TextSecondary,
+                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
+            )
+            if (hiddenForPortal.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.settings_iptv_catalog_all_searched),
+                    style = ArflixTypography.caption.copy(fontSize = 13.sp, lineHeight = 17.sp),
+                    color = TextSecondary,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
+                )
+            }
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(
+                    bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(BackgroundElevated)
+            ) {
+                itemsIndexed(
+                    items = categories,
+                    key = { _, category -> category.id }
+                ) { index, category ->
+                    MobileStalkerCatalogRow(
+                        title = category.title,
+                        isHidden = category.id in hiddenForPortal,
+                        showDivider = index < categories.lastIndex,
+                        onClick = { onToggleCategory(category.id) }
+                    )
+                }
+            }
+            return@Column
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 560.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 24.dp)
+        ) {
+            itemsIndexed(
+                items = categories,
+                key = { _, category -> category.id }
+            ) { index, category ->
+                val rowFocusIndex = index + firstCategoryIndex
+                val isRowFocused = focusedIndex == rowFocusIndex
+                val isHidden = category.id in hiddenForPortal
+                Row(
+                    modifier = Modifier
+                        .settingsFocusSlot(rowFocusIndex)
+                        .fillMaxWidth()
+                        .background(
+                            if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                            RoundedCornerShape(12.dp)
+                        )
+                        .clickable { onToggleCategory(category.id) }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = category.title,
+                            style = ArflixTypography.body,
+                            color = if (isRowFocused) TextPrimary else TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(
+                                if (isHidden) R.string.settings_iptv_catalog_skipped
+                                else R.string.settings_iptv_catalog_searched
+                            ),
+                            style = ArflixTypography.caption,
+                            color = TextSecondary.copy(alpha = 0.7f)
+                        )
+                    }
+                    CatalogActionChip(
+                        icon = if (isHidden) Icons.Default.VisibilityOff else Icons.Default.Check,
+                        isFocused = isRowFocused,
+                        onClick = { onToggleCategory(category.id) }
+                    )
                 }
             }
         }
@@ -12082,6 +12775,78 @@ private fun MobileIptvCategoryRow(
             )
         }
         if (showDivider && !isDragged) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .padding(horizontal = 16.dp)
+                    .background(Color.White.copy(alpha = 0.05f))
+            )
+        }
+    }
+}
+
+/**
+ * One catalog category row on the phone: tap it to include or exclude the
+ * category from a lookup.
+ *
+ * Deliberately a near-copy of [MobileIptvCategoryRow] rather than a shared
+ * composable: the two rows must *look* the same, but the live TV one carries a
+ * drag handle, a held state and a reorder gesture that none of this has any use
+ * for (G-T5 - an order changes nothing in a catalog lookup). Folding both into
+ * one composable would mean a handful of flags that only ever say "not here",
+ * and the next person to touch the live TV row would silently change this one.
+ * The measurements are what is shared, and they are kept in step by hand.
+ */
+@Composable
+private fun MobileStalkerCatalogRow(
+    title: String,
+    isHidden: Boolean,
+    showDivider: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(BackgroundElevated)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isHidden) Icons.Default.VisibilityOff else Icons.Default.Check,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = ArflixTypography.cardTitle.copy(fontSize = 16.sp),
+                    // The excluded rows are the ones the eye should skip, so they
+                    // step back a shade - the same thing a hidden live TV group
+                    // says with its crossed-out eye.
+                    color = if (isHidden) TextSecondary else TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stringResource(
+                        if (isHidden) R.string.settings_iptv_catalog_skipped
+                        else R.string.settings_iptv_catalog_searched
+                    ),
+                    style = ArflixTypography.caption.copy(fontSize = 13.sp, lineHeight = 17.sp),
+                    color = TextSecondary
+                )
+            }
+        }
+        if (showDivider) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

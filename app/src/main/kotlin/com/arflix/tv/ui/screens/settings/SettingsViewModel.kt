@@ -1,4 +1,5 @@
 package com.arflix.tv.ui.screens.settings
+import com.arflix.tv.data.model.AnimeStructuringStyle
 import com.arflix.tv.data.model.AutoplayLimits
 
 import android.content.Context
@@ -18,6 +19,7 @@ import com.arflix.tv.util.AppLogger
 import com.arflix.tv.util.DeviceIpAddress
 import com.arflix.tv.util.DiagnosticsManager
 import com.arflix.tv.util.QrCodeGenerator
+import com.arflix.tv.data.api.StalkerApi
 import com.arflix.tv.data.api.TraktDeviceCode
 import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.CatalogConfig
@@ -26,6 +28,10 @@ import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogPackManifest
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.model.QualityFilterConfig
+import com.arflix.tv.data.model.StalkerCatalogKind
+import com.arflix.tv.data.model.StreamIntegrationConfig
+import com.arflix.tv.data.model.StreamIntegrationType
+import com.arflix.tv.data.model.StreamProviderItem
 import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.CatalogDiscoveryRepository
@@ -46,7 +52,12 @@ import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.MediaRepository
 import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.data.repository.ProfileRepository
+import com.arflix.tv.data.model.StreamSearchMode
+import com.arflix.tv.data.repository.StreamIntegrationRepository
 import com.arflix.tv.data.repository.StreamRepository
+import com.arflix.tv.core.plugin.PluginManager
+import com.arflix.tv.data.telegram.TelegramAuthState
+import com.arflix.tv.data.telegram.TelegramRepository
 import com.arflix.tv.data.repository.TvDeviceAuthRepository
 import com.arflix.tv.data.repository.TvDeviceAuthSession
 import com.arflix.tv.data.repository.TvDeviceAuthStatusType
@@ -148,6 +159,22 @@ data class AiKeyServerState(
     val keyReceived: Boolean = false
 )
 
+/**
+ * The three lists the IPTV categories page can show.
+ *
+ * [LIVE] is the page as it always was - channel groups, hideable and
+ * reorderable. The other two exist only for a Stalker portal and pick the
+ * catalog categories its movie resp. series lookups are allowed to search.
+ */
+enum class StalkerCategoryTab { LIVE, MOVIES, SERIES }
+
+/** The catalog half a tab configures, or null for the live TV tab. */
+fun StalkerCategoryTab.catalogKind(): StalkerCatalogKind? = when (this) {
+    StalkerCategoryTab.LIVE -> null
+    StalkerCategoryTab.MOVIES -> StalkerCatalogKind.MOVIES
+    StalkerCategoryTab.SERIES -> StalkerCatalogKind.SERIES
+}
+
 data class SettingsUiState(
     val defaultSubtitle: String = "Off",
     val subtitleOptions: List<String> = emptyList(),
@@ -170,6 +197,7 @@ data class SettingsUiState(
     val subtitleOffset: String = "Bottom",
     val subtitleStylized: Boolean = true,
     val filterSubtitlesByLanguage: Boolean = true,
+    val useForcedSubtitles: Boolean = false,
     val secondarySubtitle: String = "Off",
     val trailerAutoPlay: Boolean = true,
     val trailerSoundEnabled: Boolean = false,
@@ -177,6 +205,7 @@ data class SettingsUiState(
     val trailerInCards: Boolean = true,
     val showBudget: Boolean = true,
     val showEpisodeRatings: Boolean = false,
+    val animeStructuringStyle: AnimeStructuringStyle = AnimeStructuringStyle.BROADCAST,
     /** Pin the IPTV "Favorite TV" row to the top of the home screen. */
     val iptvFavoritesOnHome: Boolean = true,
     // Volume boost in decibels (0 = off, up to 15 dB). Applied via system LoudnessEnhancer
@@ -246,6 +275,21 @@ data class SettingsUiState(
     val iptvAvailableGroups: List<String> = emptyList(),
     val iptvHiddenGroups: List<String> = emptyList(),
     val iptvGroupOrder: List<String> = emptyList(),
+    /** True while the open categories page belongs to a Stalker portal. */
+    val iptvSelectedIsStalkerPortal: Boolean = false,
+    val iptvCategoryTab: StalkerCategoryTab = StalkerCategoryTab.LIVE,
+    val iptvStalkerVodCategories: List<StalkerApi.StalkerCategory> = emptyList(),
+    val iptvStalkerSeriesCategories: List<StalkerApi.StalkerCategory> = emptyList(),
+    val iptvHiddenVodCategories: List<String> = emptyList(),
+    val iptvHiddenSeriesCategories: List<String> = emptyList(),
+    val isIptvStalkerCategoriesLoading: Boolean = false,
+    /**
+     * False while the open portal has no stored category names yet, which is
+     * not the same as a portal that answered with none. An empty list under
+     * false means "not fetched yet", under true it means "this portal has no
+     * categories" - two different sentences on screen.
+     */
+    val iptvStalkerCategoriesLoaded: Boolean = false,
     val vodSearchEnabled: Boolean = true,
     val epgVodActionsEnabled: Boolean = true,
     val fallbackChannelLogosEnabled: Boolean = false,
@@ -264,6 +308,7 @@ data class SettingsUiState(
     val pendingPackUrl: String? = null,
     val isPackLoading: Boolean = false,
     val packError: SettingsMessage? = null,
+    val builtInCollectionsEnabled: Boolean = true,
     // Addons
     val addons: List<Addon> = emptyList(),
     val isRefreshingAddons: Boolean = false,
@@ -301,7 +346,13 @@ data class SettingsUiState(
     val subtitleAiModel: SubtitleAiModel = SubtitleAiModel.GROQ_LLAMA_70B,
     val subtitleRemoveHearingImpaired: Boolean = true,
     val aiKeyServerState: AiKeyServerState = AiKeyServerState(),
-    val smoothScrolling: Boolean = true
+    val smoothScrolling: Boolean = true,
+    // Stream Integrations
+    val streamIntegrations: List<StreamIntegrationConfig> = emptyList(),
+    val streamProviderItems: List<StreamProviderItem> = emptyList(),
+    val streamSearchMode: StreamSearchMode = StreamSearchMode.PARALLEL,
+    val pluginsCount: Int = 0,
+    val isTelegramConnected: Boolean = false
 )
 
 @HiltViewModel
@@ -330,7 +381,10 @@ class SettingsViewModel @Inject constructor(
     private val syncProviderStore: com.arflix.tv.data.repository.sync.SyncProviderStore,
     private val watchHistoryRepository: com.arflix.tv.data.repository.WatchHistoryRepository,
     private val simklAuthManager: com.arflix.tv.data.repository.simkl.SimklAuthManager,
-    private val simklSyncService: com.arflix.tv.data.repository.simkl.SimklSyncService
+    private val simklSyncService: com.arflix.tv.data.repository.simkl.SimklSyncService,
+    private val streamIntegrationRepository: StreamIntegrationRepository,
+    private val pluginManager: PluginManager,
+    private val telegramRepository: TelegramRepository
 ) : ViewModel() {
     private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
         return catalogs.filter { config ->
@@ -369,6 +423,7 @@ class SettingsViewModel @Inject constructor(
     private fun trailerInCardsKey() = profileManager.profileBooleanKey("trailer_in_cards")
     private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
     private fun showEpisodeRatingsKey() = profileManager.profileBooleanKey("show_episode_ratings")
+    private fun animeStructuringStyleKey() = profileManager.profileStringKey(AnimeStructuringStyle.PREFERENCE_KEY)
     private fun iptvFavoritesOnHomeKey() =
         profileManager.profileBooleanKey(com.arflix.tv.util.IPTV_FAVORITES_ON_HOME)
     private fun clockFormatKey() = profileManager.profileStringKey("clock_format")
@@ -386,6 +441,7 @@ class SettingsViewModel @Inject constructor(
     private fun subtitleFontKey() = profileManager.profileStringKey("subtitle_font")
     private fun subtitleStylizedKey() = profileManager.profileBooleanKey("subtitle_stylized")
     private fun filterSubtitlesByLanguageKey() = profileManager.profileBooleanKey("filter_subtitles_by_lang")
+    private fun useForcedSubtitlesKey() = profileManager.profileBooleanKey("use_forced_subtitles")
     private fun secondarySubtitleKey() = profileManager.profileStringKey("secondary_subtitle")
     private val dnsProviderKey = stringPreferencesKey(OkHttpProvider.DNS_PROVIDER_PREF_KEY)
     private val customUserAgentKey = stringPreferencesKey(OkHttpProvider.USER_AGENT_PREF_KEY)
@@ -487,6 +543,7 @@ class SettingsViewModel @Inject constructor(
         observeIptvGroupPrefs()
         initializeCatalogs()
         observeCatalogs()
+        observeStreamIntegrations()
         initializeUpdaterState()
         checkForAppUpdates(force = false, showNoUpdateFeedback = false)
     }
@@ -501,6 +558,18 @@ class SettingsViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     iptvHiddenGroups = hidden,
                     iptvGroupOrder = order
+                )
+            }
+        }
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(
+                iptvRepository.observeHiddenStalkerCategories(StalkerCatalogKind.MOVIES),
+                iptvRepository.observeHiddenStalkerCategories(StalkerCatalogKind.SERIES)
+            ) { movies, series -> Pair(movies, series) }
+            .collect { (movies, series) ->
+                _uiState.value = _uiState.value.copy(
+                    iptvHiddenVodCategories = movies,
+                    iptvHiddenSeriesCategories = series
                 )
             }
         }
@@ -576,6 +645,7 @@ class SettingsViewModel @Inject constructor(
             val spoilerBlurEnabled = prefs[spoilerBlurKey()] ?: false
             val showBudget = prefs[showBudgetKey()] ?: true
             val showEpisodeRatings = prefs[showEpisodeRatingsKey()] ?: false
+            val animeStructuringStyle = AnimeStructuringStyle.fromId(prefs[animeStructuringStyleKey()])
             val iptvFavoritesOnHome = prefs[iptvFavoritesOnHomeKey()] ?: true
             val clockFormat = prefs[clockFormatKey()] ?: "24h"
             // One-time migration: read old "focus_border_color" key if new "accent_color" is absent
@@ -605,6 +675,7 @@ class SettingsViewModel @Inject constructor(
             val subtitleOffset = prefs[subtitleOffsetKey()] ?: "Bottom"
             val subtitleStylized = prefs[subtitleStylizedKey()] ?: true
             val filterSubtitlesByLanguage = prefs[filterSubtitlesByLanguageKey()] ?: true
+            val useForcedSubtitles = prefs[useForcedSubtitlesKey()] ?: false
             val secondarySubtitle = prefs[secondarySubtitleKey()]?.trim()?.takeIf { it.isNotBlank() } ?: "Off"
             val dnsProviderValue = normalizeDnsProviderValue(prefs[dnsProviderKey])
             val customUserAgent = prefs[customUserAgentKey].orEmpty().trim()
@@ -689,6 +760,7 @@ class SettingsViewModel @Inject constructor(
                 trailerInCards = trailerInCards,
                 showBudget = showBudget,
                 showEpisodeRatings = showEpisodeRatings,
+                animeStructuringStyle = animeStructuringStyle,
                 iptvFavoritesOnHome = iptvFavoritesOnHome,
                 volumeBoostDb = volumeBoostDb,
                 showLoadingStats = showLoadingStats,
@@ -700,6 +772,7 @@ class SettingsViewModel @Inject constructor(
                 subtitleOffset = subtitleOffset,
                 subtitleStylized = subtitleStylized,
                 filterSubtitlesByLanguage = filterSubtitlesByLanguage,
+                useForcedSubtitles = useForcedSubtitles,
                 secondarySubtitle = secondarySubtitle,
                 dnsProvider = dnsProviderLabel(dnsProviderValue),
                 customUserAgent = customUserAgent,
@@ -929,6 +1002,34 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private fun observeStreamIntegrations() {
+        viewModelScope.launch {
+            streamIntegrationRepository.observeConfigs().collect { configs ->
+                _uiState.value = _uiState.value.copy(streamIntegrations = configs)
+            }
+        }
+        viewModelScope.launch {
+            streamIntegrationRepository.observeProviderItems().collect { items ->
+                _uiState.value = _uiState.value.copy(streamProviderItems = items)
+            }
+        }
+        viewModelScope.launch {
+            streamIntegrationRepository.observeSearchMode().collect { mode ->
+                _uiState.value = _uiState.value.copy(streamSearchMode = mode)
+            }
+        }
+        viewModelScope.launch {
+            pluginManager.scrapers.collect { scrapers ->
+                _uiState.value = _uiState.value.copy(pluginsCount = scrapers.count { it.enabled })
+            }
+        }
+        viewModelScope.launch {
+            telegramRepository.authState.collect { authState ->
+                _uiState.value = _uiState.value.copy(isTelegramConnected = authState is TelegramAuthState.Ready)
+            }
+        }
+    }
+
     private fun observeSyncState() {
         // Observe sync progress
         viewModelScope.launch {
@@ -976,20 +1077,100 @@ class SettingsViewModel @Inject constructor(
         if (selectedPlaylistId.isBlank()) {
             _uiState.value = _uiState.value.copy(
                 iptvSelectedPlaylistId = null,
-                iptvAvailableGroups = emptyList()
+                iptvAvailableGroups = emptyList(),
+                iptvSelectedIsStalkerPortal = false,
+                iptvCategoryTab = StalkerCategoryTab.LIVE,
+                iptvStalkerVodCategories = emptyList(),
+                iptvStalkerSeriesCategories = emptyList(),
+                iptvStalkerCategoriesLoaded = false
             )
             return
         }
 
+        // The page always opens on live TV, whatever the last portal was left
+        // on: that is the list it has always shown, and the tab bar above it
+        // says where the other two are.
         _uiState.value = _uiState.value.copy(
             iptvSelectedPlaylistId = selectedPlaylistId,
-            iptvAvailableGroups = emptyList()
+            iptvAvailableGroups = emptyList(),
+            iptvSelectedIsStalkerPortal = _uiState.value.iptvStalkerPortals.any { it.id == selectedPlaylistId },
+            iptvCategoryTab = StalkerCategoryTab.LIVE,
+            iptvStalkerVodCategories = emptyList(),
+            iptvStalkerSeriesCategories = emptyList(),
+            iptvStalkerCategoriesLoaded = false
         )
         viewModelScope.launch {
             val groups = loadIptvGroupsForPlaylist(selectedPlaylistId)
             if (_uiState.value.iptvSelectedPlaylistId == selectedPlaylistId) {
                 _uiState.value = _uiState.value.copy(iptvAvailableGroups = groups)
             }
+        }
+    }
+
+    /**
+     * Switch the categories page between live TV, movies and series.
+     *
+     * Reuse stored names, or fetch a missing list without requiring live TV.
+     */
+    fun setIptvCategoryTab(tab: StalkerCategoryTab) {
+        if (_uiState.value.iptvCategoryTab == tab) return
+        _uiState.value = _uiState.value.copy(
+            iptvCategoryTab = tab,
+            isIptvStalkerCategoriesLoading = false,
+            iptvStalkerCategoriesLoaded = false
+        )
+        val kind = tab.catalogKind() ?: return
+        val portalId = _uiState.value.iptvSelectedPlaylistId.orEmpty()
+        if (portalId.isBlank() || !_uiState.value.iptvSelectedIsStalkerPortal) return
+
+        _uiState.value = _uiState.value.copy(isIptvStalkerCategoriesLoading = true)
+        viewModelScope.launch {
+            val snapshot = runCatching { iptvRepository.stalkerCategories(portalId, kind) }
+                .getOrNull()
+            // A slow portal response must not replace the newly selected tab.
+            if (_uiState.value.iptvSelectedPlaylistId != portalId ||
+                _uiState.value.iptvCategoryTab != tab) return@launch
+            val categories = snapshot?.categories.orEmpty()
+            _uiState.value = when (kind) {
+                StalkerCatalogKind.MOVIES ->
+                    _uiState.value.copy(iptvStalkerVodCategories = categories)
+                StalkerCatalogKind.SERIES ->
+                    _uiState.value.copy(iptvStalkerSeriesCategories = categories)
+            }.copy(
+                isIptvStalkerCategoriesLoading = false,
+                iptvStalkerCategoriesLoaded = snapshot?.loaded == true
+            )
+        }
+    }
+
+    private fun stalkerCategoriesFor(kind: StalkerCatalogKind): List<StalkerApi.StalkerCategory> =
+        when (kind) {
+            StalkerCatalogKind.MOVIES -> _uiState.value.iptvStalkerVodCategories
+            StalkerCatalogKind.SERIES -> _uiState.value.iptvStalkerSeriesCategories
+        }
+
+    /** Show or hide one catalog category of the open Stalker portal. */
+    fun toggleIptvHiddenStalkerCategory(kind: StalkerCatalogKind, portalId: String, categoryId: String) {
+        viewModelScope.launch {
+            iptvRepository.toggleHiddenStalkerCategory(kind, portalId, categoryId)
+        }
+    }
+
+    /** The bulk "show all / hide all" of the movies and series tabs. */
+    fun setAllIptvStalkerCategoriesVisible(
+        kind: StalkerCatalogKind,
+        portalId: String,
+        visible: Boolean
+    ) {
+        viewModelScope.launch {
+            val categories = stalkerCategoriesFor(kind)
+            if (categories.isEmpty()) return@launch
+            iptvRepository.setStalkerCategoriesHidden(
+                kind = kind,
+                portalId = portalId,
+                categoryIds = categories.map { it.id },
+                hidden = !visible
+            )
         }
     }
 
@@ -1412,6 +1593,16 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setUseForcedSubtitles(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[useForcedSubtitlesKey()] = enabled
+            }
+            _uiState.value = _uiState.value.copy(useForcedSubtitles = enabled)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
     fun cycleAutoPlayMinQuality() {
         val current = normalizeAutoPlayMinQuality(_uiState.value.autoPlayMinQuality)
         val maximum = AutoplayLimits(_uiState.value.autoPlayMaxQuality).qualityScore
@@ -1646,6 +1837,20 @@ class SettingsViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(showEpisodeRatings = enabled)
             syncLocalStateToCloud(silent = true)
         }
+    }
+
+    fun setAnimeStructuringStyle(style: AnimeStructuringStyle) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[animeStructuringStyleKey()] = style.id }
+            _uiState.value = _uiState.value.copy(animeStructuringStyle = style)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun cycleAnimeStructuringStyle() {
+        val current = _uiState.value.animeStructuringStyle
+        val next = if (current == AnimeStructuringStyle.BROADCAST) AnimeStructuringStyle.STANDARD else AnimeStructuringStyle.BROADCAST
+        setAnimeStructuringStyle(next)
     }
 
     fun setSmoothScrolling(enabled: Boolean) {
@@ -2080,6 +2285,69 @@ class SettingsViewModel @Inject constructor(
 
     // ========== Addon Management ==========
 
+    fun moveStreamIntegrationUp(type: StreamIntegrationType) {
+        viewModelScope.launch {
+            streamIntegrationRepository.moveIntegrationUp(type)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun moveStreamIntegrationDown(type: StreamIntegrationType) {
+        viewModelScope.launch {
+            streamIntegrationRepository.moveIntegrationDown(type)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun toggleStreamIntegration(type: StreamIntegrationType) {
+        viewModelScope.launch {
+            streamIntegrationRepository.toggleIntegration(type)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun moveStreamProviderUp(id: String) {
+        viewModelScope.launch {
+            streamIntegrationRepository.moveProviderItemUp(id)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun moveStreamProviderDown(id: String) {
+        viewModelScope.launch {
+            streamIntegrationRepository.moveProviderItemDown(id)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun toggleStreamProvider(id: String) {
+        viewModelScope.launch {
+            streamIntegrationRepository.toggleProviderItem(id)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun setStreamSearchMode(mode: StreamSearchMode) {
+        viewModelScope.launch {
+            streamIntegrationRepository.setSearchMode(mode)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    @Deprecated("Addon ordering is now managed via StreamIntegrationsScreen.")
+    fun moveAddonUp(addonId: String) {
+        viewModelScope.launch {
+            streamRepository.moveAddonUp(addonId)
+        }
+    }
+
+    @Deprecated("Addon ordering is now managed via StreamIntegrationsScreen.")
+    fun moveAddonDown(addonId: String) {
+        viewModelScope.launch {
+            streamRepository.moveAddonDown(addonId)
+        }
+    }
+
     fun toggleAddon(addonId: String) {
         viewModelScope.launch {
             streamRepository.toggleAddon(addonId)
@@ -2087,31 +2355,6 @@ class SettingsViewModel @Inject constructor(
             runCatching {
                 catalogRepository.syncAddonCatalogs(addonsAfterToggle)
             }
-            syncLocalStateToCloud(silent = true)
-        }
-    }
-
-    fun moveAddonUp(addonId: String) {
-        moveAddon(addonId, moveUp = true)
-    }
-
-    fun moveAddonDown(addonId: String) {
-        moveAddon(addonId, moveUp = false)
-    }
-
-    private fun moveAddon(addonId: String, moveUp: Boolean) {
-        viewModelScope.launch {
-            val moved = if (moveUp) {
-                streamRepository.moveAddonUp(addonId)
-            } else {
-                streamRepository.moveAddonDown(addonId)
-            }
-            if (!moved) return@launch
-            val addonsAfterMove = streamRepository.installedAddons.first()
-            runCatching {
-                catalogRepository.syncAddonCatalogs(addonsAfterMove)
-            }
-            _uiState.value = _uiState.value.copy(addons = addonsAfterMove)
             syncLocalStateToCloud(silent = true)
         }
     }
@@ -2310,6 +2553,9 @@ class SettingsViewModel @Inject constructor(
 
     private fun initializeCatalogs() {
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                builtInCollectionsEnabled = catalogRepository.isBuiltInCollectionsEnabled()
+            )
             runCatching {
                 catalogRepository.ensurePreinstalledDefaults(mediaRepository.getDefaultCatalogConfigs())
             }
@@ -2324,6 +2570,30 @@ class SettingsViewModel @Inject constructor(
                 pendingPackManifest = null,
                 pendingPackUrl = null
             )
+            // Collections documents (e.g. a Nuvio collections export, by URL or pasted
+            // JSON) install directly; anything else continues as a catalog pack.
+            val collectionsResult = catalogRepository.importCollections(url)
+            if (collectionsResult != null) {
+                collectionsResult.onSuccess { (name, railCount) ->
+                    syncLocalStateToCloud(silent = true)
+                    _uiState.value = _uiState.value.copy(
+                        isPackLoading = false,
+                        toastMessage = SettingsMessage.Res(
+                            R.string.settings_collections_installed,
+                            listOf(name, railCount)
+                        ),
+                        toastType = ToastType.SUCCESS
+                    )
+                }.onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        isPackLoading = false,
+                        packError = error.orCatalogMessage(
+                            SettingsMessage.Res(R.string.catalog_collections_invalid)
+                        )
+                    )
+                }
+                return@launch
+            }
             val result = catalogRepository.fetchCatalogPackManifest(url)
             result.onSuccess { manifest ->
                 _uiState.value = _uiState.value.copy(
@@ -2380,6 +2650,15 @@ class SettingsViewModel @Inject constructor(
                     )
                 )
             }
+        }
+    }
+
+    fun toggleBuiltInCollections() {
+        viewModelScope.launch {
+            val enabled = !catalogRepository.isBuiltInCollectionsEnabled()
+            catalogRepository.setBuiltInCollectionsEnabled(enabled)
+            _uiState.value = _uiState.value.copy(builtInCollectionsEnabled = enabled)
+            syncLocalStateToCloud(silent = true)
         }
     }
 
