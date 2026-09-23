@@ -50,6 +50,7 @@ import com.arflix.tv.util.Constants
 import com.arflix.tv.util.EpisodeAvailability
 import com.arflix.tv.util.ForcedSubtitles
 import com.arflix.tv.util.fallbackAdjacentEpisodeIdentity
+import com.arflix.tv.util.adjacentTmdbEpisodeIdentity
 import com.arflix.tv.util.settingsDataStore
 import com.arflix.tv.util.weightedSubtitleScore
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -366,9 +367,17 @@ class PlayerViewModel @Inject constructor(
         current: EpisodeIdentity,
         forward: Boolean
     ): EpisodeIdentity? {
-        val structure = if (getAnimeStructuringStyle() == AnimeStructuringStyle.BROADCAST) {
-            runCatching { animeMapper.resolveAnimeSeasonStructure(tmdbId) }.getOrNull()
-        } else null
+        if (getAnimeStructuringStyle() == AnimeStructuringStyle.STANDARD) {
+            return adjacentTmdbEpisodeIdentity(
+                current = current,
+                forward = forward,
+                loadEpisodes = { mediaRepository.getSeasonEpisodes(tmdbId, it) },
+                loadSeasonNumbers = {
+                    tmdbApi.getTvDetails(tmdbId, Constants.TMDB_API_KEY).seasons.map { it.seasonNumber }
+                },
+            )
+        }
+        val structure = runCatching { animeMapper.resolveAnimeSeasonStructure(tmdbId) }.getOrNull()
         if (structure != null) {
             return if (forward) {
                 structure.nextAfterDisplay(current.displaySeason, current.displayEpisode)
@@ -6381,8 +6390,9 @@ class PlayerViewModel @Inject constructor(
     private suspend fun persistNextEpisodeAfterCompletion() {
         val canonicalSeason = currentSeason ?: return
         val canonicalEpisode = currentEpisode ?: return
-        val displaySeason = currentDisplaySeason ?: canonicalSeason
-        val displayEpisode = currentDisplayEpisode ?: canonicalEpisode
+        val standardOrdering = getAnimeStructuringStyle() == AnimeStructuringStyle.STANDARD
+        val displaySeason = if (standardOrdering) canonicalSeason else currentDisplaySeason ?: canonicalSeason
+        val displayEpisode = if (standardOrdering) canonicalEpisode else currentDisplayEpisode ?: canonicalEpisode
 
         // Completion already removed this episode. Keep other saved progress until a
         // successor is available; saveLocalContinueWatching replaces the show entry.

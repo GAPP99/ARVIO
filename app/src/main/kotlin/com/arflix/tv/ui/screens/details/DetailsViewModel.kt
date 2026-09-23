@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.AddonType
 import com.arflix.tv.data.model.AnimeStructuringStyle
+import com.arflix.tv.util.animeEpisodesForDisplay
 import com.arflix.tv.data.model.CastMember
 import com.arflix.tv.data.model.Episode
 import com.arflix.tv.data.model.EpisodeIdentity
@@ -609,7 +610,8 @@ class DetailsViewModel @Inject constructor(
                         tmdbId = mediaId,
                         displaySeason = seasonToLoad,
                         item = mergedItem,
-                        canonicalEpisodes = canonicalEpisodes
+                        canonicalEpisodes = canonicalEpisodes,
+                        style = animeStructuringStyle,
                     )
 
                     resolvedTotalSeasons = tmdbSeasons
@@ -1334,24 +1336,16 @@ class DetailsViewModel @Inject constructor(
         tmdbId: Int,
         displaySeason: Int,
         item: MediaItem?,
-        canonicalEpisodes: List<Episode>
+        canonicalEpisodes: List<Episode>,
+        style: AnimeStructuringStyle = _uiState.value.animeStructuringStyle,
     ): List<Episode> {
-        val usesAbsoluteNumbers = canonicalEpisodes.isNotEmpty() &&
-            canonicalEpisodes.first().episodeNumber != 1 &&
-            animeMapper.isAnimeContent(tmdbId, item?.genreIds.orEmpty(), item?.originalLanguage)
-        if (!usesAbsoluteNumbers) return canonicalEpisodes
-        return canonicalEpisodes.mapIndexed { index, episode ->
-            episode.copy(
-                episodeNumber = index + 1,
-                seasonNumber = displaySeason,
-                identity = EpisodeIdentity(
-                    displaySeason = displaySeason,
-                    displayEpisode = index + 1,
-                    tmdbSeason = episode.seasonNumber,
-                    tmdbEpisode = episode.episodeNumber
-                )
-            )
-        }
+        return animeEpisodesForDisplay(
+            episodes = canonicalEpisodes,
+            style = style,
+            isAnime = style == AnimeStructuringStyle.BROADCAST &&
+                animeMapper.isAnimeContent(tmdbId, item?.genreIds.orEmpty(), item?.originalLanguage),
+            displaySeason = displaySeason,
+        )
     }
 
     fun toggleWatched(episodeIndex: Int? = null) {
