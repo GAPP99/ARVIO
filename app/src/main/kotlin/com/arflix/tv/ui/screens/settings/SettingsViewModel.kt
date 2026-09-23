@@ -644,7 +644,8 @@ class SettingsViewModel @Inject constructor(
             val trailerAutoPlay = prefs[trailerAutoPlayKey()] ?: true
             val trailerSoundEnabled = prefs[trailerSoundEnabledKey()] ?: false
             val trailerDelaySeconds = prefs[trailerDelayKey()]?.toIntOrNull() ?: 2
-            val guideRowCount = prefs[guideRowCountKey()]?.toIntOrNull() ?: 0
+            val guideRowCount = prefs[guideRowCountKey()]?.toIntOrNull()
+                ?.takeIf { it in 6..10 } ?: 0
             val trailerInCards = prefs[trailerInCardsKey()] ?: true
             val spoilerBlurEnabled = prefs[spoilerBlurKey()] ?: false
             val showBudget = prefs[showBudgetKey()] ?: true
@@ -1807,9 +1808,9 @@ class SettingsViewModel @Inject constructor(
 
     fun cycleGuideRowCount() {
         val next = when (val n = _uiState.value.guideRowCount) {
-            0 -> 6
+            in 6..9 -> n + 1
             10 -> 0
-            else -> n + 1
+            else -> 6
         }
         viewModelScope.launch {
             context.settingsDataStore.edit { it[guideRowCountKey()] = next.toString() }

@@ -773,6 +773,7 @@ private fun HudIconButton(
             .onFocusChanged { isFocused = it.isFocused }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .background(bgColor)
+            .liveFocusOutline(isFocused, size / 2)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -821,6 +822,7 @@ private fun HudActionButton(
             .clip(RoundedCornerShape(999.dp))
             .onFocusChanged { isFocused = it.isFocused }
             .background(if (isFocused) Color.White else liveAccent())
+            .liveFocusOutline(isFocused, 999.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
     ) {
