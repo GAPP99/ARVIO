@@ -2587,7 +2587,14 @@ class StreamRepository @Inject constructor(
 
     /** Counterpart of [hasHomeServerConnections] for IPTV playlists and portals. */
     suspend fun hasIptvVodProviders(): Boolean = withContext(Dispatchers.IO) {
-        runCatching { iptvRepository.hasVodSearchProviders() }.getOrDefault(false)
+        try {
+            iptvRepository.hasVodSearchProviders(
+                streamIntegrationRepository.enabledProviderIds(StreamIntegrationType.IPTV_VOD)
+            )
+        } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            false
+        }
     }
 
     suspend fun resolveMovieHomeServerSources(

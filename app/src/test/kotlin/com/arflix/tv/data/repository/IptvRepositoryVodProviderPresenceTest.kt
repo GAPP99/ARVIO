@@ -70,4 +70,13 @@ class IptvRepositoryVodProviderPresenceTest {
 
         assertFalse(newRepository().hasVodSearchProviders(config))
     }
+
+    @Test
+    fun `a portal hidden by stream integration settings is not counted`() {
+        val repository = newRepository()
+        val config = IptvConfig(stalkerPortals = listOf(portal()))
+        assertFalse(repository.hasVodSearchProviders(config, emptySet()))
+        assertFalse(repository.hasVodSearchProviders(config, setOf("iptv_stalker:other")))
+        assertTrue(repository.hasVodSearchProviders(config, setOf("iptv_stalker:portal-1")))
+    }
 }

@@ -5845,17 +5845,19 @@ class IptvRepository @Inject constructor(
      * to tell every IPTV-only user to go install a streaming addon whenever a
      * search came back empty.
      */
-    suspend fun hasVodSearchProviders(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun hasVodSearchProviders(allowedProviderIds: Set<String>? = null): Boolean = withContext(Dispatchers.IO) {
         if (!isVodSearchEnabled()) return@withContext false
-        hasVodSearchProviders(observeConfig().first())
+        hasVodSearchProviders(observeConfig().first(), allowedProviderIds)
     }
 
     /** The part of [hasVodSearchProviders] that depends only on the config. */
-    internal fun hasVodSearchProviders(config: IptvConfig): Boolean =
-        xtreamCredentialsForVodImport(config).isNotEmpty() ||
-            xtreamCredentialsForSeriesImport(config).isNotEmpty() ||
-            activeStalkerVodPortals(config).isNotEmpty() ||
-            activeStalkerSeriesPortals(config).isNotEmpty()
+    internal fun hasVodSearchProviders(config: IptvConfig, allowedProviderIds: Set<String>? = null): Boolean {
+        val enabled = streamProviderConfig(config, allowedProviderIds)
+        return xtreamCredentialsForVodImport(enabled).isNotEmpty() ||
+            xtreamCredentialsForSeriesImport(enabled).isNotEmpty() ||
+            activeStalkerVodPortals(enabled).isNotEmpty() ||
+            activeStalkerSeriesPortals(enabled).isNotEmpty()
+    }
 
     suspend fun findMovieVodSources(
         title: String,
