@@ -1,4 +1,5 @@
 package com.arflix.tv.data.repository
+import com.arflix.tv.data.model.AnimeStructuringStyle
 import com.arflix.tv.data.model.AutoplayLimits
 
 import android.content.Context
@@ -10,6 +11,7 @@ import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.AddonType
 import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.Profile
+import com.arflix.tv.data.model.StreamSearchMode
 import com.arflix.tv.data.repository.ContinueWatchingItem
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_LANDSCAPE
@@ -105,7 +107,8 @@ class CloudSyncRepository @Inject constructor(
     private val profileAvatarImageManager: ProfileAvatarImageManager,
     private val invalidationBus: CloudSyncInvalidationBus,
     private val pluginDataStore: com.arflix.tv.data.local.PluginDataStore,
-    private val syncProviderStore: com.arflix.tv.data.repository.sync.SyncProviderStore
+    private val syncProviderStore: com.arflix.tv.data.repository.sync.SyncProviderStore,
+    private val streamIntegrationRepository: StreamIntegrationRepository
 ) {
     private val TAG = "CloudSync"
     private val gson = Gson()
@@ -291,6 +294,7 @@ class CloudSyncRepository @Inject constructor(
         val clockFormat: String = "24h",
         val showBudget: Boolean = true,
         val showEpisodeRatings: Boolean = false,
+        val animeEpisodeStructuring: String = AnimeStructuringStyle.BROADCAST.id,
         val iptvFavoritesOnHome: Boolean = true,
         val showLoadingStats: Boolean? = null,
         val spoilerBlurEnabled: Boolean = false,
@@ -301,15 +305,23 @@ class CloudSyncRepository @Inject constructor(
         val subtitleSettingsUpdatedAt: Long = 0L,
         val secondarySubtitle: String = "Off",
         val filterSubtitlesByLanguage: Boolean = true,
+        val useForcedSubtitles: Boolean = false,
         val homeServerConnectionJson: String? = null,
         val torrServerBaseUrl: String? = null,
-        val catalogueRowLayoutModes: Map<String, String> = emptyMap()
+        val catalogueRowLayoutModes: Map<String, String> = emptyMap(),
+        val streamSearchMode: String = StreamSearchMode.PARALLEL.id,
+        val streamProvidersCustomOrder: String = "",
+        val streamIntegrationsMacroOrder: String = "",
+        val streamMacroEnabledMap: Map<String, Boolean> = emptyMap(),
+        val streamProviderEnabledMap: Map<String, Boolean> = emptyMap()
     )
 
     // ── DataStore key helpers ──
 
     private fun contentLanguageKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "content_language")
+    private fun animeEpisodeStructuringKeyFor(profileId: String) =
+        profileManager.profileStringKeyFor(profileId, com.arflix.tv.data.model.AnimeStructuringStyle.PREFERENCE_KEY)
     private fun trailerAutoPlayKeyFor(profileId: String) =
         profileManager.profileBooleanKeyFor(profileId, "trailer_auto_play")
     private fun trailerSoundEnabledKeyFor(profileId: String) =
@@ -359,6 +371,8 @@ class CloudSyncRepository @Inject constructor(
         profileManager.profileStringKeyFor(profileId, "secondary_subtitle")
     private fun filterSubtitlesByLanguageKeyFor(profileId: String) =
         profileManager.profileBooleanKeyFor(profileId, "filter_subtitles_by_lang")
+    private fun useForcedSubtitlesKeyFor(profileId: String) =
+        profileManager.profileBooleanKeyFor(profileId, "use_forced_subtitles")
     private fun defaultSubtitleKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "default_subtitle")
     private fun defaultAudioLanguageKeyFor(profileId: String) =
@@ -469,10 +483,12 @@ class CloudSyncRepository @Inject constructor(
             }
         }
         keys.addAll(IptvCloudFields.keys(root))
+        keys.addAll(CatalogCloudFields.keys(root))
         return keys
     }
 
     private fun mergeFieldValue(root: JSONObject, key: String): Any? {
+        if (key.startsWith("c:")) return CatalogCloudFields.value(root, key)
         if (key.startsWith("i:")) return IptvCloudFields.value(root, key)
         if (key.startsWith("g:")) {
             val k = key.substring(2)
@@ -486,6 +502,10 @@ class CloudSyncRepository @Inject constructor(
     }
 
     private fun setMergeFieldValue(root: JSONObject, key: String, value: Any) {
+        if (key.startsWith("c:")) {
+            CatalogCloudFields.put(root, key, value)
+            return
+        }
         if (key.startsWith("g:")) {
             root.put(key.substring(2), value)
             return
@@ -529,6 +549,7 @@ class CloudSyncRepository @Inject constructor(
             tsMap = prefs[cloudSyncFieldTsKey]?.let(::JSONObject) ?: JSONObject()
             val baseMap = prefs[cloudSyncFieldBaseKey]?.let(::JSONObject) ?: JSONObject()
             IptvCloudFields.reconcileSnapshot(localRoot, tsMap, baseMap, capturedTimestamps)
+            CatalogCloudFields.reconcileSnapshot(localRoot, tsMap, baseMap, capturedTimestamps)
             var changed = false
             for (key in mergeKeysOf(localRoot)) {
                 val current = mergeFieldValue(localRoot, key)?.toString() ?: continue
@@ -569,7 +590,7 @@ class CloudSyncRepository @Inject constructor(
             val currentTs = it[cloudSyncFieldTsKey]?.let(::JSONObject) ?: JSONObject()
             val currentBase = it[cloudSyncFieldBaseKey]?.let(::JSONObject) ?: JSONObject()
             for (key in currentTs.keys()) {
-                if (key.startsWith("i:") && currentTs.optLong(key) > ts.optLong(key)) {
+                if ((key.startsWith("i:") || key.startsWith("c:")) && currentTs.optLong(key) > ts.optLong(key)) {
                     ts.put(key, currentTs.get(key))
                     if (currentBase.has(key)) base.put(key, currentBase.get(key))
                 }
@@ -633,6 +654,7 @@ class CloudSyncRepository @Inject constructor(
         // Per-profile settings
         val profileSettingsById = buildMap<String, CloudProfileSettings> {
             profiles.forEach { profile ->
+                val streamCloudState = streamIntegrationRepository.exportCloudSettingsForProfile(prefs, profile.id)
                 put(
                     profile.id,
                     CloudProfileSettings(
@@ -647,6 +669,7 @@ class CloudSyncRepository @Inject constructor(
                         clockFormat = prefs[clockFormatKeyFor(profile.id)] ?: "24h",
                         showBudget = prefs[showBudgetKeyFor(profile.id)] ?: true,
                         showEpisodeRatings = prefs[showEpisodeRatingsKeyFor(profile.id)] ?: false,
+                        animeEpisodeStructuring = prefs[animeEpisodeStructuringKeyFor(profile.id)] ?: AnimeStructuringStyle.BROADCAST.id,
                         iptvFavoritesOnHome = prefs[iptvFavoritesOnHomeKeyFor(profile.id)] ?: true,
                         showLoadingStats = prefs[showLoadingStatsKeyFor(profile.id)] ?: true,
                         spoilerBlurEnabled = prefs[spoilerBlurKeyFor(profile.id)] ?: false,
@@ -662,6 +685,7 @@ class CloudSyncRepository @Inject constructor(
                         subtitleStylized = prefs[subtitleStylizedKeyFor(profile.id)] ?: true,
                         secondarySubtitle = prefs[secondarySubtitleKeyFor(profile.id)] ?: "Off",
                         filterSubtitlesByLanguage = prefs[filterSubtitlesByLanguageKeyFor(profile.id)] ?: true,
+                        useForcedSubtitles = prefs[useForcedSubtitlesKeyFor(profile.id)] ?: false,
                         homeServerConnectionJson = homeServerRepository.exportCloudConnectionsJsonForProfile(profile.id),
                         torrServerBaseUrl = streamRepository.exportTorrServerBaseUrlForProfile(profile.id),
                         catalogueRowLayoutModes = catalogueRowLayoutModesForProfile(prefs, profile.id),
@@ -678,7 +702,12 @@ class CloudSyncRepository @Inject constructor(
                         ),
                         includeSpecials = prefs[includeSpecialsKeyFor(profile.id)] ?: false,
                         autoPlayMaxQuality = AutoplayLimits.normalizeQuality(prefs[autoPlayMaxQualityKeyFor(profile.id)]),
-                        autoPlayMaxSizeGb = AutoplayLimits.normalizeSizeGb(prefs[autoPlayMaxSizeKeyFor(profile.id)] ?: 0)
+                        autoPlayMaxSizeGb = AutoplayLimits.normalizeSizeGb(prefs[autoPlayMaxSizeKeyFor(profile.id)] ?: 0),
+                        streamSearchMode = streamCloudState.searchMode,
+                        streamProvidersCustomOrder = streamCloudState.customProviderOrder,
+                        streamIntegrationsMacroOrder = streamCloudState.macroCategoryOrder,
+                        streamMacroEnabledMap = streamCloudState.macroEnabledMap,
+                        streamProviderEnabledMap = streamCloudState.providerEnabledMap
                     )
                 )
             }
@@ -772,10 +801,47 @@ class CloudSyncRepository @Inject constructor(
 
         // Addons are shared account state. Keep the per-profile payload shape
         // for older clients, but each profile receives the same shared list.
-        val sharedAddons = streamRepository.installedAddons.first()
+        // For backwards compatibility with older versions of ARVIO that read
+        // stream provider priority directly from the addons list order, order the
+        // Stremio addons in the exported snapshot to reflect their configured priority.
+        val installed = streamRepository.installedAddons.first()
+        val activeProfileCustomOrder = prefs[profileManager.profileStringKeyFor(profileManager.getProfileIdSync(), "stream_providers_custom_order")].orEmpty()
+        val activeOrderedStremioIds = if (activeProfileCustomOrder.isNotBlank()) {
+            activeProfileCustomOrder.split(",")
+                .map { it.trim() }
+                .filter { it.startsWith("stremio:") }
+                .map { it.removePrefix("stremio:") }
+        } else {
+            emptyList()
+        }
+        val sharedAddons = if (activeOrderedStremioIds.isNotEmpty()) {
+            val addonMap = installed.associateBy { it.id }
+            val prioritized = activeOrderedStremioIds.mapNotNull { addonMap[it] }
+            val remaining = installed.filter { it.id !in activeOrderedStremioIds }
+            prioritized + remaining
+        } else {
+            installed
+        }
         val addonsByProfile = buildMap<String, List<Addon>> {
             profiles.forEach { profile ->
-                put(profile.id, sharedAddons)
+                val profileCustomOrder = prefs[profileManager.profileStringKeyFor(profile.id, "stream_providers_custom_order")].orEmpty()
+                val profileOrderedStremioIds = if (profileCustomOrder.isNotBlank()) {
+                    profileCustomOrder.split(",")
+                        .map { it.trim() }
+                        .filter { it.startsWith("stremio:") }
+                        .map { it.removePrefix("stremio:") }
+                } else {
+                    emptyList()
+                }
+                val profileAddons = if (profileOrderedStremioIds.isNotEmpty()) {
+                    val addonMap = installed.associateBy { it.id }
+                    val prioritized = profileOrderedStremioIds.mapNotNull { addonMap[it] }
+                    val remaining = installed.filter { it.id !in profileOrderedStremioIds }
+                    prioritized + remaining
+                } else {
+                    sharedAddons
+                }
+                put(profile.id, profileAddons)
             }
         }
         root.put("addonsByProfile", JSONObject(gson.toJson(addonsByProfile)))
@@ -1348,6 +1414,34 @@ class CloudSyncRepository @Inject constructor(
     /**
      * Applies a cloud JSON payload to all local repositories.
      */
+    /**
+     * Profile ids that have a non-Trakt tracker (MDBList or Simkl) configured in
+     * this snapshot. Those trackers decide which titles appear in Continue
+     * Watching but store only a percentage, so their saved resume positions have
+     * to be merged in rather than replaced, exactly as for Trakt.
+     */
+    private fun trackerProfileIdsFromPayload(root: JSONObject): Set<String> {
+        val json = root.optJSONObject("mdbListSyncByProfile")
+            ?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: return emptySet()
+        return try {
+            val type = TypeToken.getParameterized(
+                Map::class.java,
+                String::class.java,
+                com.arflix.tv.data.repository.sync.SyncProviderStore.ProfileSyncSelection::class.java
+            ).type
+            val map: Map<String, com.arflix.tv.data.repository.sync.SyncProviderStore.ProfileSyncSelection> =
+                gson.fromJson(json, type) ?: emptyMap()
+            map.filterValues { selection ->
+                !selection.mdbListApiKey.isNullOrBlank() || !selection.simklAccessToken.isNullOrBlank()
+            }.keys.filter { it.isNotBlank() }.toSet()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            emptySet()
+        }
+    }
+
     private suspend fun applyCloudPayload(payload: String) {
         // Field-level merge BEFORE applying: overlay any local scalar setting that is NEWER than the
         // remote's onto the incoming payload, so a pull can't overwrite a not-yet-pushed local
@@ -1477,6 +1571,7 @@ class CloudSyncRepository @Inject constructor(
                         prefs[clockFormatKeyFor(profileId)] = state.clockFormat
                         prefs[showBudgetKeyFor(profileId)] = state.showBudget
                         prefs[showEpisodeRatingsKeyFor(profileId)] = state.showEpisodeRatings
+                        prefs[animeEpisodeStructuringKeyFor(profileId)] = state.animeEpisodeStructuring.ifBlank { AnimeStructuringStyle.BROADCAST.id }
                         prefs[iptvFavoritesOnHomeKeyFor(profileId)] = state.iptvFavoritesOnHome
                         state.showLoadingStats?.let { prefs[showLoadingStatsKeyFor(profileId)] = it }
                         prefs[spoilerBlurKeyFor(profileId)] = state.spoilerBlurEnabled
@@ -1495,6 +1590,7 @@ class CloudSyncRepository @Inject constructor(
                         prefs[subtitleStylizedKeyFor(profileId)] = state.subtitleStylized
                         prefs[secondarySubtitleKeyFor(profileId)] = state.secondarySubtitle.ifBlank { "Off" }
                         prefs[filterSubtitlesByLanguageKeyFor(profileId)] = state.filterSubtitlesByLanguage
+                        prefs[useForcedSubtitlesKeyFor(profileId)] = state.useForcedSubtitles
                         state.homeServerConnectionJson?.let { homeServerConnectionJson ->
                             homeServerConnectionsToImport[profileId] = homeServerConnectionJson
                         }
@@ -1514,6 +1610,17 @@ class CloudSyncRepository @Inject constructor(
                         state.autoPlayMaxQuality?.let { prefs[autoPlayMaxQualityKeyFor(profileId)] = AutoplayLimits.normalizeQuality(it) }
                         state.autoPlayMaxSizeGb?.let { prefs[autoPlayMaxSizeKeyFor(profileId)] = AutoplayLimits.normalizeSizeGb(it) }
                         prefs[includeSpecialsKeyFor(profileId)] = state.includeSpecials
+                        streamIntegrationRepository.applyCloudSettingsForProfile(
+                            prefs = prefs,
+                            profileId = profileId,
+                            state = StreamIntegrationProfileCloudState(
+                                searchMode = state.streamSearchMode,
+                                customProviderOrder = state.streamProvidersCustomOrder,
+                                macroCategoryOrder = state.streamIntegrationsMacroOrder,
+                                macroEnabledMap = state.streamMacroEnabledMap,
+                                providerEnabledMap = state.streamProviderEnabledMap
+                            )
+                        )
                     }
                 }
             }
@@ -1687,6 +1794,7 @@ class CloudSyncRepository @Inject constructor(
                 // Apply the reconciled list even when it is empty — an intentional "removed all"
                 // must propagate (reconcile only returns empty when the cloud set is genuinely newer;
                 // opensubtitles is re-enforced downstream so playback isn't left with nothing).
+                // Legacy order from cloud is preserved for compatibility with older versions.
                 streamRepository.replaceSharedAddonsFromCloud(resolvedAddons)
                 appliedCloudAddons = true
             }
@@ -1710,80 +1818,28 @@ class CloudSyncRepository @Inject constructor(
             AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_addons"))
         }
 
-        // ── Catalogs ──
+        // Catalog lists and their hidden IDs must be restored as one profile transaction.
         try {
-            root.optJSONObject("catalogsByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, CatalogConfig::class.java).type).type
-                val map: Map<String, List<CatalogConfig>> = gson.fromJson(json, type) ?: emptyMap()
-                map.forEach { (profileId, catalogs) ->
-                    catalogRepository.replaceCatalogsForProfile(profileId, catalogs)
+            val byProfile = linkedMapOf<String, MutableMap<String, String>>()
+            for (field in CatalogCloudFields.fields) {
+                val profiles = root.optJSONObject(field) ?: continue
+                for (id in profiles.keys()) {
+                    val value = profiles.optJSONArray(id) ?: continue
+                    byProfile.getOrPut(id) { linkedMapOf() }[field] = value.toString()
                 }
             }
-            root.optJSONArray("catalogs")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                if (!root.has("catalogsByProfile")) {
-                    val type = TypeToken.getParameterized(List::class.java, CatalogConfig::class.java).type
-                    val catalogs: List<CatalogConfig> = gson.fromJson(json, type) ?: emptyList()
-                    if (catalogs.isNotEmpty()) {
-                        catalogRepository.replaceCatalogsForProfile(activeProfileId, catalogs)
-                    }
+            for ((legacy, field) in mapOf("catalogs" to "catalogsByProfile", "hiddenPreinstalledCatalogs" to "hiddenPreinstalledByProfile")) {
+                if (!root.has(field)) root.optJSONArray(legacy)?.let {
+                    byProfile.getOrPut(activeProfileId) { linkedMapOf() }[field] = it.toString()
                 }
+            }
+            val timestamps = root.optJSONObject("fieldUpdatedAt") ?: JSONObject()
+            for ((id, fields) in byProfile) {
+                if (catalogRepository.applyCloudCatalogs(id, fields, timestamps)) preservedLocalSettings = true
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_catalogs"))
-        }
-
-        // ── Hidden preinstalled catalogs ──
-        try {
-            root.optJSONObject("hiddenPreinstalledByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, String::class.java).type).type
-                val map: Map<String, List<String>> = gson.fromJson(json, type) ?: emptyMap()
-                map.forEach { (profileId, hidden) ->
-                    catalogRepository.setHiddenPreinstalledCatalogIdsForProfile(profileId, hidden)
-                }
-            }
-            root.optJSONArray("hiddenPreinstalledCatalogs")?.toString()?.let { json ->
-                if (!root.has("hiddenPreinstalledByProfile")) {
-                    val hidden = if (json.isBlank()) {
-                        emptyList()
-                    } else {
-                        val type = TypeToken.getParameterized(List::class.java, String::class.java).type
-                        gson.fromJson<List<String>>(json, type) ?: emptyList()
-                    }
-                    catalogRepository.setHiddenPreinstalledCatalogIdsForProfile(activeProfileId, hidden)
-                }
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_hidden_preinstalled"))
-        }
-
-        // ── Hidden addon catalogs ──
-        try {
-            root.optJSONObject("hiddenAddonByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, String::class.java).type).type
-                val map: Map<String, List<String>> = gson.fromJson(json, type) ?: emptyMap()
-                map.forEach { (profileId, hidden) ->
-                    catalogRepository.setHiddenAddonCatalogIdsForProfile(profileId, hidden)
-                }
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_hidden_addons"))
-        }
-
-        // ── Hidden Home Server catalogs ──
-        try {
-            root.optJSONObject("hiddenHomeServerByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-                val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, String::class.java).type).type
-                val map: Map<String, List<String>> = gson.fromJson(json, type) ?: emptyMap()
-                map.forEach { (profileId, hidden) ->
-                    catalogRepository.setHiddenHomeServerCatalogIdsForProfile(profileId, hidden)
-                }
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            AppLogger.recordException(e, mapOf("error_area" to "CloudSync", "cloud_flow" to "apply_hidden_home_server"))
         }
 
         // ── IPTV config + favorites ──
@@ -1873,8 +1929,19 @@ class CloudSyncRepository @Inject constructor(
 
         // ── Local Continue Watching ──
         try {
-            // Only import local CW for profiles that DON'T have Trakt connected.
-            // For Trakt profiles, CW is sourced exclusively from Trakt's progress API.
+            // A profile with no tracker takes the snapshot as its Continue
+            // Watching list outright, because that list is all it has.
+            //
+            // A profile on any tracker takes it as resume positions only: the
+            // tracker decides which titles appear, but cannot say where to
+            // resume them, because every tracker here records a percentage and
+            // none records a position. Skipping this import for tracker
+            // profiles — as this used to for Trakt — left every cross-device
+            // resume to be guessed from that percentage against a generic
+            // catalogue runtime, which is how "continue from" drifted minutes
+            // away from the real position. Those entries are merged rather than
+            // applied wholesale, so a stale snapshot from one device cannot
+            // revive titles or overwrite newer progress made on another.
             root.optJSONObject("localContinueWatchingByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
                 val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, ContinueWatchingItem::class.java).type).type
                 val map: Map<String, List<ContinueWatchingItem>> = gson.fromJson(json, type) ?: emptyMap()
@@ -1911,9 +1978,17 @@ class CloudSyncRepository @Inject constructor(
                     traktProfiles.add(activeProfileIdLocal)
                 }
 
-                val nonTraktOnly = map.filterKeys { it !in traktProfiles }
-                if (nonTraktOnly.isNotEmpty()) {
-                    traktRepository.importLocalContinueWatchingForProfiles(nonTraktOnly)
+                // MDBList and Simkl have the same percentage-only limitation as
+                // Trakt, so their profiles need the same treatment.
+                val trackedProfiles = traktProfiles + trackerProfileIdsFromPayload(root)
+
+                val untrackedOnly = map.filterKeys { it !in trackedProfiles }
+                if (untrackedOnly.isNotEmpty()) {
+                    traktRepository.importLocalContinueWatchingForProfiles(untrackedOnly)
+                }
+                val trackedOnly = map.filterKeys { it in trackedProfiles }
+                if (trackedOnly.isNotEmpty()) {
+                    traktRepository.mergeLocalContinueWatchingForProfiles(trackedOnly)
                 }
             }
         } catch (e: Exception) {
