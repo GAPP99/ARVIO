@@ -2,6 +2,7 @@ package com.arflix.tv.ui.screens.player.engine.exoplayer
 
 import android.content.Context
 import android.os.Handler
+import androidx.media3.common.Format
 import com.arflix.tv.ui.screens.player.subtitles.SubtitleTranslationManager
 import com.arflix.tv.ui.screens.player.subtitles.AudioCaptureProcessor
 import com.arflix.tv.ui.screens.player.subtitles.SubtitleAutoSync
@@ -48,36 +49,11 @@ class AiSubtitleRenderersFactory(
     var audioCaptureProcessor: AudioCaptureProcessor? = null
         private set
 
-    /**
-     * Hardware audio decoders that crashed while running and must not be offered again for the
-     * lifetime of this factory. A crash inside a running decoder (not at init) is invisible to
-     * media3's own `enableDecoderFallback`, which only reacts to initialization failures — so the
-     * whole playback dies on an otherwise fine source. Hiding the decoder from the codec selector
-     * makes MediaCodecAudioRenderer report the format as unsupported, and track selection then
-     * routes the track to the bundled FFmpeg software renderer: the source KEEPS ITS SOUND.
-     * Real case: `c2.dolby.eac3.decoder.eac3` on Pixel 7 (Tensor G2) dies ~0.5 s into a 5.1
-     * E-AC3 track while the display reports `format_supported=YES`.
-     */
-    private val blockedAudioDecoders: MutableSet<String> =
-        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    private val audioDecoderFallback = AudioDecoderFallback()
 
-    /**
-     * True once an audio renderer other than [MediaCodecAudioRenderer] was built — i.e. the FFmpeg
-     * extension is present (sideload flavor only). Without it, blocking a hardware decoder would
-     * leave the track with no renderer at all and drop the audio, which is worse than the crash.
-     */
-    @Volatile
-    var softwareAudioFallbackAvailable: Boolean = false
-        private set
-
-    /** Blocks [decoderName] for future prepares. Returns false when it was already blocked. */
-    fun blockAudioDecoder(decoderName: String): Boolean = blockedAudioDecoders.add(decoderName)
-
-    private fun withoutBlockedDecoders(delegate: MediaCodecSelector) =
-        MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-            val infos = delegate.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
-            if (blockedAudioDecoders.isEmpty()) infos else infos.filterNot { it.name in blockedAudioDecoders }
-        }
+    /** Retry a crashed decoder only when another renderer can handle the failing track. */
+    fun blockAudioDecoder(decoderName: String, format: Format?): Boolean =
+        audioDecoderFallback.blockIfSupported(decoderName, format)
 
     private val offsetRenderers = mutableListOf<SubtitleOffsetRenderer>()
 
@@ -143,11 +119,12 @@ class AiSubtitleRenderersFactory(
         // device can neither passthrough nor decode.
         val firstNewIndex = out.size
         super.buildAudioRenderers(
-            context, EXTENSION_RENDERER_MODE_ON, withoutBlockedDecoders(mediaCodecSelector),
+            context, EXTENSION_RENDERER_MODE_ON, audioDecoderFallback.wrapSelector(mediaCodecSelector),
             enableDecoderFallback, audioSink, eventHandler, eventListener, out
         )
-        softwareAudioFallbackAvailable = (firstNewIndex until out.size)
-            .any { out[it] !is MediaCodecAudioRenderer }
+        audioDecoderFallback.softwareCapabilities = out.subList(firstNewIndex, out.size)
+            .filterNot { it is MediaCodecAudioRenderer }
+            .map { it.capabilities }
     }
 
     override fun buildVideoRenderers(

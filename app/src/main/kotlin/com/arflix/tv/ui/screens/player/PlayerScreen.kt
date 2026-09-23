@@ -1415,8 +1415,10 @@ fun PlayerScreen(
                                     ?.codecInfo?.name
                             if (audioRendererError &&
                                 crashedAudioDecoder != null &&
-                                aiRenderersFactory.softwareAudioFallbackAvailable &&
-                                aiRenderersFactory.blockAudioDecoder(crashedAudioDecoder)
+                                aiRenderersFactory.blockAudioDecoder(
+                                    crashedAudioDecoder,
+                                    (error as? androidx.media3.exoplayer.ExoPlaybackException)?.rendererFormat
+                                )
                             ) {
                                 playbackStartupDiag(
                                     "audio recovery: software decoder after crash in $crashedAudioDecoder"
