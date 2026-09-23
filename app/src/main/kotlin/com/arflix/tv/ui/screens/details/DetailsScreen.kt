@@ -40,6 +40,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -203,7 +204,6 @@ import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.Purple
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
-import com.arflix.tv.util.DeviceType
 import com.arflix.tv.util.Constants
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.formatGenreName
@@ -863,6 +863,9 @@ fun DetailsScreen(
                             if (focusedSection == FocusSection.EPISODES) {
                                 contextMenuEpisode = uiState.episodes.getOrNull(episodeIndex)
                                 showEpisodeContextMenu = true
+                            } else if (focusedSection == FocusSection.SEASONS) {
+                                contextMenuSeason = seasonIndex + 1
+                                showSeasonContextMenu = true
                             }
                             true
                         }
@@ -1246,11 +1249,13 @@ private fun DetailsContent(
 
     // ===================== MOBILE LAYOUT =====================
     if (isMobile) {
-        val configuration = LocalConfiguration.current
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val navigationBottomPadding = WindowInsets.navigationBars
+            .asPaddingValues()
+            .calculateBottomPadding()
         val backdropHeight = resolveDetailsBackdropHeightDp(
-            screenWidthDp = configuration.screenWidthDp,
-            screenHeightDp = configuration.screenHeightDp,
-            isPhone = LocalDeviceType.current == DeviceType.PHONE,
+            availableWidthDp = maxWidth.value,
+            availableHeightDp = (maxHeight - navigationBottomPadding).coerceAtLeast(1.dp).value,
         ).dp
         val mobileScrollState = rememberScrollState()
         val density = LocalDensity.current
@@ -1927,6 +1932,7 @@ private fun DetailsContent(
                 modifier = Modifier.align(Alignment.TopStart).statusBarsPadding()
             )
         }
+        }
         return
     }
     // ===================== END MOBILE LAYOUT =====================
@@ -2403,6 +2409,7 @@ private fun DetailsContent(
                 configuration = configuration,
                 contentHasFocus = contentHasFocus,
                 onSeasonClick = onSeasonClick,
+                onSeasonLongClick = onSeasonLongClick,
                 onEpisodeClick = onEpisodeClick,
                 onCastClick = onCastClick,
                 onSimilarClick = onSimilarClick,
@@ -2445,6 +2452,7 @@ private fun DetailsTvRows(
     configuration: android.content.res.Configuration,
     contentHasFocus: Boolean,
     onSeasonClick: (Int) -> Unit,
+    onSeasonLongClick: ((Int) -> Unit)? = null,
     onEpisodeClick: (Int) -> Unit,
     onCastClick: (Int) -> Unit,
     onSimilarClick: (Int) -> Unit,
@@ -2565,7 +2573,8 @@ private fun DetailsTvRows(
                         seasonIndex = seasonIndex,
                         contentStartPadding = contentStartPadding,
                         contentOuterStartPadding = contentOuterStartPadding,
-                        onSeasonClick = onSeasonClick
+                        onSeasonClick = onSeasonClick,
+                        onSeasonLongClick = onSeasonLongClick
                     )
                 }
             }
@@ -2677,7 +2686,8 @@ private fun DetailsSeasonRail(
     seasonIndex: Int,
     contentStartPadding: Dp,
     contentOuterStartPadding: Dp,
-    onSeasonClick: (Int) -> Unit
+    onSeasonClick: (Int) -> Unit,
+    onSeasonLongClick: ((Int) -> Unit)? = null
 ) {
     val seasonRowState = rememberTvLazyListState()
     val seasonItems = remember(totalSeasons) { (1..totalSeasons).toList() }
@@ -2724,13 +2734,17 @@ private fun DetailsSeasonRail(
             val onClickForSeason = remember(index) {
                 { currentOnSeasonClick.value(index) }
             }
+            val onLongClickForSeason = remember(index, onSeasonLongClick) {
+                onSeasonLongClick?.let { callback -> { callback(index) } }
+            }
             SeasonButton(
                 season = season,
                 isSelected = season == currentSeason,
                 isFocused = focusSectionForUi == FocusSection.SEASONS && index == seasonFocusIndex,
                 watchedCount = currentSeasonProgress?.first ?: progress?.first ?: 0,
                 totalCount = currentSeasonProgress?.second ?: progress?.second ?: 0,
-                onClick = onClickForSeason
+                onClick = onClickForSeason,
+                onLongClick = onLongClickForSeason
             )
         }
     }

@@ -158,6 +158,12 @@ private sealed interface ActiveProfileLoadState {
 class MainActivity : ComponentActivity() {
 
     @Inject
+    lateinit var appForegroundSignals: com.arflix.tv.data.repository.AppForegroundSignals
+
+    /** True until the first onResume after onCreate has been handled. */
+    private var hasHandledFirstResume = false
+
+    @Inject
     lateinit var authRepository: Lazy<AuthRepository>
 
     @Inject
@@ -430,6 +436,20 @@ class MainActivity : ComponentActivity() {
                     AppLogger.recordException(e)
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Signalled from here, not from a screen: the app can return to the
+        // foreground on any destination — a TV woken in the morning resumes onto
+        // whatever was left on display — and a Home-scoped observer would never
+        // run in that case. The first resume is skipped because startup already
+        // fetches.
+        if (hasHandledFirstResume) {
+            appForegroundSignals.notifyReturnedToForeground()
+        } else {
+            hasHandledFirstResume = true
         }
     }
 
