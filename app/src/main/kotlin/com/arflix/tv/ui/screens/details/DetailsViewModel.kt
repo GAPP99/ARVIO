@@ -24,6 +24,7 @@ import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.data.api.TmdbApi
 import com.arflix.tv.data.api.TraktComment
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.ContinueWatchingMerge
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.MediaRepository
@@ -2613,7 +2614,30 @@ class DetailsViewModel @Inject constructor(
                 null
             }
 
-            val resumeCandidate = remoteItem ?: localItem ?: localFallbackItem
+            // Which episode to resume is decided by whichever source saw the most
+            // recent activity; a tracker knows about other devices, the local
+            // store knows about a play the tracker write may have missed.
+            val localCandidates = listOfNotNull(localItem, localFallbackItem)
+            val resumeCandidate = (listOfNotNull(remoteItem) + localCandidates)
+                .maxByOrNull { it.updatedAtMs }
+
+            // Where to resume is a separate question. A tracker only stores a
+            // percentage — Trakt has no position field at all — and the duration
+            // behind that percentage is a generic catalogue runtime, not the file
+            // being played. Whenever the local store holds a real position for the
+            // same episode, that is the exact one and the percentage is only a
+            // fallback for titles this device has never played.
+            //
+            // Unless the tracker has moved well past it. Clients that are not
+            // ARVIO write a percentage and no position, so a position saved here
+            // by an older session can sit minutes behind what the tracker knows;
+            // preferring it then would rewind playback on every resume.
+            val exactSource = localCandidates.firstOrNull { local ->
+                local.resumePositionSeconds > 0L &&
+                    local.season == resumeCandidate?.season &&
+                    local.episode == resumeCandidate?.episode &&
+                    !(remoteItem != null && ContinueWatchingMerge.isLocalPositionStale(remoteItem, local))
+            }
             val localResume = if (resumeCandidate != null) {
                 buildResumeFromProgress(
                     mediaType = mediaType,
@@ -2621,8 +2645,12 @@ class DetailsViewModel @Inject constructor(
                     season = resumeCandidate.season,
                     episode = resumeCandidate.episode,
                     progress = resumeCandidate.progress / 100f,
-                    positionSeconds = resumeCandidate.resumePositionSeconds,
-                    durationSeconds = resumeCandidate.durationSeconds,
+                    positionSeconds = exactSource?.resumePositionSeconds
+                        ?: resumeCandidate.resumePositionSeconds,
+                    durationSeconds = maxOf(
+                        exactSource?.durationSeconds ?: 0L,
+                        resumeCandidate.durationSeconds
+                    ),
                     allowProgressDerivedResume = !resumeCandidate.isUpNext
                 ).dropIfWatchedEpisode()
             } else null

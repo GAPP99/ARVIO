@@ -1414,6 +1414,34 @@ class CloudSyncRepository @Inject constructor(
     /**
      * Applies a cloud JSON payload to all local repositories.
      */
+    /**
+     * Profile ids that have a non-Trakt tracker (MDBList or Simkl) configured in
+     * this snapshot. Those trackers decide which titles appear in Continue
+     * Watching but store only a percentage, so their saved resume positions have
+     * to be merged in rather than replaced, exactly as for Trakt.
+     */
+    private fun trackerProfileIdsFromPayload(root: JSONObject): Set<String> {
+        val json = root.optJSONObject("mdbListSyncByProfile")
+            ?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: return emptySet()
+        return try {
+            val type = TypeToken.getParameterized(
+                Map::class.java,
+                String::class.java,
+                com.arflix.tv.data.repository.sync.SyncProviderStore.ProfileSyncSelection::class.java
+            ).type
+            val map: Map<String, com.arflix.tv.data.repository.sync.SyncProviderStore.ProfileSyncSelection> =
+                gson.fromJson(json, type) ?: emptyMap()
+            map.filterValues { selection ->
+                !selection.mdbListApiKey.isNullOrBlank() || !selection.simklAccessToken.isNullOrBlank()
+            }.keys.filter { it.isNotBlank() }.toSet()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            emptySet()
+        }
+    }
+
     private suspend fun applyCloudPayload(payload: String) {
         // Field-level merge BEFORE applying: overlay any local scalar setting that is NEWER than the
         // remote's onto the incoming payload, so a pull can't overwrite a not-yet-pushed local
@@ -1901,8 +1929,19 @@ class CloudSyncRepository @Inject constructor(
 
         // ── Local Continue Watching ──
         try {
-            // Only import local CW for profiles that DON'T have Trakt connected.
-            // For Trakt profiles, CW is sourced exclusively from Trakt's progress API.
+            // A profile with no tracker takes the snapshot as its Continue
+            // Watching list outright, because that list is all it has.
+            //
+            // A profile on any tracker takes it as resume positions only: the
+            // tracker decides which titles appear, but cannot say where to
+            // resume them, because every tracker here records a percentage and
+            // none records a position. Skipping this import for tracker
+            // profiles — as this used to for Trakt — left every cross-device
+            // resume to be guessed from that percentage against a generic
+            // catalogue runtime, which is how "continue from" drifted minutes
+            // away from the real position. Those entries are merged rather than
+            // applied wholesale, so a stale snapshot from one device cannot
+            // revive titles or overwrite newer progress made on another.
             root.optJSONObject("localContinueWatchingByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
                 val type = TypeToken.getParameterized(Map::class.java, String::class.java, TypeToken.getParameterized(List::class.java, ContinueWatchingItem::class.java).type).type
                 val map: Map<String, List<ContinueWatchingItem>> = gson.fromJson(json, type) ?: emptyMap()
@@ -1939,9 +1978,17 @@ class CloudSyncRepository @Inject constructor(
                     traktProfiles.add(activeProfileIdLocal)
                 }
 
-                val nonTraktOnly = map.filterKeys { it !in traktProfiles }
-                if (nonTraktOnly.isNotEmpty()) {
-                    traktRepository.importLocalContinueWatchingForProfiles(nonTraktOnly)
+                // MDBList and Simkl have the same percentage-only limitation as
+                // Trakt, so their profiles need the same treatment.
+                val trackedProfiles = traktProfiles + trackerProfileIdsFromPayload(root)
+
+                val untrackedOnly = map.filterKeys { it !in trackedProfiles }
+                if (untrackedOnly.isNotEmpty()) {
+                    traktRepository.importLocalContinueWatchingForProfiles(untrackedOnly)
+                }
+                val trackedOnly = map.filterKeys { it in trackedProfiles }
+                if (trackedOnly.isNotEmpty()) {
+                    traktRepository.mergeLocalContinueWatchingForProfiles(trackedOnly)
                 }
             }
         } catch (e: Exception) {

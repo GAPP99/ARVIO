@@ -209,6 +209,7 @@ class HomeViewModel @Inject constructor(
     private val cloudSyncRepository: CloudSyncRepository,
     private val launcherContinueWatchingRepository: LauncherContinueWatchingRepository,
     private val continueWatchingUpdates: ContinueWatchingUpdates,
+    private val appForegroundSignals: com.arflix.tv.data.repository.AppForegroundSignals,
     private val realtimeSyncManager: com.arflix.tv.data.repository.RealtimeSyncManager,
     private val profileManager: ProfileManager,
     private val appUpdateRepository: com.arflix.tv.updater.AppUpdateRepository,
@@ -1107,7 +1108,7 @@ class HomeViewModel @Inject constructor(
         return java.io.File(context.cacheDir, "home_categories_cache_${profileId}_$language.json")
     }
 
-    private fun continueWatchingCacheFile(): java.io.File {
+    private suspend fun continueWatchingCacheFile(): java.io.File {
         val profileId = profileManager.getProfileIdSync()
             .ifBlank { "default" }
             .replace(HomeVMRegexes.ALPHANUMERIC_REGEX, "_")
@@ -1116,7 +1117,16 @@ class HomeViewModel @Inject constructor(
         // v2 invalidates the old snapshot, which could contain a mixed or
         // truncated provider result and would otherwise paint before Trakt
         // had a chance to publish the corrected list.
-        return java.io.File(context.filesDir, "home_continue_watching_v2_${profileId}_$language.json")
+        //
+        // The tracker is part of the name for the same reason it is part of the
+        // repository's key: this file is what Home paints before any network
+        // call returns, and each tracker answers with a different list.
+        val provider = runCatching { remoteSyncManager.selectedProvider().name.lowercase(java.util.Locale.US) }
+            .getOrDefault("none")
+        return java.io.File(
+            context.filesDir,
+            "home_continue_watching_v2_${profileId}_${language}_$provider.json"
+        )
     }
 
     private suspend fun applyContentLanguageFromPrefs(): String {
@@ -1152,7 +1162,7 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun persistContinueWatchingCache(items: List<ContinueWatchingItem>) {
+    private suspend fun persistContinueWatchingCache(items: List<ContinueWatchingItem>) {
         if (items.isEmpty()) return
         runCatching {
             val target = continueWatchingCacheFile()
@@ -1169,7 +1179,7 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadContinueWatchingCache(): List<ContinueWatchingItem> = runCatching {
+    private suspend fun loadContinueWatchingCache(): List<ContinueWatchingItem> = runCatching {
         val file = continueWatchingCacheFile()
         if (!file.exists() || file.length() > maxContinueWatchingCacheBytes) return emptyList()
         val json = file.readText()
@@ -1791,6 +1801,18 @@ class HomeViewModel @Inject constructor(
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                 }
+            }
+        }
+
+        viewModelScope.launch {
+            // The app came back to the foreground. Another device may have
+            // watched something since, so ask the tracker again rather than
+            // serving the row from the refresh throttle and the repository's
+            // five-minute cache, which is what left an episode watched
+            // elsewhere overnight missing here until something else happened
+            // to clear both windows.
+            appForegroundSignals.returnedToForeground.collect {
+                refreshContinueWatchingOnly(force = true)
             }
         }
 
