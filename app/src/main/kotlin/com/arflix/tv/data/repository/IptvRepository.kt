@@ -5834,6 +5834,31 @@ class IptvRepository @Inject constructor(
         allowNetwork = allowNetwork
     ).firstOrNull()
 
+    /**
+     * Whether a source search would ask any IPTV provider at all.
+     *
+     * Same three conditions [findMovieVodSources] and its series counterpart
+     * start from - the VOD search switch, a playlist left on for movies or
+     * shows, a Stalker portal left on for either - so a caller can tell "this
+     * user has no provider" from "the providers found nothing" without paying
+     * for a lookup. The details screen needs exactly that distinction: it used
+     * to tell every IPTV-only user to go install a streaming addon whenever a
+     * search came back empty.
+     */
+    suspend fun hasVodSearchProviders(allowedProviderIds: Set<String>? = null): Boolean = withContext(Dispatchers.IO) {
+        if (!isVodSearchEnabled()) return@withContext false
+        hasVodSearchProviders(observeConfig().first(), allowedProviderIds)
+    }
+
+    /** The part of [hasVodSearchProviders] that depends only on the config. */
+    internal fun hasVodSearchProviders(config: IptvConfig, allowedProviderIds: Set<String>? = null): Boolean {
+        val enabled = streamProviderConfig(config, allowedProviderIds)
+        return xtreamCredentialsForVodImport(enabled).isNotEmpty() ||
+            xtreamCredentialsForSeriesImport(enabled).isNotEmpty() ||
+            activeStalkerVodPortals(enabled).isNotEmpty() ||
+            activeStalkerSeriesPortals(enabled).isNotEmpty()
+    }
+
     suspend fun findMovieVodSources(
         title: String,
         year: Int?,
